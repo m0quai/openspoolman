@@ -1,0 +1,45 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{F3596A78-EC0B-4F41-9AE0-88E0CFF7EC7D}</ProjectGuid>
+    <ProjectHome>.</ProjectHome>
+    <StartupFile>vs_debug.py</StartupFile>
+    <SearchPath>.</SearchPath>
+    <WorkingDirectory>.</WorkingDirectory>
+    <OutputPath>.</OutputPath>
+    <Name>OpenSpoolMan</Name>
+    <RootNamespace>OpenSpoolMan</RootNamespace>
+    <LaunchProvider>Standard Python launcher</LaunchProvider>
+    <InterpreterId>MSBuild|.env|$(MSBuildProjectFullPath)</InterpreterId>
+    <TestFramework>Pytest</TestFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="**\*.py" Exclude=".venv\**;venv\**;env\**;__pycache__\**;data\**;logs\**;node_modules\**" />
+    <Content Include="templates\**\*;static\**\*;*.yaml;*.yml;requirements.txt;Dockerfile;README*" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="scripts\" />
+    <Folder Include="static\" />
+    <Folder Include="static\css\" />
+    <Folder Include="static\css\fonts\" />
+    <Folder Include="static\js\" />
+    <Folder Include="static\prints\" />
+    <Folder Include="templates\" />
+    <Folder Include="templates\fragments\" />
+    <Folder Include="tests\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Interpreter Include=".env\">
+      <Id>.env</Id>
+      <Version>3.13</Version>
+      <Description>.env (Python 3.13 (64-bit))</Description>
+      <InterpreterPath>Scripts\python.exe</InterpreterPath>
+      <WindowsInterpreterPath>Scripts\pythonw.exe</WindowsInterpreterPath>
+      <PathEnvironmentVariable>PYTHONPATH</PathEnvironmentVariable>
+      <Architecture>X64</Architecture>
+    </Interpreter>
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
+</Project>

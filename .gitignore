@@ -147,3 +147,8 @@ logs/*.log
 logs/*.json
 # OpenSpoolMan local secrets
 secrets/
+.vs/
+*.suo
+*.user
+.venv/
+/.github/copilot-instructions.md
