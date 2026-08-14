@@ -1,6 +1,25 @@
 services:
   openspoolman:
     build: .
-    env_file: "config.env"
+    container_name: openspoolman
+    restart: unless-stopped
+
+    env_file:
+      - config.env
+
     ports:
       - "8000:8000"
+
+    volumes:
+      - ./data:/home/app/data
+      - ./logs:/home/app/logs
+
+    command:
+      - gunicorn
+      - -w
+      - "1"
+      - --threads
+      - "4"
+      - -b
+      - 0.0.0.0:8000
+      - app:app

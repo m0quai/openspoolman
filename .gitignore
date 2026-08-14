@@ -145,3 +145,5 @@ static/prints/
 data/
 logs/*.log
 logs/*.json
+# OpenSpoolMan local secrets
+secrets/
