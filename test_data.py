@@ -6,7 +6,6 @@ from contextlib import ExitStack, contextmanager
 import importlib
 from pathlib import Path
 from unittest.mock import patch
-import pytest
 
 from config import (
     EXTERNAL_SPOOL_AMS_ID,
@@ -239,6 +238,10 @@ def test_data_active():
     if not (TEST_MODE_FLAG or _PATCH_ACTIVE):
         # During pytest runs, skip to keep the test suite green when seeded data is off.
         if os.getenv("PYTEST_CURRENT_TEST"):
+            try:
+                import pytest
+            except ImportError:
+                return False
             pytest.skip("Seeded data is not enabled (set OPENSPOOLMAN_TEST_DATA=1 or apply test overrides).")
         # In production imports (e.g., app startup), just report False without raising.
         return False

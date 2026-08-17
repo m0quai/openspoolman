@@ -1,7 +1,20 @@
 {
   "Version": 1,
   "WorkspaceRootPath": "C:\\Docker\\OpenSpoolMan\\",
-  "Documents": [],
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{F3596A78-EC0B-4F41-9AE0-88E0CFF7EC7D}|OpenSpoolMan.pyproj|C:\\Docker\\OpenSpoolMan\\bambu_auth_routes.py||{8B382828-6202-11D1-8870-0000F87579D2}|",
+      "RelativeMoniker": "D:0:0:{F3596A78-EC0B-4F41-9AE0-88E0CFF7EC7D}|OpenSpoolMan.pyproj|solutionrelative:bambu_auth_routes.py||{8B382828-6202-11D1-8870-0000F87579D2}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{F3596A78-EC0B-4F41-9AE0-88E0CFF7EC7D}|OpenSpoolMan.pyproj|C:\\Docker\\OpenSpoolMan\\templates\\bambu_auth.html||{40D31677-CBC0-4297-A9EF-89D907823A98}",
+      "RelativeMoniker": "D:0:0:{F3596A78-EC0B-4F41-9AE0-88E0CFF7EC7D}|OpenSpoolMan.pyproj|solutionrelative:templates\\bambu_auth.html||{40D31677-CBC0-4297-A9EF-89D907823A98}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{F3596A78-EC0B-4F41-9AE0-88E0CFF7EC7D}|OpenSpoolMan.pyproj|C:\\Docker\\OpenSpoolMan\\bambu_certificate.py||{8B382828-6202-11D1-8870-0000F87579D2}|",
+      "RelativeMoniker": "D:0:0:{F3596A78-EC0B-4F41-9AE0-88E0CFF7EC7D}|OpenSpoolMan.pyproj|solutionrelative:bambu_certificate.py||{8B382828-6202-11D1-8870-0000F87579D2}|"
+    }
+  ],
   "DocumentGroupContainers": [
     {
       "Orientation": 0,
@@ -9,11 +22,52 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": -1,
+          "SelectedChildIndex": 2,
           "Children": [
             {
               "$type": "Bookmark",
+              "Name": "ST:128:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
               "Name": "ST:0:0:{1c4feeaa-4718-4aa9-859d-94ce25d182ba}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "bambu_auth_routes.py",
+              "DocumentMoniker": "C:\\Docker\\OpenSpoolMan\\bambu_auth_routes.py",
+              "RelativeDocumentMoniker": "bambu_auth_routes.py",
+              "ToolTip": "C:\\Docker\\OpenSpoolMan\\bambu_auth_routes.py",
+              "RelativeToolTip": "bambu_auth_routes.py",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABQAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
+              "WhenOpened": "2026-08-17T13:44:13.344Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "bambu_auth.html",
+              "DocumentMoniker": "C:\\Docker\\OpenSpoolMan\\templates\\bambu_auth.html",
+              "RelativeDocumentMoniker": "templates\\bambu_auth.html",
+              "ToolTip": "C:\\Docker\\OpenSpoolMan\\templates\\bambu_auth.html",
+              "RelativeToolTip": "templates\\bambu_auth.html",
+              "ViewState": "AgIAAA8AAAAAAAAAAAAAABAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001512|",
+              "WhenOpened": "2026-08-17T13:47:41.104Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "bambu_certificate.py",
+              "DocumentMoniker": "C:\\Docker\\OpenSpoolMan\\bambu_certificate.py",
+              "RelativeDocumentMoniker": "bambu_certificate.py",
+              "ToolTip": "C:\\Docker\\OpenSpoolMan\\bambu_certificate.py",
+              "RelativeToolTip": "bambu_certificate.py",
+              "ViewState": "AgIAAMcAAAAAAAAAAAAowNQAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
+              "WhenOpened": "2026-08-14T16:50:33.4Z"
             }
           ]
         }

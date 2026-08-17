@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-4">
+  <h2>Bambu MQTT</h2>
+  <div class="card mb-4"><div class="card-body">
+    <h5>Produktive MQTT-Verbindung</h5>
+    <p><strong>Status:</strong> {% if connected %}Verbunden{% else %}Nicht verbunden{% endif %}</p>
+    <pre style="white-space:pre-wrap">{{ config | default({},true) | tojson(indent=2) }}</pre>
+    <p class="mb-0">Diese Seite verwendet direkt die von OpenSpoolMan laufend genutzte MQTT-Verbindung aus <code>mqtt_bambulab.py</code>. Es wird keine zweite Testverbindung aufgebaut.</p>
+  </div></div>
+  <div class="card"><div class="card-body">
+    <h5>MQTT Runtime-Diagnose</h5>
+    {% if status %}<pre style="white-space:pre-wrap">{{ status | tojson(indent=2) }}</pre>
+    {% else %}<p class="mb-0">Noch keine Runtime-Diagnose vorhanden.</p>{% endif %}
+  </div></div>
+</div>
+{% endblock %}

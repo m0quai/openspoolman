@@ -3,10 +3,14 @@
 import json
 import ssl
 import traceback
+import hashlib
+from datetime import datetime, timezone
+from pathlib import Path
 from threading import Thread
 from typing import Any, Iterable
 
 import paho.mqtt.client as mqtt
+import bambu_mqtt_signing
 
 from config import (
     PRINTER_ID,
@@ -37,6 +41,33 @@ PRINTER_STATE_LAST = {}
 PENDING_PRINT_METADATA = {}
 FILAMENT_TRACKER = FilamentUsageTracker()
 LOG_FILE = "/home/app/logs/mqtt.log"
+MQTT_RUNTIME_STATUS = Path("/home/app/data/bambu_mqtt_runtime_status.json")
+
+def _mqtt_runtime_status(**updates):
+  """Persist connection diagnostics without ever storing the access code."""
+  try:
+    current = {}
+    if MQTT_RUNTIME_STATUS.exists():
+      try:
+        current = json.loads(MQTT_RUNTIME_STATUS.read_text(encoding="utf-8"))
+      except Exception:
+        current = {}
+    current.update({
+      "timestamp": datetime.now(timezone.utc).isoformat(),
+      "printer_ip": PRINTER_IP,
+      "printer_id": PRINTER_ID,
+      "port": 8883,
+      "username": "bblp",
+      "credential_source": "config.env:PRINTER_ACCESS_CODE",
+      "access_code_present": bool(PRINTER_CODE),
+      "access_code_length": len(PRINTER_CODE or ""),
+      "access_code_sha256": hashlib.sha256((PRINTER_CODE or "").encode("utf-8")).hexdigest() if PRINTER_CODE else None,
+    })
+    current.update(updates)
+    MQTT_RUNTIME_STATUS.parent.mkdir(parents=True, exist_ok=True)
+    MQTT_RUNTIME_STATUS.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+  except Exception as exc:
+    log(f"Could not write MQTT runtime status: {exc}")
 
 def getPrinterModel():
     global PRINTER_ID
@@ -404,10 +435,26 @@ def processMessage(data):
     PRINTER_STATE_LAST = copy.deepcopy(PRINTER_STATE)
 
 def publish(client, msg):
-  result = client.publish(f"device/{PRINTER_ID}/request", json.dumps(msg))
+  message_to_send = msg
+
+  try:
+    # Sign only when certificate and private key are present, the certificate
+    # is currently valid, and its public key matches the private key.
+    if bambu_mqtt_signing.certificate_is_valid():
+      message_to_send = bambu_mqtt_signing.sign_message(msg)
+      log("MQTT command signed using valid certificate.")
+  except Exception as exc:
+    # Signing must never break the existing unsigned MQTT path.
+    log(f"MQTT signing failed: {exc}. Sending unsigned command.")
+    message_to_send = msg
+
+  result = client.publish(
+      f"device/{PRINTER_ID}/request",
+      json.dumps(message_to_send)
+  )
   status = result[0]
   if status == 0:
-    log(f"Sent {msg} to topic device/{PRINTER_ID}/request")
+    log(f"Sent {message_to_send} to topic device/{PRINTER_ID}/request")
     return True
 
   log(f"Failed to send message to topic device/{PRINTER_ID}/request")
@@ -512,9 +559,18 @@ def on_message(client, userdata, msg):
 
 def on_connect(client, userdata, flags, rc):
   global MQTT_CLIENT_CONNECTED
-  MQTT_CLIENT_CONNECTED = True
-  log("Connected with result code " + str(rc))
-  client.subscribe(f"device/{PRINTER_ID}/report")
+  MQTT_CLIENT_CONNECTED = (rc == 0)
+  meanings = {0: "accepted", 1: "unacceptable protocol version", 2: "identifier rejected", 3: "server unavailable", 4: "bad username/password", 5: "not authorized"}
+  log(f"Connected with result code {rc} ({meanings.get(rc, 'unknown')})")
+  _mqtt_runtime_status(connected=MQTT_CLIENT_CONNECTED, connack_code=rc, connack_meaning=meanings.get(rc, "unknown"))
+  if rc != 0:
+    log("MQTT authentication was rejected; no subscribe or publish will be attempted.")
+    return
+
+  topic = f"device/{PRINTER_ID}/report"
+  sub_result = client.subscribe(topic)
+  log(f"Subscribed to {topic}; result={sub_result}")
+  _mqtt_runtime_status(subscription_topic=topic, subscription_result=list(sub_result) if isinstance(sub_result, tuple) else str(sub_result))
   publish(client, GET_VERSION)
   publish(client, PUSH_ALL)
 
@@ -522,11 +578,12 @@ def on_disconnect(client, userdata, rc):
   global MQTT_CLIENT_CONNECTED
   MQTT_CLIENT_CONNECTED = False
   log("Disconnected with result code " + str(rc))
-  
+  _mqtt_runtime_status(connected=False, disconnect_code=rc)
+
 def async_subscribe():
   global MQTT_CLIENT
   global MQTT_CLIENT_CONNECTED
-  
+
   MQTT_CLIENT_CONNECTED = False
   MQTT_CLIENT = mqtt.Client()
   MQTT_CLIENT.username_pw_set("bblp", PRINTER_CODE)
@@ -538,19 +595,18 @@ def async_subscribe():
   MQTT_CLIENT.on_connect = on_connect
   MQTT_CLIENT.on_disconnect = on_disconnect
   MQTT_CLIENT.on_message = on_message
-  
+  MQTT_CLIENT.loop_start()
+
+  _mqtt_runtime_status(connected=False, stage="initialized")
   while True:
-    while not MQTT_CLIENT_CONNECTED:
+    if not MQTT_CLIENT_CONNECTED:
       try:
-          log("🔄 Trying to connect ...", flush=True)
-          MQTT_CLIENT.connect(PRINTER_IP, 8883, MQTT_KEEPALIVE)
-          MQTT_CLIENT.loop_start()
-          
+        log("🔄 Trying to connect ...", flush=True)
+        _mqtt_runtime_status(stage="connecting", connected=False)
+        MQTT_CLIENT.connect(PRINTER_IP, 8883, MQTT_KEEPALIVE)
       except Exception as exc:
-          log(f"⚠️ connection failed: {exc}, new try in 15 seconds...", flush=True)
-
-      time.sleep(15)
-
+        log(f"⚠️ connection failed: {exc}, new try in 15 seconds...", flush=True)
+        _mqtt_runtime_status(stage="connect_exception", connected=False, error=f"{type(exc).__name__}: {exc}")
     time.sleep(15)
 
 def init_mqtt(daemon: bool = False):
