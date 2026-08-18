@@ -76,3 +76,49 @@ VERSION FOOTER
 - Current version is read dynamically from __version__.py.
 - Footer shows `v<version> @m0quai` immediately before the existing GitHub icon.
 - No version number is hard-coded.
+
+AUTOMATIC SPOOLMAN REQUIRED FIELDS
+- Normal OpenSpoolMan startup checks the required Spoolman extra fields.
+- Missing fields are created automatically.
+- Existing fields are left untouched.
+- Repeated starts are idempotent.
+- If Spoolman is temporarily unavailable, OpenSpoolMan still starts.
+- Uses the already selected runtime Spoolman URL (host or Docker).
+- No PowerShell/setup script is required.
+
+REQUIRED FIELDS - SERVER START FIX
+- Field initialization now starts automatically with the OpenSpoolMan server.
+- It runs asynchronously and does not block Flask/Waitress startup.
+- If Spoolman is not ready yet (common with Docker Compose startup), it retries
+  every 5 seconds until the fields can be verified/created.
+- The actual Spoolman API URL is printed in the startup log.
+- No page visit, button, PowerShell script, or manual action is required.
+
+REQUIRED FIELDS RUNTIME URL FIX
+- Fixed startup worker using the restored public SPOOLMAN_BASE_URL (localhost:7912)
+  from inside Docker.
+- app_custom.py now exports the actually selected server-to-server address as
+  SPOOLMAN_RUNTIME_BASE_URL.
+- spoolman_required_fields.py uses that runtime URL first.
+- Therefore:
+    native Windows -> localhost:7912
+    Docker shared network -> spoolman:8000
+    Docker without shared network -> host.docker.internal:7912
+- Existing retry-on-start behavior remains unchanged.
+
+SPOOLMAN EXTRA FIELD HTTP 422 FIX
+- Connectivity is now confirmed: HTTP 422 came from Spoolman itself.
+- Corrected creation to POST /api/v1/field/{entity} with `key` in JSON body.
+- Removed the guessed default_value from nozzle_temperature.
+- Choice values are sent as a JSON array rather than a JSON-encoded string.
+- HTTP failures now include Spoolman's response body in the OpenSpoolMan log.
+- Startup retry behavior remains unchanged.
+
+SPOOLMAN EXTRA FIELD HTTP 405 FIX
+- 405 proves POST /api/v1/field/{entity} is not a create endpoint in this Spoolman.
+- Restored the documented/in-use create route:
+  POST /api/v1/field/{entity}/{field_key}
+- Field key is therefore no longer sent in the JSON body.
+- Added required JSON-encoded default_value (null) to the create payload.
+- Existing runtime URL selection and startup retries are retained.
+- HTTP errors continue to include Spoolman's response body.

@@ -117,6 +117,9 @@ _SPOOLMAN_RUNTIME_BASE_URL = (
 
 os.environ["OPENSPOOLMAN_BASE_URL"] = _OPENSPOOLMAN_PUBLIC_BASE_URL
 os.environ["SPOOLMAN_BASE_URL"] = _SPOOLMAN_RUNTIME_BASE_URL
+os.environ["SPOOLMAN_RUNTIME_BASE_URL"] = _SPOOLMAN_RUNTIME_BASE_URL
+os.environ["SPOOLMAN_INTERNAL_BASE_URL"] = _SPOOLMAN_DOCKER_BASE_URL
+
 
 from app import app
 
@@ -137,6 +140,44 @@ _openspoolman_config.SPOOLMAN_API_URL = f"{_SPOOLMAN_RUNTIME_BASE_URL}/api/v1"
 # Restore that copy to the public URL, while spoolman_client keeps the already
 # imported internal SPOOLMAN_API_URL.
 _openspoolman_app_module.SPOOLMAN_BASE_URL = _SPOOLMAN_PUBLIC_BASE_URL
+
+
+# ---------------------------------------------------------------------------
+# Required Spoolman fields: initialize automatically on server startup.
+# Run in a daemon thread so Flask/Waitress is never blocked. Retry while
+# Spoolman is still starting; stop after the fields have been verified/created.
+# Werkzeug debug reloader starts the module twice, so guard the worker per process.
+# ---------------------------------------------------------------------------
+import threading
+import time
+from spoolman_required_fields import ensure_required_spoolman_fields
+
+_required_fields_worker_started = False
+
+def _required_fields_startup_worker():
+    attempt = 0
+    while True:
+        attempt += 1
+        print(f"[OpenSpoolMan] Required Spoolman fields startup check (attempt {attempt}) ...")
+        if ensure_required_spoolman_fields():
+            print("[OpenSpoolMan] Required Spoolman fields initialization complete.")
+            return
+        print("[OpenSpoolMan] Spoolman not ready; retrying required fields in 5 seconds ...")
+        time.sleep(5)
+
+def _start_required_fields_worker():
+    global _required_fields_worker_started
+    if _required_fields_worker_started:
+        return
+    _required_fields_worker_started = True
+    threading.Thread(
+        target=_required_fields_startup_worker,
+        name="openspoolman-required-fields",
+        daemon=True,
+    ).start()
+
+_start_required_fields_worker()
+
 
 
 # Flask sessions are required by the Bambu verification-code flow.
