@@ -19,8 +19,14 @@
   <div class="card mb-4"><div class="card-body">
     <h5>Drucker auswählen</h5>
     {% if devices %}
+      {% set single_configured = (devices|length == 1 and config.printer_id and devices[0].dev_id == config.printer_id) %}
       <div class="table-responsive"><table class="table align-middle">
-        <thead><tr><th>Name</th><th>Seriennummer</th><th>Modell</th><th>Online</th><th>Lokale IP</th><th></th></tr></thead>
+        <thead>
+          <tr>
+            <th>Name</th><th>Seriennummer</th><th>Modell</th><th>Online</th><th>Lokale IP</th>
+            {% if not single_configured %}<th></th>{% endif %}
+          </tr>
+        </thead>
         <tbody>
         {% for d in devices %}
         <tr>
@@ -28,14 +34,18 @@
           <td><code>{{ d.dev_id }}</code></td>
           <td>{{ d.dev_product_name or d.dev_model_name }}</td>
           <td>{{ 'Ja' if d.online else 'Nein' }}</td>
-          <td colspan="2">
-            <form method="post" action="{{ url_for('bambu_cloud.select_device') }}" class="d-flex gap-2">
-              <input type="hidden" name="dev_id" value="{{ d.dev_id }}">
-              <input class="form-control" style="min-width:150px" name="printer_ip"
-                     value="{{ config.printer_ip or '' }}" placeholder="z.B. 192.168.1.50" required>
-              <button class="btn btn-primary text-nowrap" type="submit">Drucker übernehmen</button>
-            </form>
-          </td>
+          {% if single_configured %}
+            <td>{{ config.printer_ip or '—' }}</td>
+          {% else %}
+            <td colspan="2">
+              <form method="post" action="{{ url_for('bambu_cloud.select_device') }}" class="d-flex gap-2">
+                <input type="hidden" name="dev_id" value="{{ d.dev_id }}">
+                <input class="form-control" style="min-width:150px" name="printer_ip"
+                       value="{{ config.printer_ip or '' }}" placeholder="z.B. 192.168.1.50" required>
+                <button class="btn btn-primary text-nowrap" type="submit">Drucker übernehmen</button>
+              </form>
+            </td>
+          {% endif %}
         </tr>
         {% endfor %}
         </tbody>

@@ -152,3 +152,4 @@ secrets/
 *.user
 .venv/
 /.github/copilot-instructions.md
+/.vs/OpenSpoolMan/v17/.suo
