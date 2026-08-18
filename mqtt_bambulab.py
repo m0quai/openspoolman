@@ -3,9 +3,6 @@
 import json
 import ssl
 import traceback
-import hashlib
-from datetime import datetime, timezone
-from pathlib import Path
 from threading import Thread
 from typing import Any, Iterable
 
@@ -41,34 +38,6 @@ PRINTER_STATE_LAST = {}
 PENDING_PRINT_METADATA = {}
 FILAMENT_TRACKER = FilamentUsageTracker()
 LOG_FILE = "/home/app/logs/mqtt.log"
-MQTT_RUNTIME_STATUS = Path("/home/app/data/bambu_mqtt_runtime_status.json")
-
-def _mqtt_runtime_status(**updates):
-  """Persist connection diagnostics without ever storing the access code."""
-  try:
-    current = {}
-    if MQTT_RUNTIME_STATUS.exists():
-      try:
-        current = json.loads(MQTT_RUNTIME_STATUS.read_text(encoding="utf-8"))
-      except Exception:
-        current = {}
-    current.update({
-      "timestamp": datetime.now(timezone.utc).isoformat(),
-      "printer_ip": PRINTER_IP,
-      "printer_id": PRINTER_ID,
-      "port": 8883,
-      "username": "bblp",
-      "credential_source": "config.env:PRINTER_ACCESS_CODE",
-      "access_code_present": bool(PRINTER_CODE),
-      "access_code_length": len(PRINTER_CODE or ""),
-      "access_code_sha256": hashlib.sha256((PRINTER_CODE or "").encode("utf-8")).hexdigest() if PRINTER_CODE else None,
-    })
-    current.update(updates)
-    MQTT_RUNTIME_STATUS.parent.mkdir(parents=True, exist_ok=True)
-    MQTT_RUNTIME_STATUS.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
-  except Exception as exc:
-    log(f"Could not write MQTT runtime status: {exc}")
-
 def getPrinterModel():
     global PRINTER_ID
     model_code = PRINTER_ID[:3]
@@ -484,6 +453,7 @@ def on_message(client, userdata, msg):
   try:
     data = json.loads(msg.payload.decode())
 
+
     info = data.get("info")
     if info and info.get("command") == "get_version":
       modules = info.get("module", [])
@@ -562,7 +532,6 @@ def on_connect(client, userdata, flags, rc):
   MQTT_CLIENT_CONNECTED = (rc == 0)
   meanings = {0: "accepted", 1: "unacceptable protocol version", 2: "identifier rejected", 3: "server unavailable", 4: "bad username/password", 5: "not authorized"}
   log(f"Connected with result code {rc} ({meanings.get(rc, 'unknown')})")
-  _mqtt_runtime_status(connected=MQTT_CLIENT_CONNECTED, connack_code=rc, connack_meaning=meanings.get(rc, "unknown"))
   if rc != 0:
     log("MQTT authentication was rejected; no subscribe or publish will be attempted.")
     return
@@ -570,7 +539,6 @@ def on_connect(client, userdata, flags, rc):
   topic = f"device/{PRINTER_ID}/report"
   sub_result = client.subscribe(topic)
   log(f"Subscribed to {topic}; result={sub_result}")
-  _mqtt_runtime_status(subscription_topic=topic, subscription_result=list(sub_result) if isinstance(sub_result, tuple) else str(sub_result))
   publish(client, GET_VERSION)
   publish(client, PUSH_ALL)
 
@@ -578,7 +546,6 @@ def on_disconnect(client, userdata, rc):
   global MQTT_CLIENT_CONNECTED
   MQTT_CLIENT_CONNECTED = False
   log("Disconnected with result code " + str(rc))
-  _mqtt_runtime_status(connected=False, disconnect_code=rc)
 
 def async_subscribe():
   global MQTT_CLIENT
@@ -596,17 +563,13 @@ def async_subscribe():
   MQTT_CLIENT.on_disconnect = on_disconnect
   MQTT_CLIENT.on_message = on_message
   MQTT_CLIENT.loop_start()
-
-  _mqtt_runtime_status(connected=False, stage="initialized")
   while True:
     if not MQTT_CLIENT_CONNECTED:
       try:
         log("🔄 Trying to connect ...", flush=True)
-        _mqtt_runtime_status(stage="connecting", connected=False)
         MQTT_CLIENT.connect(PRINTER_IP, 8883, MQTT_KEEPALIVE)
       except Exception as exc:
         log(f"⚠️ connection failed: {exc}, new try in 15 seconds...", flush=True)
-        _mqtt_runtime_status(stage="connect_exception", connected=False, error=f"{type(exc).__name__}: {exc}")
     time.sleep(15)
 
 def init_mqtt(daemon: bool = False):
@@ -633,3 +596,37 @@ def isMqttClientConnected():
   global MQTT_CLIENT_CONNECTED
 
   return MQTT_CLIENT_CONNECTED
+
+
+def reconfigure_printer(printer_id, access_code, printer_ip, wait_seconds=12):
+  """Apply a selected cloud printer and reconnect MQTT immediately.
+
+  Returns True when the new MQTT session is connected within wait_seconds.
+  """
+  global PRINTER_ID, PRINTER_CODE, PRINTER_IP, MQTT_CLIENT, MQTT_CLIENT_CONNECTED
+  PRINTER_ID = (printer_id or "").upper()
+  PRINTER_CODE = access_code or ""
+  PRINTER_IP = printer_ip or ""
+  MQTT_CLIENT_CONNECTED = False
+
+  try:
+    if MQTT_CLIENT:
+      MQTT_CLIENT.disconnect()
+  except Exception as exc:
+    log(f"MQTT disconnect during reconfiguration failed: {exc}")
+
+  # Update the existing productive client and force a connection immediately,
+  # rather than waiting for the background 15-second retry cycle.
+  try:
+    if MQTT_CLIENT:
+      MQTT_CLIENT.username_pw_set("bblp", PRINTER_CODE)
+      MQTT_CLIENT.connect(PRINTER_IP, 8883, MQTT_KEEPALIVE)
+  except Exception as exc:
+    log(f"MQTT immediate reconnect after reconfiguration failed: {exc}")
+
+  deadline = time.time() + max(0, wait_seconds)
+  while time.time() < deadline:
+    if MQTT_CLIENT_CONNECTED:
+      return True
+    time.sleep(0.2)
+  return bool(MQTT_CLIENT_CONNECTED)

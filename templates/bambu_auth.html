@@ -1,17 +1,97 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="container py-4">
-  <h2>Bambu MQTT</h2>
+  <h2>Bambu Lab</h2>
+
+  {% if cloud_connected %}
   <div class="card mb-4"><div class="card-body">
-    <h5>Produktive MQTT-Verbindung</h5>
-    <p><strong>Status:</strong> {% if connected %}Verbunden{% else %}Nicht verbunden{% endif %}</p>
-    <pre style="white-space:pre-wrap">{{ config | default({},true) | tojson(indent=2) }}</pre>
-    <p class="mb-0">Diese Seite verwendet direkt die von OpenSpoolMan laufend genutzte MQTT-Verbindung aus <code>mqtt_bambulab.py</code>. Es wird keine zweite Testverbindung aufgebaut.</p>
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <h5 class="mb-1">Bambu Cloud</h5>
+        <span class="text-success">Angemeldet{% if cloud_state.account %} als {{ cloud_state.account }}{% endif %}</span>
+      </div>
+      <form method="post" action="{{ url_for('bambu_cloud.logout') }}">
+        <button class="btn btn-outline-secondary" type="submit">Abmelden</button>
+      </form>
+    </div>
   </div></div>
+
+  <div class="card mb-4"><div class="card-body">
+    <h5>Drucker auswählen</h5>
+    {% if devices %}
+      <div class="table-responsive"><table class="table align-middle">
+        <thead><tr><th>Name</th><th>Seriennummer</th><th>Modell</th><th>Online</th><th>Lokale IP</th><th></th></tr></thead>
+        <tbody>
+        {% for d in devices %}
+        <tr>
+          <td>{{ d.name }}</td>
+          <td><code>{{ d.dev_id }}</code></td>
+          <td>{{ d.dev_product_name or d.dev_model_name }}</td>
+          <td>{{ 'Ja' if d.online else 'Nein' }}</td>
+          <td colspan="2">
+            <form method="post" action="{{ url_for('bambu_cloud.select_device') }}" class="d-flex gap-2">
+              <input type="hidden" name="dev_id" value="{{ d.dev_id }}">
+              <input class="form-control" style="min-width:150px" name="printer_ip"
+                     value="{{ config.printer_ip or '' }}" placeholder="z.B. 192.168.1.50" required>
+              <button class="btn btn-primary text-nowrap" type="submit">Drucker übernehmen</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    {% else %}
+      <p class="mb-0">Keine gebundenen Drucker zurückgegeben.</p>
+    {% endif %}
+  </div></div>
+  {% else %}
+  <div class="card mb-4"><div class="card-body">
+    <h5>Bambu Cloud anmelden</h5>
+
+    {% if auth_step == 'verifyCode' or auth_step == 'tfa' %}
+      <p>
+        {% if auth_step == 'tfa' %}Bambu verlangt einen MFA/TFA-Code.
+        {% else %}Bambu verlangt einen Verification Code aus der E-Mail.{% endif %}
+      </p>
+      <form method="post" action="{{ url_for('bambu_cloud.verify') }}" class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">{% if auth_step == 'tfa' %}MFA/TFA-Code{% else %}Verification Code{% endif %}</label>
+          <input class="form-control" type="text" name="code" autocomplete="one-time-code" required autofocus>
+        </div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">Code bestätigen</button></div>
+      </form>
+    {% else %}
+      <form method="post" action="{{ url_for('bambu_cloud.login') }}" class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Bambu E-Mail</label>
+          <input class="form-control" type="email" name="account" value="{{ configured_account or '' }}" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Passwort</label>
+          <input class="form-control" type="password" name="password"
+                 placeholder="{% if password_saved %}Gespeichertes Passwort wird verwendet{% else %}Bambu-Passwort{% endif %}">
+          {% if password_saved %}
+          <div class="form-text">Das gespeicherte Passwort wird verwendet, wenn das Feld leer bleibt. Es wird niemals an den Browser ausgegeben.</div>
+          {% endif %}
+        </div>
+        <div class="col-12">
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" value="1" name="save_password" id="save_password" {% if password_saved %}checked{% endif %}>
+            <label class="form-check-label" for="save_password">Passwort lokal in config.env speichern</label>
+          </div>
+          <button class="btn btn-primary" type="submit">Bei Bambu anmelden</button>
+        </div>
+      </form>
+    {% endif %}
+  </div></div>
+  {% endif %}
+
   <div class="card"><div class="card-body">
-    <h5>MQTT Runtime-Diagnose</h5>
-    {% if status %}<pre style="white-space:pre-wrap">{{ status | tojson(indent=2) }}</pre>
-    {% else %}<p class="mb-0">Noch keine Runtime-Diagnose vorhanden.</p>{% endif %}
+    <h5>MQTT</h5>
+    <p class="mb-0"><strong>Status:</strong>
+      {% if connected %}<span class="text-success">Verbunden</span>
+      {% else %}<span class="text-danger">Nicht verbunden</span>{% endif %}
+    </p>
   </div></div>
 </div>
 {% endblock %}
