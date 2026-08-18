@@ -54,7 +54,7 @@
         <li><a href="{{ url_for('home') }}" class="nav-link px-2 link-body-emphasis">Home</a></li>
         <li><a href="{{ url_for('assign_tag') }}" class="nav-link px-2 link-body-emphasis">Assign NFC Tag</a></li>
         <li><a href="{{ url_for('print_history') }}" class="nav-link px-2 link-body-emphasis">Print History</a></li>
-        <li><a href="{{ url_for('bambu_cloud.index') }}" class="nav-link px-2 link-body-emphasis">Bambu Lab <span class="mqtt-menu-status-dot {{ 'connected' if mqtt_connected|default(false) else 'disconnected' }}" title="{{ 'MQTT verbunden' if mqtt_connected|default(false) else 'MQTT nicht verbunden' }}"></span></a></li>
+        <li><a href="{{ url_for('bambu_cloud.index') }}" class="nav-link px-2 link-body-emphasis">Printer<span class="mqtt-menu-status-dot {{ 'connected' if mqtt_connected|default(false) else 'disconnected' }}" title="{{ 'MQTT verbunden' if mqtt_connected|default(false) else 'MQTT nicht verbunden' }}"></span></a></li>
         <li><a href="{{ SPOOLMAN_BASE_URL }}" target="_blank" class="nav-link px-2 link-body-emphasis">SpoolMan</a></li>
       </ul>
     </div>
@@ -143,7 +143,10 @@
 <div class="container">
   <footer class="d-flex flex-wrap justify-content-between align-items-center py-3 my-4 border-top">
     <ul class="nav col-md-12 justify-content-end list-unstyled d-flex">
-      <li class="ms-3"><a class="link-body-emphasis" href="https://github.com/drndos/openspoolman">
+      <li class="nav-item d-flex align-items-center me-2">
+        <span class="text-body-secondary">v{{ openspoolman_version }} @m0quai</span>
+      </li>
+      <li class="ms-3"><a class="link-body-emphasis" href="https://github.com/drndos/openspoolman" target="_blank" rel="noopener noreferrer">
         <i class="bi bi-github"></i>
       </a></li>
     </ul>
