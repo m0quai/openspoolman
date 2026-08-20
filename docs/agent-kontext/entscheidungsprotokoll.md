@@ -134,3 +134,29 @@ Festgelegt:
 - Globale grüne Erfolgsmeldungen werden nach 10 Sekunden automatisch geschlossen.
 - Manuelles Schließen über das X bleibt weiterhin möglich.
 - Die Änderung erfolgt ausschließlich im gemeinsamen Template `templates/base.html`; `app.py` bleibt unverändert.
+
+## 2026-08-20 16:15 – Neues ESP32-S3-C#-Projekt angelegt
+
+- `OpenSpoolMan.sln` enthaelt nun das Projekt `OpenSpoolMan.Esp32`.
+- Projekttyp ist .NET nanoFramework (`.nfproj`) fuer die ESP32-S3-Firmware.
+- Das Projekt wird in allen Solution-Konfigurationen als `AnyCPU` gefuehrt, wie fuer nanoFramework-Projekte vorgesehen.
+- Der Projektordner liegt unter `OpenSpoolMan.Esp32/`.
+- `app.py` wurde nicht veraendert.
+
+## 2026-08-20 17:43 – ESP32-nanoFramework-Buildchain vollständig dokumentiert
+
+- Die vollständige Windows-Toolchain für den eigenen ESP32-S3-nanoFramework-Build ist unter `docs/esp32-nanoframework-build.md` dokumentiert.
+- Enthalten sind Visual Studio/nanoFramework Extension, Git, Python, `kconfiglib`, `pyserial`, `nanoff`, CMake, Ninja, SRecord und ESP-IDF 5.5.4.
+- Der erfolgreich verifizierte Configure-Befehl für `ESP32_S3_N16_NOPSRAM` ist dokumentiert.
+- Der aktuelle native Build-Blocker in `nanoFramework.Device.Bluetooth` ist ausdrücklich als noch offen dokumentiert.
+
+
+## 2026-08-20 18:00 – Bluetooth im ESP32-S3-NFC-Target deaktivieren
+
+- Der Build von `ESP32_S3_N16_NOPSRAM` scheitert aktuell ausschließlich im Bluetooth-Native-Code an `-Werror=unused-but-set-variable`.
+- Bluetooth wird für das OpenSpoolMan-NFC-Projekt nicht benötigt.
+- Der nanoFramework-Bluetooth-C++-Code wird nicht gepatcht.
+- Stattdessen wird `CONFIG_API_NANOFRAMEWORK_DEVICE_BLUETOOTH=y` aus dem projektspezifischen Defconfig entfernt.
+- Anschließend wird der komplette `build`-Ordner gelöscht, neu konfiguriert und neu gebaut.
+- `CONFIG_SDK_CONFIG_FILE="sdkconfig.default.esp32s3"` bleibt bestehen.
+- Der vollständige Build gilt erst nach erfolgreicher Verifikation als abgeschlossen.

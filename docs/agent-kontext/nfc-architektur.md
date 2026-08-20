@@ -51,3 +51,11 @@ Serverseitig wird daraus die zugeordnete Spule ermittelt.
 **Tag-UID und Tag-URL bleiben unverändert; die Spulenzuordnung ist serverseitig veränderbar.**
 
 Keine Lösung implementieren, die bei jedem Spulenwechsel die Spulenidentität neu auf den NFC-Tag schreibt, sofern diese Architektur nicht ausdrücklich geändert wird.
+
+## 2026-08-20 16:15 – ESP32-S3-Projekt in die Solution aufgenommen
+
+- Neues C#-/nanoFramework-Projekt `OpenSpoolMan.Esp32` im Repository-Root angelegt.
+- Projektdatei: `OpenSpoolMan.Esp32/OpenSpoolMan.Esp32.nfproj`.
+- Das Projekt ist in `OpenSpoolMan.sln` eingebunden und wird ausschliesslich als `AnyCPU` gebaut.
+- Zielplattform bleibt ESP32-S3 mit .NET nanoFramework.
+- Der erste Projektstand enthaelt nur den Firmware-Einstiegspunkt; konkrete NFC-Leser-Hardware und Pinbelegung werden spaeter festgelegt.

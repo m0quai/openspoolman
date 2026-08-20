@@ -32,6 +32,7 @@
     <Content Include="docs\agent-kontext\sicherheit.md" />
     <Content Include="docs\agent-kontext\uebergabe-work-codex.md" />
     <Content Include="docs\api.md" />
+    <Content Include="docs\esp32-nanoframework-build.md" />
     <Content Include="docs\img\bambu_tracking.jpg" />
     <Content Include="docs\img\desktop_assign_nfc.jpeg" />
     <Content Include="docs\img\desktop_change_spool.PNG" />
