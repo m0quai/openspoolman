@@ -117,9 +117,6 @@ _SPOOLMAN_RUNTIME_BASE_URL = (
 
 os.environ["OPENSPOOLMAN_BASE_URL"] = _OPENSPOOLMAN_PUBLIC_BASE_URL
 os.environ["SPOOLMAN_BASE_URL"] = _SPOOLMAN_RUNTIME_BASE_URL
-os.environ["SPOOLMAN_RUNTIME_BASE_URL"] = _SPOOLMAN_RUNTIME_BASE_URL
-os.environ["SPOOLMAN_INTERNAL_BASE_URL"] = _SPOOLMAN_DOCKER_BASE_URL
-
 
 from app import app
 
@@ -142,42 +139,16 @@ _openspoolman_config.SPOOLMAN_API_URL = f"{_SPOOLMAN_RUNTIME_BASE_URL}/api/v1"
 _openspoolman_app_module.SPOOLMAN_BASE_URL = _SPOOLMAN_PUBLIC_BASE_URL
 
 
-# ---------------------------------------------------------------------------
-# Required Spoolman fields: initialize automatically on server startup.
-# Run in a daemon thread so Flask/Waitress is never blocked. Retry while
-# Spoolman is still starting; stop after the fields have been verified/created.
-# Werkzeug debug reloader starts the module twice, so guard the worker per process.
-# ---------------------------------------------------------------------------
-import threading
-import time
-from spoolman_required_fields import ensure_required_spoolman_fields
+# Keep AMS rendering and refresh strictly read-only.
+# Upstream _augment_tray() may clear assignments / send empty filament settings
+# while merely rendering a printer state. Override that behavior here without
+# modifying app.py. Explicit Fill/Clear routes remain responsible for writes.
+def _readonly_augment_tray(spool_list, tray_data, ams_id, tray_id):
+    _openspoolman_app_module.augmentTrayDataWithSpoolMan(
+        spool_list, tray_data, ams_id, tray_id
+    )
 
-_required_fields_worker_started = False
-
-def _required_fields_startup_worker():
-    attempt = 0
-    while True:
-        attempt += 1
-        print(f"[OpenSpoolMan] Required Spoolman fields startup check (attempt {attempt}) ...")
-        if ensure_required_spoolman_fields():
-            print("[OpenSpoolMan] Required Spoolman fields initialization complete.")
-            return
-        print("[OpenSpoolMan] Spoolman not ready; retrying required fields in 5 seconds ...")
-        time.sleep(5)
-
-def _start_required_fields_worker():
-    global _required_fields_worker_started
-    if _required_fields_worker_started:
-        return
-    _required_fields_worker_started = True
-    threading.Thread(
-        target=_required_fields_startup_worker,
-        name="openspoolman-required-fields",
-        daemon=True,
-    ).start()
-
-_start_required_fields_worker()
-
+_openspoolman_app_module._augment_tray = _readonly_augment_tray
 
 
 # Flask sessions are required by the Bambu verification-code flow.
@@ -234,6 +205,111 @@ def _load_openspoolman_version():
 @app.context_processor
 def inject_openspoolman_version():
     return {"openspoolman_version": _load_openspoolman_version()}
+
+
+
+
+@app.post("/refresh-ams")
+def refresh_ams():
+    """Read a fresh AMS state without writing filament settings to the printer."""
+    import time
+    import mqtt_bambulab
+    from messages import PUSH_ALL
+
+    if not mqtt_bambulab.isMqttClientConnected():
+        return redirect(url_for(
+            "home",
+            success_message="AMS konnte nicht aktualisiert werden: MQTT ist nicht verbunden."
+        ))
+
+    before_generation = getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0)
+
+    if not mqtt_bambulab.publish(mqtt_bambulab.getMqttClient(), PUSH_ALL):
+        return redirect(url_for(
+            "home",
+            success_message="AMS-Abfrage konnte nicht gesendet werden."
+        ))
+
+    # Wait for an actual NEW AMS MQTT response. Comparing the AMS JSON itself is
+    # insufficient because a successful refresh can legitimately return exactly
+    # the same values as before.
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        time.sleep(0.10)
+        if getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0) > before_generation:
+            return redirect(url_for("home", success_message="AMS wurde aktualisiert."))
+
+    return redirect(url_for(
+        "home",
+        success_message="AMS-Abfrage wurde gesendet, aber innerhalb von 3 Sekunden kam keine neue AMS-Antwort."
+    ))
+
+
+# ---------------------------------------------------------------------------
+# AMS generic-material compatibility
+#
+# Keep Spoolman's material name (e.g. PLA+) unchanged, but normalize only the
+# payload handed to the upstream setActiveSpool implementation.
+#
+# Bambu's AMS expects the base material "PLA" for PLA+ and a real Bambu
+# tray_info_idx. Numeric legacy placeholders are not Bambu profile IDs.
+# For non-Bambu filaments we deliberately omit setting_id; filament.py then
+# supplies the established generic IDs such as GFL99 / GFU99 / GFG99.
+# ---------------------------------------------------------------------------
+_original_set_active_spool = _openspoolman_app_module.setActiveSpool
+
+def _set_active_spool_bambu_compatible(ams_id, tray_id, spool_data):
+    import copy
+
+    normalized = copy.deepcopy(spool_data)
+    filament = normalized.get("filament", {}) or {}
+    extra = filament.setdefault("extra", {})
+    vendor = ((filament.get("vendor") or {}).get("name") or "").strip().upper()
+    material = str(filament.get("material") or "").strip()
+    material_key = material.upper().replace(" ", "")
+
+    # PLA+ remains PLA+ in Spoolman. Only the AMS write uses Bambu's base PLA.
+    if material_key == "PLA+":
+        filament["material"] = "PLA"
+
+    # Old OpenSpoolMan fields sometimes contain Spoolman/local numeric IDs.
+    # They must never be sent as Bambu tray_info_idx values.
+    raw_filament_id = str(extra.get("filament_id", "") or "").strip().strip('"')
+    if raw_filament_id.isdigit():
+        extra["filament_id"] = ""
+
+    # Generic/third-party AMS entries do not need a Bambu Studio preset
+    # setting_id. Sending guessed values such as GFSL99 made the assignment
+    # transient on the printer.
+    if vendor not in {"BAMBU", "BAMBU LAB"}:
+        extra["setting_id"] = ""
+
+    return _original_set_active_spool(ams_id, tray_id, normalized)
+
+_openspoolman_app_module.setActiveSpool = _set_active_spool_bambu_compatible
+
+
+
+# Do not send an empty setting_id in ams_filament_setting.
+# Bambu treats "field absent" differently from an explicitly empty preset id.
+_original_mqtt_publish = mqtt_bambulab.publish
+
+def _publish_without_empty_setting_id(client, message):
+    if isinstance(message, dict):
+        print_data = message.get("print")
+        if (
+            isinstance(print_data, dict)
+            and print_data.get("command") == "ams_filament_setting"
+            and not print_data.get("setting_id")
+        ):
+            import copy
+            message = copy.deepcopy(message)
+            message["print"].pop("setting_id", None)
+            print("[OpenSpoolMan] AMS Fill: omitted empty setting_id from MQTT payload", flush=True)
+    return _original_mqtt_publish(client, message)
+
+mqtt_bambulab.publish = _publish_without_empty_setting_id
+
 
 if __name__ == "__main__":
     app.run(debug=True)

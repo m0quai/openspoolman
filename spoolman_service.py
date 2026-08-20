@@ -313,6 +313,17 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
       # 2) tray_sub_brands present: spool_material == tray_sub_brands
       # 3) tray_sub_brands present: spool_material + spool_type == tray_sub_brands
       base_match = bool(not tray_sub_full_cmp and tray_material_norm_cmp and spool_material_full_norm_cmp == tray_material_norm_cmp)
+
+      # Bambu can report third-party PLA+ profiles as generic "PLA" in AMS/MQTT.
+      # Treat PLA <-> PLA+ as compatible for mismatch detection only. The
+      # Spoolman material remains unchanged as PLA+.
+      pla_family_compatible = (
+        not tray_sub_full_cmp
+        and {tray_material_norm_cmp, spool_material_full_norm_cmp} == {"pla", "pla+"}
+      )
+      if pla_family_compatible:
+        base_match = True
+
       sub_match = False
       if tray_sub_full_cmp:
         if tray_sub_full_cmp == spool_material_full_norm_cmp and not spool_type_norm_cmp:

@@ -153,3 +153,10 @@ secrets/
 .venv/
 /.github/copilot-instructions.md
 /.vs/OpenSpoolMan/v17/.suo
+/README-AMS-DIAGNOSTIC.md
+/README-AMS-REFRESH-FIX.md
+/README-AMS-REFRESH.md
+/README-PATCH.txt
+/README-ROLLBACK-AUTO-FIELDS.txt
+/Update-OpenSpoolManFields.ps1
+*.zip

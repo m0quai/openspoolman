@@ -31,6 +31,7 @@ MQTT_CLIENT = {}  # Global variable storing MQTT Client
 MQTT_CLIENT_CONNECTED = False
 MQTT_KEEPALIVE = 60
 LAST_AMS_CONFIG = {}  # Global variable storing last AMS configuration
+LAST_AMS_CONFIG_GENERATION = 0  # Incremented whenever fresh AMS data arrives from MQTT
 
 PRINTER_STATE = {}
 PRINTER_STATE_LAST = {}
@@ -403,32 +404,44 @@ def processMessage(data):
   
     PRINTER_STATE_LAST = copy.deepcopy(PRINTER_STATE)
 
+_MQTT_SEQUENCE_ID = int(time.time() * 1000)
+
+def _next_mqtt_sequence_id():
+  global _MQTT_SEQUENCE_ID
+  _MQTT_SEQUENCE_ID += 1
+  return str(_MQTT_SEQUENCE_ID)
+
 def publish(client, msg):
-  message_to_send = msg
+  message_to_send = copy.deepcopy(msg)
+
+  # Bambu rejects reused/non-monotonic sequence IDs on protected print commands.
+  if isinstance(message_to_send, dict) and isinstance(message_to_send.get("print"), dict):
+    message_to_send["print"]["sequence_id"] = _next_mqtt_sequence_id()
 
   try:
-    # Sign only when certificate and private key are present, the certificate
-    # is currently valid, and its public key matches the private key.
-    if bambu_mqtt_signing.certificate_is_valid():
-      message_to_send = bambu_mqtt_signing.sign_message(msg)
-      log("MQTT command signed using valid certificate.")
+    if (
+      isinstance(message_to_send, dict)
+      and "print" in message_to_send
+      and bambu_mqtt_signing.certificate_is_valid()
+    ):
+      wire_payload = bambu_mqtt_signing.sign_message_json(message_to_send)
+      log("MQTT print command signed using RSA-SHA256.")
+    else:
+      wire_payload = json.dumps(message_to_send, ensure_ascii=False, separators=(",", ":"))
   except Exception as exc:
-    # Signing must never break the existing unsigned MQTT path.
-    log(f"MQTT signing failed: {exc}. Sending unsigned command.")
-    message_to_send = msg
+    # Protected print commands must not silently fall back to unsigned transmission.
+    if isinstance(message_to_send, dict) and "print" in message_to_send:
+      log(f"MQTT signing failed: {exc}. Protected print command NOT sent.")
+      return False
+    wire_payload = json.dumps(message_to_send, ensure_ascii=False, separators=(",", ":"))
 
-  result = client.publish(
-      f"device/{PRINTER_ID}/request",
-      json.dumps(message_to_send)
-  )
+  result = client.publish(f"device/{PRINTER_ID}/request", wire_payload)
   status = result[0]
   if status == 0:
     log(f"Sent {message_to_send} to topic device/{PRINTER_ID}/request")
     return True
-
   log(f"Failed to send message to topic device/{PRINTER_ID}/request")
   return False
-
 
 def clear_ams_tray_assignment(ams_id, tray_id):
   if not MQTT_CLIENT:
@@ -448,11 +461,25 @@ def clear_ams_tray_assignment(ams_id, tray_id):
 
 # Inspired by https://github.com/Donkie/Spoolman/issues/217#issuecomment-2303022970
 def on_message(client, userdata, msg):
-  global LAST_AMS_CONFIG, PRINTER_STATE, PRINTER_STATE_LAST, PENDING_PRINT_METADATA, PRINTER_MODEL
+  global LAST_AMS_CONFIG, LAST_AMS_CONFIG_GENERATION, PRINTER_STATE, PRINTER_STATE_LAST, PENDING_PRINT_METADATA, PRINTER_MODEL
   
   try:
     data = json.loads(msg.payload.decode())
 
+    # Diagnostic: capture the printer's acknowledgement/rejection of AMS writes.
+    try:
+      print_reply = data.get("print", {}) if isinstance(data, dict) else {}
+      if print_reply.get("command") == "ams_filament_setting":
+        log(
+          "[AMS-FILAMENT-SETTING-RESPONSE] "
+          f"result={print_reply.get('result')!r} "
+          f"reason={print_reply.get('reason')!r} "
+          f"err_code={print_reply.get('err_code')!r} "
+          f"sequence_id={print_reply.get('sequence_id')!r} "
+          f"payload={print_reply!r}"
+        )
+    except Exception as response_log_error:
+      log(f"[AMS-FILAMENT-SETTING-RESPONSE] logging error: {response_log_error!r}")
 
     info = data.get("info")
     if info and info.get("command") == "get_version":
@@ -482,6 +509,7 @@ def on_message(client, userdata, msg):
     # Save ams spool data
     if "print" in data and "ams" in data["print"] and "ams" in data["print"]["ams"]:
       LAST_AMS_CONFIG["ams"] = data["print"]["ams"]["ams"]
+      LAST_AMS_CONFIG_GENERATION += 1
       for ams in data["print"]["ams"]["ams"]:
         log(f"AMS [{num2letter(ams['id'])}] (hum: {ams['humidity']}, temp: {ams['temp']}ºC)")
         for tray in ams["tray"]:
@@ -517,8 +545,11 @@ def on_message(client, userdata, msg):
               log("      - Not found. Update spool tag!")
               tray["unmapped_bambu_tag"] = tray_uuid
               tray["issue"] = True
-              clear_active_spool_for_tray(ams['id'], tray['id'])
-              clear_ams_tray_assignment(ams['id'], tray['id'])
+              # Read-only AMS synchronization:
+              # Never clear either the printer material or OpenSpoolMan's assignment
+              # merely because this push_status has no/mismatched Bambu RFID UUID.
+              # Fill and explicit Clear are the only operations allowed to mutate a tray.
+              pass
           else:
             log(
                 f"    - [{num2letter(ams['id'])}{tray['id']}]")
@@ -539,6 +570,7 @@ def on_connect(client, userdata, flags, rc):
   topic = f"device/{PRINTER_ID}/report"
   sub_result = client.subscribe(topic)
   log(f"Subscribed to {topic}; result={sub_result}")
+
   publish(client, GET_VERSION)
   publish(client, PUSH_ALL)
 

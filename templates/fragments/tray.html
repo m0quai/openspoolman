@@ -147,8 +147,16 @@
          href="{{ url_for('tray_load', spool_id=current_spool['id'], tag_id=tag_id, ams=ams_id, tray=tray_id) }}">Assign</a>
     {% endif %}
     {% if not pick_tray %}
-      <a class="btn btn-primary"
-         href="{{ url_for('fill', ams=ams_id, tray=tray_id) }}">Fill</a>
+      {% if tray_data.spool_material %}
+        <form method="post" action="{{ url_for('tray_clear') }}" class="d-inline">
+          <input type="hidden" name="ams" value="{{ ams_id }}">
+          <input type="hidden" name="tray" value="{{ tray_id }}">
+          <button type="submit" class="btn btn-outline-danger">Clear</button>
+        </form>
+      {% else %}
+        <a class="btn btn-primary"
+           href="{{ url_for('fill', ams=ams_id, tray=tray_id) }}">Fill</a>
+      {% endif %}
     {% endif %}
   </div>
 </div>

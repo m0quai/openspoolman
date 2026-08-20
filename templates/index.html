@@ -3,16 +3,20 @@
 {% from 'fragments/ams_metrics.html' import humidity_display %}
 
 {% block content %}
-<!-- AMS and External Spool Row -->
+<div class="d-flex justify-content-end mb-3">
+  <form method="post" action="{{ url_for('refresh_ams') }}">
+    <button type="submit" class="btn btn-outline-primary">
+      <i class="bi bi-arrow-clockwise me-1"></i> AMS aktualisieren
+    </button>
+  </form>
+</div>
+
 <div class="row">
-  <!-- External Spool -->
   <div class="{% if ams_data|length > 1 %}col-12{% else %}col-lg-6{% endif %} mb-4 text-center">
     {% with tray_data=vt_tray_data, ams_id=EXTERNAL_SPOOL_AMS_ID, pick_tray=False, tray_id=EXTERNAL_SPOOL_ID %}
       {% include 'fragments/tray.html' %}
     {% endwith %}
   </div>
-
-  <!-- AMS Cards -->
   {% for ams in ams_data %}
   <div class="col-lg-6 mb-4 text-center ams-card">
     <div class="card shadow-sm">
