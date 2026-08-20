@@ -14,7 +14,7 @@ Standardmodus.
 
 - Direkte Verbindung zum konfigurierten Bambu-Drucker im LAN.
 - Bereits konfigurierte Drucker-IP als Vorgabewert verwenden.
-- Eigener lokaler Access-Key: **`Printer Access LAN`**.
+- Eigener lokaler Access-Key: **`Printer Access LAN`**; technischer Konfigurationsschlüssel: **`PRINTER_ACCESS_LAN`**.
 - Lokalen Access-Key nicht mit Online-/Cloud-Zugangsdaten vermischen.
 - Bei aktivem LAN-Modus muss die Verbindungslogik diesen lokalen Schlüssel verwenden.
 - MQTT-Status in der UI ausschließlich verbunden/nicht verbunden.
@@ -80,3 +80,12 @@ Nicht in Git aufnehmen:
 ## Kompatibilitätsregel
 
 LAN-Änderungen dürfen Online-Authentifizierung nicht beschädigen und umgekehrt.
+
+## Technische Konfigurationsschlüssel
+
+- `BAMBU_CONNECTION_MODE=lan|online` – ausgewählter Verbindungsmodus; Default `lan`.
+- `PRINTER_ACCESS_LAN` – lokaler Drucker-Access-Code für LAN/Developer Mode.
+- `PRINTER_ACCESS_CODE` – bestehender Access-Code des Online-/Cloud-Wegs; bleibt getrennt erhalten.
+- `PRINTER_CODE` ist im laufenden Python-Prozess nur der rückwärtskompatible aktive Wert und wird je nach Modus aus einem der beiden vorgenannten Schlüssel gesetzt.
+
+Beim Moduswechsel werden MQTT und der lokale FTPS-Zugriff auf denselben aktiven Access-Code umgestellt.

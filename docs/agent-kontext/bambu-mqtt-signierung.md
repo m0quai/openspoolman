@@ -52,3 +52,10 @@ Interne Logs dürfen detailliertere Zustände enthalten, solange keine Geheimnis
 6. Änderung eng begrenzen.
 7. Logs auf Secret-Leaks prüfen.
 8. Soweit möglich über Visual Studio Debug testen.
+
+## Implementierter Moduswechsel
+
+- Im Modus `lan` wird für MQTT `PRINTER_ACCESS_LAN` verwendet. Print-Kommandos werden in diesem Modus nicht durch die bestehende RSA-SHA256/X.509-Schicht geleitet.
+- Im Modus `online` wird weiterhin `PRINTER_ACCESS_CODE` verwendet und die vorhandene Signierungslogik bleibt aktiv, sofern ein gültiges Zertifikat vorhanden ist.
+- Der Modus wird über `BAMBU_CONNECTION_MODE` gesteuert.
+- Der lokale FTPS-Zugriff auf 3MF-Dateien verwendet ebenfalls den jeweils aktiven Drucker-Access-Code.

@@ -204,7 +204,12 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
   has_tray_type_key = "tray_type" in tray_data
   tray_type_raw = tray_data.get("tray_type") if has_tray_type_key else None
   tray_type_clean = (tray_type_raw or "").strip()
-  tray_type_unselected = has_tray_type_key and tray_type_clean == ""
+  tray_info_idx_clean = str(tray_data.get("tray_info_idx") or "").strip()
+  # Some P1S firmware/Developer-Mode push_status messages keep tray_type empty for
+  # generic third-party filament even after ams_filament_setting succeeded, while
+  # tray_info_idx is retained (for example GFU99).  A non-empty profile id is
+  # therefore sufficient evidence that an AMS material has been configured.
+  tray_type_unselected = has_tray_type_key and tray_type_clean == "" and tray_info_idx_clean == ""
 
   # If the tray_type field is missing entirely, treat it as "no tray info" and drop stale data.
   if not has_tray_type_key:
@@ -236,6 +241,13 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
       tray_data["spool_sub_brand"] = (spool["filament"].get("extra", {}).get("type") or "").replace('"', '').strip()
       tray_data["remaining_weight"] = spool["remaining_weight"]
 
+      # P1S LAN/Developer Mode can acknowledge ams_filament_setting successfully
+      # and retain tray_info_idx while reporting an empty tray_type afterwards.
+      # In that case use the explicitly assigned Spoolman material as the display
+      # and comparison type. This does not write anything back to the printer.
+      if not tray_type_clean and tray_info_idx_clean:
+        tray_data["tray_type"] = tray_data["spool_material"]
+        tray_type_clean = (tray_data["tray_type"] or "").strip()
 
       if "last_used" in spool:
         try:

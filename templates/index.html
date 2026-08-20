@@ -12,13 +12,8 @@
 </div>
 
 <div class="row">
-  <div class="{% if ams_data|length > 1 %}col-12{% else %}col-lg-6{% endif %} mb-4 text-center">
-    {% with tray_data=vt_tray_data, ams_id=EXTERNAL_SPOOL_AMS_ID, pick_tray=False, tray_id=EXTERNAL_SPOOL_ID %}
-      {% include 'fragments/tray.html' %}
-    {% endwith %}
-  </div>
   {% for ams in ams_data %}
-  <div class="col-lg-6 mb-4 text-center ams-card">
+  <div class="col-lg-8 mb-4 text-center ams-card">
     <div class="card shadow-sm">
       <div class="card-header d-flex justify-content-between align-items-center">
         {% set ams_key = ams.id %}
@@ -40,5 +35,11 @@
     </div>
   </div>
   {% endfor %}
+
+  <div class="{% if ams_data|length > 1 %}col-12{% else %}col-lg-4{% endif %} mb-4 text-center">
+    {% with tray_data=vt_tray_data, ams_id=EXTERNAL_SPOOL_AMS_ID, pick_tray=False, tray_id=EXTERNAL_SPOOL_ID %}
+      {% include 'fragments/tray.html' %}
+    {% endwith %}
+  </div>
 </div>
 {% endblock %}

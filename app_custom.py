@@ -176,7 +176,7 @@ if not app.secret_key:
             _secret_file.write_text(app.secret_key, encoding="utf-8")
 
 from bambu_auth_routes import bp as bambu_cloud_bp
-from flask import redirect, request, url_for
+from flask import redirect, request, url_for, render_template
 import mqtt_bambulab
 
 # Register the custom Bambu Cloud routes before any request handler uses them.
@@ -246,6 +246,62 @@ def refresh_ams():
 
 
 # ---------------------------------------------------------------------------
+# AMS Clear override
+#
+# app.py bleibt unveraendert. Die dort registrierte tray_clear-View wird hier
+# durch die Custom-Implementierung ersetzt. Ein Clear muss sowohl die
+# OpenSpoolMan/Spoolman-Zuordnung als auch die Materialbelegung im Drucker
+# loeschen. Erst wenn das MQTT-Clear erfolgreich gesendet wurde, wird die
+# lokale Spulenzuordnung entfernt.
+# ---------------------------------------------------------------------------
+def _custom_tray_clear():
+    import traceback
+    import spoolman_service
+
+    ams_id = request.form.get("ams")
+    tray_id = request.form.get("tray")
+
+    if ams_id is None or tray_id is None:
+        return render_template("error.html", exception="Missing AMS ID or Tray ID.")
+
+    if getattr(_openspoolman_app_module, "READ_ONLY_MODE", False):
+        return render_template(
+            "error.html",
+            exception="Live read-only mode: clearing tray assignments is disabled.",
+        )
+
+    try:
+        if not mqtt_bambulab.isMqttClientConnected():
+            return render_template(
+                "error.html",
+                exception="MQTT is disconnected. The tray was not cleared on the printer.",
+            )
+
+        if not mqtt_bambulab.clear_ams_tray_assignment(ams_id, tray_id):
+            return render_template(
+                "error.html",
+                exception="Could not send the AMS clear command to the printer.",
+            )
+
+        spoolman_service.clear_active_spool_for_tray(ams_id, tray_id)
+        return redirect(
+            url_for(
+                "home",
+                success_message=(
+                    f"Tray cleared in OpenSpoolMan and on printer for AMS {ams_id}, "
+                    f"Tray {int(tray_id) + 1}."
+                ),
+            )
+        )
+    except Exception as exc:
+        traceback.print_exc()
+        return render_template("error.html", exception=str(exc))
+
+# Replace only the registered view function. Do not modify upstream app.py.
+app.view_functions["tray_clear"] = _custom_tray_clear
+
+
+# ---------------------------------------------------------------------------
 # AMS generic-material compatibility
 #
 # Keep Spoolman's material name (e.g. PLA+) unchanged, but normalize only the
@@ -305,7 +361,6 @@ def _publish_without_empty_setting_id(client, message):
             import copy
             message = copy.deepcopy(message)
             message["print"].pop("setting_id", None)
-            print("[OpenSpoolMan] AMS Fill: omitted empty setting_id from MQTT payload", flush=True)
     return _original_mqtt_publish(client, message)
 
 mqtt_bambulab.publish = _publish_without_empty_setting_id

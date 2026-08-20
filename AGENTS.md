@@ -39,7 +39,7 @@ Die Bambu-Lab-Seite bietet zwei per Radio-Button wählbare Modi.
 - Bezeichnung: **„Lokaler LAN-Modus“**
 - Standardmodus.
 - Direkter Zugriff auf den lokalen Drucker.
-- Eigener Konfigurationswert/Access-Key: **`Printer Access LAN`**.
+- Eigener UI-/Fachbegriff: **`Printer Access LAN`**; technischer Konfigurationsschlüssel: **`PRINTER_ACCESS_LAN`**.
 - Der lokale Drucker-Access-Key ist getrennt von Zugangsdaten der Online-Authentifizierung zu behandeln.
 - Die bereits konfigurierte Drucker-IP wird als Vorgabewert auf der Bambu-Seite verwendet.
 - MQTT-Status wird binär angezeigt: **verbunden** oder **nicht verbunden**.

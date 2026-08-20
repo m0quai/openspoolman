@@ -160,3 +160,4 @@ secrets/
 /README-ROLLBACK-AUTO-FIELDS.txt
 /Update-OpenSpoolManFields.ps1
 *.zip
+/.vs/OpenSpoolMan/v17/.suo

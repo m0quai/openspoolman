@@ -32,6 +32,11 @@ MQTT_CLIENT_CONNECTED = False
 MQTT_KEEPALIVE = 60
 LAST_AMS_CONFIG = {}  # Global variable storing last AMS configuration
 LAST_AMS_CONFIG_GENERATION = 0  # Incremented whenever fresh AMS data arrives from MQTT
+# Last successfully acknowledged AMS material settings for non-RFID/third-party trays.
+# P1/P1S can acknowledge ams_filament_setting with success and then emit sparse
+# push_status tray objects whose material fields are empty. Keep the confirmed
+# values locally so the UI does not immediately fall back to "No AMS material selected".
+LAST_CONFIRMED_AMS_FILAMENT_SETTINGS = {}
 
 PRINTER_STATE = {}
 PRINTER_STATE_LAST = {}
@@ -443,21 +448,131 @@ def publish(client, msg):
   log(f"Failed to send message to topic device/{PRINTER_ID}/request")
   return False
 
+def _ams_tray_key(ams_id, tray_id):
+  return (str(ams_id), str(tray_id))
+
+def _remember_confirmed_ams_filament_setting(print_reply):
+  """Persist the last printer-acknowledged material setting in memory.
+
+  P1/P1S third-party trays use an all-zero RFID UUID. After a successful
+  ams_filament_setting write the printer may publish sparse status data with
+  empty tray_type/tray_info_idx even though the setting was accepted.
+  """
+  global LAST_CONFIRMED_AMS_FILAMENT_SETTINGS, LAST_AMS_CONFIG
+
+  try:
+    key = _ams_tray_key(print_reply.get("ams_id"), print_reply.get("tray_id"))
+    if key[0] == "None" or key[1] == "None":
+      return
+
+    fields = {
+      name: copy.deepcopy(print_reply.get(name))
+      for name in (
+        "tray_color",
+        "nozzle_temp_min",
+        "nozzle_temp_max",
+        "tray_type",
+        "setting_id",
+        "tray_info_idx",
+        "tray_sub_brands",
+      )
+      if name in print_reply
+    }
+    LAST_CONFIRMED_AMS_FILAMENT_SETTINGS[key] = fields
+
+    # Update the current cache immediately, if the tray already exists.
+    for ams in LAST_AMS_CONFIG.get("ams", []):
+      if str(ams.get("id")) != key[0]:
+        continue
+      for tray in ams.get("tray", []):
+        if str(tray.get("id")) == key[1]:
+          tray.update(copy.deepcopy(fields))
+          return
+  except Exception as exc:
+    log(f"[AMS-CACHE] Could not remember confirmed filament setting: {exc!r}")
+
+def _apply_confirmed_ams_filament_settings(ams_data):
+  """Restore confirmed material fields omitted by sparse P1/P1S status packets.
+
+  Non-empty values reported by the printer always win. Empty/missing material
+  values on a non-RFID tray fall back to the last successful write. A successful
+  explicit Clear stores empty values and therefore clears this fallback as well.
+  """
+  for ams in ams_data or []:
+    ams_id = str(ams.get("id"))
+    for tray in ams.get("tray", []) or []:
+      key = _ams_tray_key(ams_id, tray.get("id"))
+      confirmed = LAST_CONFIRMED_AMS_FILAMENT_SETTINGS.get(key)
+      if not confirmed:
+        continue
+
+      tray_uuid = str(tray.get("tray_uuid") or "")
+      is_non_rfid = not tray_uuid or tray_uuid == "00000000000000000000000000000000"
+      if not is_non_rfid:
+        continue
+
+      for field, confirmed_value in confirmed.items():
+        current_value = tray.get(field)
+        if current_value not in (None, ""):
+          # A concrete value from the printer is newer/more authoritative.
+          confirmed[field] = copy.deepcopy(current_value)
+          continue
+        # Empty confirmed values represent an explicit successful Clear.
+        if confirmed_value in (None, ""):
+          tray[field] = confirmed_value
+        else:
+          tray[field] = copy.deepcopy(confirmed_value)
+
 def clear_ams_tray_assignment(ams_id, tray_id):
+  """Clear the material assignment on the printer and in the local AMS cache.
+
+  The P1/P1S can publish sparse/stale tray values after a write.  Therefore a
+  successful Clear must invalidate the confirmed-material cache immediately so
+  the OpenSpoolMan header does not continue to show the previous material while
+  we wait for the printer's next status packet.
+  """
+  global LAST_CONFIRMED_AMS_FILAMENT_SETTINGS, LAST_AMS_CONFIG
+
   if not MQTT_CLIENT:
-    return
+    return False
 
   ams_message = copy.deepcopy(AMS_FILAMENT_SETTING)
   ams_message["print"]["ams_id"] = int(ams_id)
   ams_message["print"]["tray_id"] = int(tray_id)
-  ams_message["print"]["tray_color"] = ""
-  ams_message["print"]["nozzle_temp_min"] = None
-  ams_message["print"]["nozzle_temp_max"] = None
+  # P1/P1S: reset a third-party tray to the unconfigured state.
+  # Do not send null for numeric temperature fields.
+  ams_message["print"]["tray_color"] = "FFFFFFFF"
+  ams_message["print"]["nozzle_temp_min"] = 0
+  ams_message["print"]["nozzle_temp_max"] = 0
   ams_message["print"]["tray_type"] = ""
   ams_message["print"]["setting_id"] = ""
   ams_message["print"]["tray_info_idx"] = ""
+  ams_message["print"]["tray_sub_brands"] = ""
 
-  publish(MQTT_CLIENT, ams_message)
+  if not publish(MQTT_CLIENT, ams_message):
+    return False
+
+  key = _ams_tray_key(ams_id, tray_id)
+  LAST_CONFIRMED_AMS_FILAMENT_SETTINGS.pop(key, None)
+
+  # Update the currently displayed AMS snapshot immediately.  This prevents the
+  # old material/color from surviving in the tray header until the next pushall.
+  for ams in LAST_AMS_CONFIG.get("ams", []):
+    if str(ams.get("id")) != key[0]:
+      continue
+    for tray in ams.get("tray", []):
+      if str(tray.get("id")) != key[1]:
+        continue
+      tray["tray_color"] = ""
+      tray["nozzle_temp_min"] = None
+      tray["nozzle_temp_max"] = None
+      tray["tray_type"] = ""
+      tray["setting_id"] = ""
+      tray["tray_info_idx"] = ""
+      tray["tray_sub_brands"] = ""
+      break
+
+  return True
 
 # Inspired by https://github.com/Donkie/Spoolman/issues/217#issuecomment-2303022970
 def on_message(client, userdata, msg):
@@ -466,20 +581,18 @@ def on_message(client, userdata, msg):
   try:
     data = json.loads(msg.payload.decode())
 
-    # Diagnostic: capture the printer's acknowledgement/rejection of AMS writes.
+    # Remember successfully acknowledged AMS writes. P1/P1S may return sparse
+    # material fields in subsequent push_status messages for third-party spools.
     try:
       print_reply = data.get("print", {}) if isinstance(data, dict) else {}
-      if print_reply.get("command") == "ams_filament_setting":
-        log(
-          "[AMS-FILAMENT-SETTING-RESPONSE] "
-          f"result={print_reply.get('result')!r} "
-          f"reason={print_reply.get('reason')!r} "
-          f"err_code={print_reply.get('err_code')!r} "
-          f"sequence_id={print_reply.get('sequence_id')!r} "
-          f"payload={print_reply!r}"
-        )
-    except Exception as response_log_error:
-      log(f"[AMS-FILAMENT-SETTING-RESPONSE] logging error: {response_log_error!r}")
+      if (
+        print_reply.get("command") == "ams_filament_setting"
+        and print_reply.get("result") == "success"
+        and print_reply.get("reason") == "success"
+      ):
+        _remember_confirmed_ams_filament_setting(print_reply)
+    except Exception as response_error:
+      log(f"Could not process AMS filament-setting response: {response_error!r}")
 
     info = data.get("info")
     if info and info.get("command") == "get_version":
@@ -508,9 +621,10 @@ def on_message(client, userdata, msg):
 
     # Save ams spool data
     if "print" in data and "ams" in data["print"] and "ams" in data["print"]["ams"]:
-      LAST_AMS_CONFIG["ams"] = data["print"]["ams"]["ams"]
+      LAST_AMS_CONFIG["ams"] = copy.deepcopy(data["print"]["ams"]["ams"])
+      _apply_confirmed_ams_filament_settings(LAST_AMS_CONFIG["ams"])
       LAST_AMS_CONFIG_GENERATION += 1
-      for ams in data["print"]["ams"]["ams"]:
+      for ams in LAST_AMS_CONFIG["ams"]:
         log(f"AMS [{num2letter(ams['id'])}] (hum: {ams['humidity']}, temp: {ams['temp']}ºC)")
         for tray in ams["tray"]:
           if "tray_sub_brands" in tray:

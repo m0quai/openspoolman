@@ -8,12 +8,8 @@
 <h1 class="mb-4">Assign Tray</h1>
 <!-- AMS and External Spool Row -->
 <div class="row">
-  <!-- External Spool -->
-  <div class="{% if ams_data|length > 1 %}col-12{% else %}col-lg-6{% endif %} mb-4 text-center">
-    {% with tray_data=vt_tray_data, ams_id=EXTERNAL_SPOOL_AMS_ID, pick_tray=True, tray_id=vt_tray_data.id %} {% include 'fragments/tray.html' %} {% endwith %}
-  </div>
   {% for ams in ams_data %}
-  <div class="col-lg-6 mb-4">
+  <div class="col-lg-8 mb-4">
     <div class="card shadow-sm">
       <div class="card-header d-flex justify-content-between align-items-center">
         {% set ams_key = ams.id %}
@@ -33,6 +29,11 @@
     </div>
   </div>
   {% endfor %}
+
+  <!-- External Spool -->
+  <div class="{% if ams_data|length > 1 %}col-12{% else %}col-lg-4{% endif %} mb-4 text-center">
+    {% with tray_data=vt_tray_data, ams_id=EXTERNAL_SPOOL_AMS_ID, pick_tray=True, tray_id=vt_tray_data.id %} {% include 'fragments/tray.html' %} {% endwith %}
+  </div>
 </div>
 
 {% endblock %}

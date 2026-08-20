@@ -9,7 +9,7 @@ import re
 import time
 import io
 from datetime import datetime
-from config import PRINTER_CODE, PRINTER_IP
+import config as app_config
 from urllib.parse import urlparse
 from logger import log
 
@@ -67,9 +67,9 @@ def download3mfFromCloud(url, destFile):
 
 def download3mfFromFTP(filename, destFile):
   log("Downloading 3MF file from FTP...")
-  ftp_host = PRINTER_IP
+  ftp_host = app_config.PRINTER_IP
   ftp_user = "bblp"
-  ftp_pass = PRINTER_CODE
+  ftp_pass = app_config.PRINTER_CODE
   local_path = destFile.name  # 🔹 Download into the current directory
   base_name = os.path.basename(filename)
   remote_paths = [f"/cache/{base_name}", f"/{base_name}", f"/sdcard/{base_name}"]
