@@ -2,11 +2,9 @@
 
 ## Letzte Aktualisierung
 
-**2026-08-21 09:16 (lokale Uhrzeit)**
+**2026-08-20 18:00 (lokale Uhrzeit)**
 
 ## Zweck
-
-> Einstieg und Gesamtübersicht: [START.md](START.md)
 
 Diese Dokumentation beschreibt den auf dem Entwicklungsrechner tatsächlich verwendeten und bis zum CMake-Configure-Schritt erfolgreich verifizierten Aufbau der .NET-nanoFramework-Toolchain für den ESP32-S3 des OpenSpoolMan-NFC-Projekts.
 
@@ -554,33 +552,17 @@ Während dieses Laufs wurden erfolgreich erkannt:
 
 ---
 
-# 8. Build – erfolgreich verifiziert
+# 8. Build
 
-Build:
+Build starten mit:
 
 ```powershell
 cmake --build --preset ESP32_S3_N16_NOPSRAM
 ```
 
-Der Build wurde nach Deaktivierung von Bluetooth vollständig erfolgreich abgeschlossen.
+Der Build läuft aktuell weit in den nativen nanoFramework-Build hinein und erzeugt bereits unter anderem die Partitionstabelle.
 
-Ergebnis:
-
-```text
-Successfully created esp32s3 image.
-Generated C:/nanoFramework/nf-interpreter/build/bootloader/bootloader.bin
-[1269/1269] Completed 'bootloader'
-```
-
-Erzeugte relevante Dateien:
-
-```text
-build\bootloader\bootloader.bin
-build\partition_table\partition-table.bin
-build\nanoCLR.bin
-```
-
-Die verwendete Partitionstabelle enthält unter anderem:
+Beispiel:
 
 ```text
 factory,app,factory,0x10000,1664K
@@ -590,81 +572,70 @@ config,data,littlefs,0x3c0000,256K
 
 ---
 
-# 9. Bluetooth-Blocker – gelöst
+# 9. Aktueller offener Build-Blocker
 
-Der erste Build stoppte in `nanoFramework.Device.Bluetooth`, weil GCC 14.2.0 nicht verwendete Variablen als Warnung meldete und nanoFramework mit `-Werror` baut.
+**Stand 2026-08-20 17:43: Der Build ist noch nicht vollständig erfolgreich.**
 
-Da Bluetooth für AMSHelper nicht benötigt wird, wurde im projektspezifischen Defconfig
+Er stoppt aktuell bei ungefähr:
 
 ```text
-CONFIG_API_NANOFRAMEWORK_DEVICE_BLUETOOTH=y
+[1033/1287]
 ```
 
-entfernt.
+in:
 
-Danach wurde der komplette Build-Cache gelöscht:
-
-```powershell
-Remove-Item -Recurse -Force .\build
+```text
+nanoFramework.Device.Bluetooth
 ```
 
-und erneut konfiguriert und gebaut.
+Fehler:
 
-Ergebnis: **vollständiger erfolgreicher Build**.
+```text
+error: variable 'pkey' set but not used [-Werror=unused-but-set-variable]
+cc1plus.exe: all warnings being treated as errors
+```
 
-Der nanoFramework-Upstream-Bluetooth-C++-Code wurde bewusst nicht verändert.
+Betroffene Datei:
+
+```text
+targets/ESP32/_nanoCLR/nanoFramework.Device.Bluetooth/
+sys_dev_ble_native_nanoFramework_Device_Bluetooth_Security.cpp
+```
+
+Dies ist aktuell der nächste zu lösende Schritt.
+
+Wichtig:
+
+- Die Toolchain selbst ist aufgebaut.
+- CMake-Konfiguration funktioniert.
+- ESP-IDF wird korrekt verwendet.
+- GCC/G++ funktionieren.
+- Ninja startet den Build.
+- Der Fehler ist jetzt ein echter C++-Compilerfehler im nanoFramework-Quellcode bzw. in der verwendeten Warnungs-/Compiler-Kombination und kein fehlendes Tool mehr.
+
+Für das OpenSpoolMan-NFC-Projekt ist Bluetooth nicht erforderlich. Daher ist eine mögliche nächste Optimierung, Bluetooth aus dem eigenen `ESP32_S3_N16_NOPSRAM`-Defconfig zu entfernen, statt diesen Bluetooth-Quellcode für unser NFC-Projekt mitzubauen.
 
 ---
 
-# 10. Flashen des eigenen Builds – erfolgreich verifiziert
+# 10. Flashen fertiger Firmware
 
-Vor dem Flashen wurde der ESP32-S3 vollständig gelöscht:
+Sobald der eigene Build vollständig erfolgreich ist, wird die erzeugte Firmware auf den ESP32-S3 über `COM8` geflasht.
 
-```powershell
-python -m esptool --chip esp32s3 --port COM8 erase_flash
-```
+Für offizielle nanoFramework-Images wurde bereits erfolgreich verifiziert, dass COM8 den ESP32-S3-ROM-Bootloader erreicht und Flashen funktioniert.
 
-Danach wurden die drei erzeugten Dateien des eigenen Builds geflasht:
+Beispiel des bereits funktionierenden Flashwegs:
 
 ```powershell
-python -m esptool `
-  --chip esp32s3 `
-  --port COM8 `
-  --baud 460800 `
-  --before default_reset `
-  --after hard_reset `
-  write_flash `
-  --flash_mode dio `
-  --flash_freq 40m `
-  --flash_size 16MB `
-  0x0000 .\build\bootloader\bootloader.bin `
-  0x8000 .\build\partition_table\partition-table.bin `
-  0x10000 .\build\nanoCLR.bin
+nanoff --target ESP32_S3_OCTAL `
+  --update `
+  --serialport COM8 `
+  --masserase `
+  --baud 115200
 ```
 
-Danach wurde das Gerät erfolgreich erkannt:
+Dieser offizielle Octal-Build ist für das konkrete Board jedoch **nicht als endgültige Firmware geeignet**, weil die Runtime nach dem Boot mit `IllegalInstruction` abstürzt.
 
-```text
-NanoDevices: valid device ESP32_S3_N16_NOPSRAM @ COM8
-
--- Connected .NET nanoFramework devices --
-ESP32_S3_N16_NOPSRAM @ COM8
-```
-
-Auch Visual Studio erkennt den Target im Device Explorer:
-
-![Visual Studio Device Explorer – ESP32_S3_N16_NOPSRAM auf COM8](img/amshelper/nanoframework-device-explorer-com8.png)
-
-Damit ist die komplette Kette verifiziert:
-
-```text
-eigener nanoFramework-Build
--> Flash
--> Wire Protocol
--> nanoff
--> Visual Studio Device Explorer
--> Managed C# Deployment/Debugging
-```
+COM8 selbst und der Flashweg sind dagegen bestätigt.
 
 ---
 
@@ -868,9 +839,7 @@ Zusätzliche Vorteile:
 
 ## Status
 
-**Verifiziert erfolgreich.**
-
-Nach dem Entfernen der Bluetooth-API aus dem eigenen Defconfig und dem vollständigen Neuaufbau lief der Build bis `1269/1269` erfolgreich durch. Der daraus erzeugte Build wurde anschließend auf den ESP32-S3 geflasht und wird über `COM8` sowohl von `nanoff` als auch von Visual Studio als `ESP32_S3_N16_NOPSRAM` erkannt.
+Die Änderung ist als nächster Build-Schritt festgelegt. Ob der vollständige Build danach fehlerfrei durchläuft, muss mit dem anschließenden Neuaufbau verifiziert werden. Sie darf bis dahin nicht als vollständig erfolgreicher Firmware-Build dokumentiert werden.
 
 
 ---
