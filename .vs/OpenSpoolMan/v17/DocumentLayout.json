@@ -1,7 +1,16 @@
 {
   "Version": 1,
   "WorkspaceRootPath": "C:\\Docker\\OpenSpoolMan\\",
-  "Documents": [],
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{B5E8E335-810B-4B88-9B48-6A860B509207}|AMSHelper\\AMSHelper.nfproj|c:\\docker\\openspoolman\\amshelper\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{B5E8E335-810B-4B88-9B48-6A860B509207}|AMSHelper\\AMSHelper.nfproj|solutionrelative:amshelper\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{B5E8E335-810B-4B88-9B48-6A860B509207}|AMSHelper\\AMSHelper.nfproj|c:\\docker\\openspoolman\\amshelper\\nfc\\nfccard.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{B5E8E335-810B-4B88-9B48-6A860B509207}|AMSHelper\\AMSHelper.nfproj|solutionrelative:amshelper\\nfc\\nfccard.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
   "DocumentGroupContainers": [
     {
       "Orientation": 0,
@@ -9,7 +18,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": -1,
+          "SelectedChildIndex": 3,
           "Children": [
             {
               "$type": "Bookmark",
@@ -18,6 +27,32 @@
             {
               "$type": "Bookmark",
               "Name": "ST:0:0:{aa2115a1-9712-457b-9047-dbb71ca2cdd2}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "NfcCard.cs",
+              "DocumentMoniker": "C:\\Docker\\OpenSpoolMan\\AMSHelper\\Nfc\\NfcCard.cs",
+              "RelativeDocumentMoniker": "AMSHelper\\Nfc\\NfcCard.cs",
+              "ToolTip": "C:\\Docker\\OpenSpoolMan\\AMSHelper\\Nfc\\NfcCard.cs",
+              "RelativeToolTip": "AMSHelper\\Nfc\\NfcCard.cs",
+              "ViewState": "AgIAAI0AAAAAAAAAAAAcwKIAAAAcAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-08-21T12:27:36.237Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\Docker\\OpenSpoolMan\\AMSHelper\\Program.cs",
+              "RelativeDocumentMoniker": "AMSHelper\\Program.cs",
+              "ToolTip": "C:\\Docker\\OpenSpoolMan\\AMSHelper\\Program.cs",
+              "RelativeToolTip": "AMSHelper\\Program.cs",
+              "ViewState": "AgIAANkAAAAAAAAAAAAswPQAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-08-21T11:39:02.743Z",
+              "EditorCaption": ""
             }
           ]
         }
