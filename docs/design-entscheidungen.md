@@ -54,7 +54,7 @@ Diese Datei ist die zentrale und verbindliche Sammlung dauerhafter Projektentsch
 - WLAN/Netzwerk ist eine eigene Klasse und gehört nicht in das gemeinsame ESP-/Hardwareobjekt.
 - Vier `AmsTray`-Objekte repräsentieren AMS-Slot 0–3.
 - `AmsTray` kapselt traybezogene PN532-/NTAG-/UID- und Zustandslogik; Reader wird intern initialisiert.
-- Ziel: ein gemeinsamer Scheduler-Thread für alle vier Trays, kein eigener Scheduler-Thread je Tray.
+- Kein eigener Heartbeat-/Scheduler-Thread pro Tray. Der frühere Tray-Heartbeat mit `0/1/2/3`-Ausgabe ist entfernt.
 - MQTT-Empfang und Tray-Aktionen bleiben logisch getrennt; Ereignisse werden bevorzugt.
 - `OpenSpoolManClient` kapselt HTTP-Kommunikation.
 - AMSHelper meldet UID + AMS-Slot und zusätzlich „Tray leer“.
@@ -78,6 +78,9 @@ Diese Datei ist die zentrale und verbindliche Sammlung dauerhafter Projektentsch
 - MIFARE Classic ist nicht Bestandteil der Zielimplementierung.
 - NTAG213/215/216 werden über NXP `GET_VERSION (0x60)` unterschieden.
 - NTAG21x `READ (0x30)` liefert vier Pages/16 Byte.
+- NFC-Polling für einen AMS-Ladevorgang startet bereits beim erkannten `ams_change_filament`-Auftrag bzw. sobald der Tray als `target` erkannt wird. `tray_reading_bits` ist nur noch zusätzliche Bestätigung und nicht der Starttrigger.
+- Beim PN532-Passive-Target-Scan wird `MaxRetryPassiveActivation = 0x00` verwendet, damit ein nicht gefundener Tag keinen zusätzlichen PN532-Retry verursacht.
+- Der Reader-Thread prüft ein neu gesetztes Polling-Signal mit kurzer Idle-Latenz (20 ms); aktive Scans werden mit 50 ms Pause gefahren.
 
 ## PN532-Hardware
 
