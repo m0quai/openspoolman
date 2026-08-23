@@ -164,3 +164,7 @@ secrets/
 /AMSHelper/bin/Debug
 /.vs/OpenSpoolMan/v17/.suo
 /.vs/OpenSpoolMan/v17/DocumentLayout.backup.json
+/AMSHelper/obj/Debug/AMSHelper.exe
+/AMSHelper/obj/Debug/AMSHelper.pdb
+/AMSHelper/obj/Debug/AMSHelper.pdbx
+/AMSHelper/obj/Debug/AMSHelper.pe
