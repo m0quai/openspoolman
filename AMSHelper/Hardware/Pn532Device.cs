@@ -42,7 +42,7 @@ namespace AMSHelper.Hardware
 
       public bool StartPolling()
       {
-         if (_polling)
+         if (!_enabled || !Config.Configuration.Nfc.Enabled || _polling)
          {
             return false;
          }
@@ -96,14 +96,14 @@ namespace AMSHelper.Hardware
                   {
                      MaxRetryAnswerToReset = 0x00,
                      MaxRetryPSL = 0x00,
-                     MaxRetryPassiveActivation = 0x01
+                     MaxRetryPassiveActivation = 0x00
                   });
 
                   while (true)
                   {
                      if (!_polling)
                      {
-                        Thread.Sleep(Config.Configuration.Nfc.ScanDelayMs);
+                        Thread.Sleep(Config.Configuration.Nfc.IdleDelayMs);
                         continue;
                      }
 
