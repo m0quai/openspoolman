@@ -25,7 +25,22 @@
     <Content Include="Dockerfile" />
   </ItemGroup>
   <ItemGroup>
+    <Folder Include="docs\" />
+    <Folder Include="docs\amshelper\" />
+    <Folder Include="docs\architektur\" />
+    <Folder Include="docs\bambu\" />
+    <Folder Include="docs\entwicklung\" />
+    <Folder Include="docs\img\" />
+    <Folder Include="docs\img\amshelper\" />
+    <Folder Include="docs\referenz\" />
     <Folder Include="scripts\" />
+    <Folder Include="static\" />
+    <Folder Include="static\css\" />
+    <Folder Include="static\css\fonts\" />
+    <Folder Include="static\js\" />
+    <Folder Include="static\prints\" />
+    <Folder Include="templates\" />
+    <Folder Include="templates\fragments\" />
     <Folder Include="tests\" />
   </ItemGroup>
   <ItemGroup>
