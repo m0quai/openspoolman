@@ -1,0 +1,69 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>nanoFramework.Networking.Sntp</name>
+    </assembly>
+    <members>
+        <member name="T:nanoFramework.Networking.Sntp">
+            <summary>
+            Provides a set of methods that help manage the Simple Network Time Protocol (SNTP) client on the target device.
+            </summary>
+            <remarks>
+            This class is specific to .NET nanoFramework.
+            </remarks>
+        </member>
+        <member name="M:nanoFramework.Networking.Sntp.Start">
+            <summary>
+            Starts the SNTP client.
+            After this method returns, a periodic call to the set SNTP servers is performed providing time synchronization.
+            </summary>
+            <remarks>
+            <para>
+             The system time is updated immediately after each successful execution.
+            </para>
+            <para>
+            By default the time synchronization occurs on a hourly rate.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:nanoFramework.Networking.Sntp.Stop">
+            <summary>
+            Stops the SNTP client.
+            The time synchronization will stop.
+            </summary>
+        </member>
+        <member name="M:nanoFramework.Networking.Sntp.UpdateNow">
+            <summary>
+            Performs an immediate request to synchronize time.
+            </summary>
+            <remarks>
+            This performs a restart of the internal service.
+            </remarks>
+        </member>
+        <member name="P:nanoFramework.Networking.Sntp.IsStarted">
+            <summary>
+            Get status of SNTP client.
+            </summary>
+        </member>
+        <member name="P:nanoFramework.Networking.Sntp.Server1">
+            <summary>
+            Gets or sets the host address of the main SNTP server.
+            By default it uses the server '0.pool.ntp.org'.
+            </summary>
+            <remarks>
+            For a list of some public NTP servers, see this link:
+            http://support.ntp.org/bin/view/Servers/NTPPoolServers
+            </remarks>
+        </member>
+        <member name="P:nanoFramework.Networking.Sntp.Server2">
+            <summary>
+            Gets or sets the host address of the backup SNTP server.
+            By default it uses the server '1.pool.ntp.org'.
+            </summary>
+            <remarks>
+            For a list of some public NTP servers, see this link:
+            http://support.ntp.org/bin/view/Servers/NTPPoolServers
+            </remarks>
+        </member>
+    </members>
+</doc>
