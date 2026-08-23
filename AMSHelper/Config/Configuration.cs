@@ -29,6 +29,8 @@ namespace AMSHelper.Config
             public const int MqttPort = 8883;
             public const int MqttKeepAliveSeconds = 60;
             public const int MqttReconnectDelayMs = 5000;
+            // Erster TLS-Versuch erst nach Abschluss der PN532-Hardwareinitialisierung.
+            public const int MqttStartupDelayMs = 4000;
             public const bool MqttUseTls = true;
             public const bool ValidateServerCertificate = false;
 
