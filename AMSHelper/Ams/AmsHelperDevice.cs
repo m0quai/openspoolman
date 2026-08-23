@@ -34,7 +34,6 @@ namespace AMSHelper.Ams
          var wifi = new WifiConnection();
          wifi.Connect();
 
-
          _mqtt = new BambuMqtt();
          _mqtt.StatusUpdateReceived += BambuStatusUpdateReceived;
 
@@ -51,6 +50,12 @@ namespace AMSHelper.Ams
                tray.Start();
             }
          }
+
+         // nanoFrameworks nativer TLS-Handshake kann bei einem fehlgeschlagenen
+         // Verbindungsversuch fuer viele Sekunden die Managed-Ausfuehrung stark
+         // ausbremsen. Deshalb bekommt die NFC-Hardware vor dem ersten MQTT/TLS-
+         // Versuch Zeit, ihre Initialisierung vollstaendig abzuschliessen.
+         Thread.Sleep(Config.Configuration.Bambu.MqttStartupDelayMs);
 
          _mqtt.Start();
 
