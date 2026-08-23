@@ -33,6 +33,7 @@ namespace AMSHelper.Ams
       private bool _isActiveTray;
       private bool _wasPreviousTray;
       private bool _isTargetTray;
+      private bool _nfcUidCapturedInCycle;
 
       public AmsTray(int index, BambuMqtt mqtt)
       {
@@ -91,11 +92,16 @@ namespace AMSHelper.Ams
 
          // Der P1S meldet ams_get_rfid fuer den betroffenen Slot deutlich frueher als
          // tray_reading_bits. Das ist deshalb unser fruehester belastbarer NFC-Trigger.
+         // Ein neues ams_get_rfid beginnt einen neuen NFC-Lesezyklus.
          if (update.HasCommand && update.Command == "ams_get_rfid" && update.HasCommandSlotId)
          {
             int rfidSlot = BambuStatusParser.ParseTrayId(update.CommandSlotId);
             if (rfidSlot == Index)
             {
+               _nfcUidCapturedInCycle = false;
+               _uid = string.Empty;
+               _lastSummary = string.Empty;
+
                if (StartNfcPolling())
                {
                   Write("[AMS] Tray " + Index + " -> NFC-Trigger durch ams_get_rfid");
@@ -188,7 +194,9 @@ namespace AMSHelper.Ams
                {
                   relevant = true;
                }
-               if (StartNfcPolling())
+
+               // Nach erfolgreicher UID-Erfassung desselben Zyklus nicht erneut pollen.
+               if (!_nfcUidCapturedInCycle && StartNfcPolling())
                {
                   relevant = true;
                }
@@ -265,7 +273,7 @@ namespace AMSHelper.Ams
             changed = true;
          }
 
-         if (StartNfcPolling())
+         if (!_nfcUidCapturedInCycle && StartNfcPolling())
          {
             changed = true;
          }
@@ -365,6 +373,7 @@ namespace AMSHelper.Ams
             _wasPreviousTray = false;
             _isTargetTray = false;
             _operation = TrayOperation.None;
+            _nfcUidCapturedInCycle = false;
             StopNfcPolling();
             return SetActivity("LEER");
          }
@@ -400,6 +409,11 @@ namespace AMSHelper.Ams
 
       private bool StartNfcPolling()
       {
+         if (_nfcUidCapturedInCycle)
+         {
+            return false;
+         }
+
          bool started = _pn532Device.StartPolling();
          if (started && _pn532Device.Enabled)
          {
@@ -433,8 +447,13 @@ namespace AMSHelper.Ams
          }
 
          _uid = uid;
+         _nfcUidCapturedInCycle = true;
          _lastSummary = string.Empty;
          Write("[NFC] Tray " + Index + " UID=" + uid);
+
+         // Fuer diesen ams_get_rfid-Zyklus reicht die erste gueltige UID.
+         // Sofort stoppen, damit der PN532 den ESP32 nicht weitere zig Sekunden belastet.
+         StopNfcPolling();
          WriteSummaryIfStable();
       }
 
