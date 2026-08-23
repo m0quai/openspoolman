@@ -68,7 +68,8 @@ namespace AMSHelper.Config
             public const int Tray3I2cSdaPin = -1;
             public const int Tray3I2cSclPin = -1;
             public const int Pn532I2cAddress = 0x24;
-            public const int ScanDelayMs = 200;
+            public const int IdleDelayMs = 20;
+            public const int ScanDelayMs = 50;
 
             // Fuer die spaetere 4x-PN532-SPI-Variante erst nach finaler Verdrahtung setzen.
             public const int SpiBus = 1;
