@@ -7,10 +7,6 @@ using SystemDebug = System.Diagnostics.Debug;
 
 namespace AMSHelper.Diagnostics
 {
-   /// <summary>
-   /// Central asynchronous debug output. Producers only enqueue messages;
-   /// exactly one writer thread accesses System.Diagnostics.Debug.
-   /// </summary>
    public static class TraceWriter
    {
       private sealed class TraceEntry
@@ -108,11 +104,14 @@ namespace AMSHelper.Diagnostics
                Thread.Sleep(AppConfiguration.Debugging.TraceWriterIdleDelayMs);
             }
 
-            long nowTicks = DateTime.UtcNow.Ticks;
-            if (nowTicks - lastHeartbeatTicks >= heartbeatIntervalTicks)
+            if (AppConfiguration.Debugging.TraceHeartbeatEnabled)
             {
-               WriteHeartbeat(queueCount, droppedEntries);
-               lastHeartbeatTicks = nowTicks;
+               long nowTicks = DateTime.UtcNow.Ticks;
+               if (nowTicks - lastHeartbeatTicks >= heartbeatIntervalTicks)
+               {
+                  WriteHeartbeat(queueCount, droppedEntries);
+                  lastHeartbeatTicks = nowTicks;
+               }
             }
          }
       }
