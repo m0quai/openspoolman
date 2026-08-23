@@ -53,6 +53,7 @@ namespace AMSHelper.Hardware
 
          _lastUid = string.Empty;
          _polling = true;
+         Debug.WriteLine("[NFC] Tray " + _trayIndex + " READ angefordert");
          return true;
       }
 
@@ -116,13 +117,18 @@ namespace AMSHelper.Hardware
 
                      try
                      {
+                        Debug.WriteLine("[NFC] Tray " + _trayIndex + " PN532 ReadPassiveTarget START");
                         byte[] data = pn532.ListPassiveTarget(MaxTarget.One, TargetBaudRate.B106kbpsTypeA);
+                        Debug.WriteLine("[NFC] Tray " + _trayIndex + " PN532 ReadPassiveTarget ENDE | bytes=" + (data == null ? "null" : data.Length.ToString()));
+
                         if (data != null && data.Length > 1)
                         {
                            var tag = pn532.TryDecode106kbpsTypeA(new SpanByte(data, 1, data.Length - 1));
                            if (tag != null)
                            {
                               string uid = BitConverter.ToString(tag.NfcId);
+                              Debug.WriteLine("[NFC] Tray " + _trayIndex + " PN532 Tag dekodiert | UID=" + uid);
+
                               if (_polling && uid != _lastUid)
                               {
                                  _lastUid = uid;
@@ -135,11 +141,15 @@ namespace AMSHelper.Hardware
 
                               pn532.ReleaseTarget(tag.TargetNumber);
                            }
+                           else
+                           {
+                              Debug.WriteLine("[NFC] Tray " + _trayIndex + " PN532 Antwort konnte nicht als Type-A-Tag dekodiert werden.");
+                           }
                         }
                      }
                      catch (Exception ex)
                      {
-                        Debug.WriteLine("[NFC] Tray " + _trayIndex + " Tag-Lesefehler: " + ex.Message);
+                        Debug.WriteLine("[NFC] Tray " + _trayIndex + " FEHLER bei ReadPassiveTarget: " + ex.GetType().FullName + " | " + ex.Message);
                      }
 
                      Thread.Sleep(Config.Configuration.Nfc.ScanDelayMs);
@@ -150,7 +160,7 @@ namespace AMSHelper.Hardware
          catch (Exception ex)
          {
             _initializationFailed = true;
-            Debug.WriteLine("[NFC] Tray " + _trayIndex + " PN532 Fehler: " + ex.Message);
+            Debug.WriteLine("[NFC] Tray " + _trayIndex + " PN532 Fehler: " + ex.GetType().FullName + " | " + ex.Message);
          }
       }
 
