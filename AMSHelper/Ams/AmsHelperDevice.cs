@@ -55,7 +55,7 @@ namespace AMSHelper.Ams
          // Verbindungsversuch fuer viele Sekunden die Managed-Ausfuehrung stark
          // ausbremsen. Deshalb bekommt die NFC-Hardware vor dem ersten MQTT/TLS-
          // Versuch Zeit, ihre Initialisierung vollstaendig abzuschliessen.
-         Thread.Sleep(Config.Configuration.Bambu.MqttStartupDelayMs);
+         Thread.Sleep(Config.Configuration.Bambu.InitialConnectDelayMs);
 
          _mqtt.Start();
 
