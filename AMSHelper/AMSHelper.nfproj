@@ -15,6 +15,7 @@
     <RootNamespace>AMSHelper</RootNamespace>
     <AssemblyName>AMSHelper</AssemblyName>
     <TargetFrameworkVersion>v1.0</TargetFrameworkVersion>
+    <NoWarn>$(NoWarn);MSB3276</NoWarn>
   </PropertyGroup>
   <Import Project="$(NanoFrameworkProjectSystemPath)NFProjectSystem.props" Condition="Exists('$(NanoFrameworkProjectSystemPath)NFProjectSystem.props')" />
   <ItemGroup>
