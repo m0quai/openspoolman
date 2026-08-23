@@ -76,19 +76,19 @@ namespace AMSHelper.Mqtt
          Debug.WriteLine("[BambuMQTT] Verbinde " + Configuration.Bambu.PrinterIp + ":" + Configuration.Bambu.MqttPort + " ...");
 
          _client = new MqttClient(
-             Configuration.Bambu.PrinterIp ,
-             Configuration.Bambu.MqttPort ,
-             Configuration.Bambu.MqttUseTls ,
-             null ,
-             null ,
+             Configuration.Bambu.PrinterIp,
+             Configuration.Bambu.MqttPort,
+             Configuration.Bambu.MqttUseTls,
+             null,
+             null,
              MqttSslProtocols.TLSv1_2);
 
          _client.Settings.ValidateServerCertificate = Configuration.Bambu.ValidateServerCertificate;
          _client.MqttMsgPublishReceived += OnMessageReceived;
 
          MqttReasonCode result = _client.Connect(
-             Configuration.Bambu.MqttClientId ,
-             Configuration.Bambu.MqttUsername ,
+             Configuration.Bambu.MqttClientId,
+             Configuration.Bambu.MqttUsername,
              Configuration.Bambu.LanAccessCode);
 
          if (result != MqttReasonCode.Success)
@@ -97,7 +97,7 @@ namespace AMSHelper.Mqtt
          }
 
          _client.Subscribe(
-             new string[] { Configuration.Bambu.MqttReportTopic } ,
+             new string[] { Configuration.Bambu.MqttReportTopic },
              new MqttQoSLevel[] { MqttQoSLevel.AtMostOnce });
 
          Debug.WriteLine("[BambuMQTT] Verbunden.");
@@ -128,14 +128,19 @@ namespace AMSHelper.Mqtt
          Debug.WriteLine("[BambuMQTT] Gesamtstatus angefordert.");
       }
 
-      private void OnMessageReceived(object sender ,MqttMsgPublishEventArgs e)
+      private void OnMessageReceived(object sender, MqttMsgPublishEventArgs e)
       {
          // Wichtig auf nanoFramework: pro MQTT-Nachricht nur EINEN Payload-String erzeugen.
-         // Die fruehere Telemetrie-Entfernung hat fuer jedes Feld neue, teils sehr grosse
-         // Strings erzeugt und dadurch den kleinen Managed Heap fragmentiert.
-         string payload = e.Message == null ? string.Empty : Encoding.UTF8.GetString(e.Message ,0 ,e.Message.Length);
+         string payload = e.Message == null ? string.Empty : Encoding.UTF8.GetString(e.Message, 0, e.Message.Length);
 
          BambuStatusUpdate update = _parser.Parse(payload);
+
+         // TEMPORAERE Diagnose: Rohwerte vor jeder fachlichen Tray-Auswertung ausgeben.
+         // Dadurch ist sichtbar, wann der P1S die einzelnen AMS-Zustandsfelder wirklich sendet.
+         if (Configuration.Debugging.DumpRawAmsStatusFields)
+         {
+            DumpRawAmsStatusFields(update);
+         }
 
          if (StatusUpdateReceived != null)
          {
@@ -149,29 +154,22 @@ namespace AMSHelper.Mqtt
 
          bool hasAmsInformation = HasAmsInformation(update);
 
-         // Die reine Bestaetigung einer Bambu-RFID-Abfrage ist fuer den AMSHelper
-         // kein fachlicher Status und wird nicht geloggt.
          if (update != null && update.HasCommand && update.Command == "ams_get_rfid")
          {
             return;
          }
 
-         // Wenn der fachliche AMS-Interpreter bereits eine verstaendliche [AMS]-Meldung
-         // fuer genau diesen Report ausgegeben hat, keinen zusaetzlichen RAW-Report drucken.
          if (update != null && update.AmsOutputProduced)
          {
             return;
          }
 
-         // Jeder push_status ohne neue fachliche AMS-Ausgabe wird als Heartbeat sichtbar.
-         // So bleibt erkennbar, dass MQTT weiterhin Reports empfaengt.
          if (update != null && update.HasCommand && update.Command == "push_status")
          {
             Debug.Write(".");
             return;
          }
 
-         // Reine Standard-Telemetrie bleibt sichtbar als Heartbeat, ohne den Log zu fluten.
          if (!hasAmsInformation && !Configuration.Debugging.DumpTelemetryOnlyBambuReports)
          {
             Debug.Write(".");
@@ -193,6 +191,77 @@ namespace AMSHelper.Mqtt
 
          Debug.WriteLine("================ END BAMBU MQTT =====================");
          Debug.WriteLine("");
+      }
+
+      private static void DumpRawAmsStatusFields(BambuStatusUpdate update)
+      {
+         if (update == null)
+         {
+            return;
+         }
+
+         bool hasRawAmsState = update.HasAmsStatus || update.HasActiveTray || update.HasTargetTray ||
+             update.HasPreviousTray || update.HasTrayReadingBits || update.HasTrayReadDoneBits ||
+             update.HasTrayExistBits || update.HasCommandSlotId || update.HasCommandTarget ||
+             (update.HasCommand && update.Command != null && update.Command.IndexOf("ams_") == 0);
+
+         if (!hasRawAmsState)
+         {
+            return;
+         }
+
+         string line = "[AMS-RAW]";
+
+         if (update.HasCommand)
+         {
+            line += " cmd=" + update.Command;
+         }
+         if (update.HasAmsStatus)
+         {
+            line += " ams_status=" + update.AmsStatus;
+         }
+         if (update.HasTargetTray)
+         {
+            line += " tray_tar=" + update.TargetTray;
+         }
+         if (update.HasActiveTray)
+         {
+            line += " tray_now=" + update.ActiveTray;
+         }
+         if (update.HasPreviousTray)
+         {
+            line += " tray_pre=" + update.PreviousTray;
+         }
+         if (update.HasTrayReadingBits)
+         {
+            line += " reading=" + update.TrayReadingBits;
+         }
+         if (update.HasTrayReadDoneBits)
+         {
+            line += " read_done=" + update.TrayReadDoneBits;
+         }
+         if (update.HasTrayExistBits)
+         {
+            line += " exist=" + update.TrayExistBits;
+         }
+         if (update.HasCommandSlotId)
+         {
+            line += " slot_id=" + update.CommandSlotId;
+         }
+         if (update.HasCommandTarget)
+         {
+            line += " target=" + update.CommandTarget;
+         }
+         if (update.HasResult)
+         {
+            line += " result=" + update.Result;
+         }
+         if (update.HasReason)
+         {
+            line += " reason=" + update.Reason;
+         }
+
+         Debug.WriteLine(line);
       }
 
       private static bool HasAmsInformation(BambuStatusUpdate update)
@@ -227,8 +296,6 @@ namespace AMSHelper.Mqtt
 
       private static void DumpCompactAmsReport(BambuStatusUpdate update)
       {
-         // Keine Standard-Telemetrie. Numerische AMS-Werte werden direkt
-         // mit ihrer fachlichen Bedeutung ausgegeben.
          if (update.HasCommand)
          {
             Debug.WriteLine("command=" + update.Command);
