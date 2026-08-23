@@ -88,6 +88,11 @@ namespace AMSHelper.Config
             // keine fachlich relevanten Daten mehr enthalten, nicht ausgegeben.
             public const bool DumpTelemetryOnlyBambuReports = false;
             public const bool DumpNtagPages = true;
+
+            // Debug-Ausgabe darf die Fachthreads nicht blockieren oder unkontrolliert RAM belegen.
+            // Bei voller Queue wird der aelteste Eintrag verworfen.
+            public const int TraceQueueSize = 128;
+            public const int TraceWriterIdleDelayMs = 20;
         }
     }
 }
