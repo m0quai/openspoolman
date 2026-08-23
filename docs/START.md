@@ -1,6 +1,6 @@
 # START – AMSHelper / ESP32-S3 / NFC
 
-**Stand: 2026-08-21 09:16 (Europe/Berlin)**
+**Stand: 2026-08-21 15:12 (Europe/Berlin)**
 
 Diese Datei ist der Einstiegspunkt in die Projektdokumentation. Sie beschreibt, **was aktuell funktioniert, was entschieden wurde, welche Dokumente wofür zuständig sind und in welcher Reihenfolge sie gelesen werden sollten**.
 
@@ -30,7 +30,7 @@ Folgende Punkte sind bereits praktisch getestet und funktionieren:
 
 ![Aktuelles AMSHelper-Projekt](img/amshelper/amshelper-project.png)
 
-Der nächste noch nicht verifizierte Hardware-Schritt ist der **erste einzelne PN532 über I2C**.
+Der einzelne PN532 über I2C ist inzwischen **erfolgreich verifiziert**. Ein echter NTAG215 wurde per GET_VERSION erkannt und dessen Pages 0–3 wurden erfolgreich gelesen. Aktueller Schritt ist das Lesen und Dekodieren von NDEF ab Page 4.
 
 ---
 
@@ -78,7 +78,13 @@ Enthält den bestätigten WLAN-Stand:
 
 WLAN gilt aktuell als **funktionierend und abgeschlossenes Basisthema**.
 
-### 3.4 nanoFramework-Build und Toolchain
+### 3.4 PN532 / NTAG215
+
+➡️ **[agent-kontext/pn532-ntag215.md](agent-kontext/pn532-ntag215.md)**
+
+Enthält den aktuellen, praktisch verifizierten PN532-/NTAG215-Stand einschließlich Scan-Retries, GET_VERSION, READ und NDEF-Fortsetzung.
+
+### 3.5 nanoFramework-Build und Toolchain
 
 ➡️ **[esp32-nanoframework-build.md](esp32-nanoframework-build.md)**
 
@@ -237,9 +243,12 @@ WLAN-/Netzwerkänderungen zusätzlich in:
 | WLAN | ✅ bestätigt |
 | DHCP/IP | ✅ bestätigt |
 | DNS | ✅ bestätigt |
-| PN532 einzeln per I2C | ⏳ nächster Test |
-| NTAG215 UID lesen | ⏳ geplant |
-| NDEF lesen/schreiben | ⏳ geplant |
+| PN532 einzeln per I2C | ✅ bestätigt |
+| NTAG215 UID lesen | ✅ bestätigt |
+| NTAG215 GET_VERSION / Typ | ✅ bestätigt |
+| NTAG215 Pages 0–3 lesen | ✅ bestätigt |
+| NDEF lesen/dekodieren | 🔄 aktuell |
+| NDEF schreiben | ⏳ geplant |
 | TCA9548A | ⏳ geplant |
 | 4× PN532 | ⏳ geplant |
 | OpenSpoolMan-Übertragung vom ESP32 | ⏳ geplant |

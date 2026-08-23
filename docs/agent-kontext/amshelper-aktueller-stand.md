@@ -2,7 +2,7 @@
 
 > Zur Gesamtübersicht: [START.md](../START.md)
 
-Stand: 2026-08-21 08:49 (Europe/Berlin)
+Stand: 2026-08-21 15:12 (Europe/Berlin)
 
 ## Ziel
 
@@ -106,3 +106,21 @@ Diese Vier-Reader-Schaltung ist noch nicht praktisch getestet.
 5. NDEF-URL mit UID schreiben/lesen.
 6. Danach auf vier Reader über einen I2C-Multiplexer erweitern.
 7. Anschließend UID + AMS-Slot an OpenSpoolMan übertragen.
+
+
+## PN532 / NTAG215 – Stand 15:12
+
+Der Einzelreader-Test ist vollständig erfolgreich: PN532 über I2C1 GPIO8/GPIO9, Chip-ID `0x32`, Firmware `1.6`, `IsPn532=True`.
+
+Der NTAG215 wird über `GET_VERSION (0x60)` typisiert. Die Pages 0–3 wurden erfolgreich per `READ (0x30)` gelesen:
+
+```text
+Page 0: 04-CE-9C-DE
+Page 1: 34-D8-2A-81
+Page 2: 47-48-00-00
+Page 3: E1-10-3E-00
+```
+
+Der nächste Schritt ist NDEF ab Page 4 lesen/dekodieren und anschließend die AMSHelper-URL schreiben.
+
+Details: [pn532-ntag215.md](pn532-ntag215.md)

@@ -2,7 +2,7 @@
 
 > Zur Gesamtübersicht: [START.md](../START.md)
 
-Stand: 2026-08-21 08:49
+Stand: 2026-08-21 15:12
 
 ## ESP32-S3
 
@@ -48,3 +48,8 @@ Das eigene nanoFramework-Target wird in Visual Studio korrekt erkannt:
 Das neu angelegte und funktionierende nanoFramework-Projekt:
 
 ![AMSHelper-Projekt in Visual Studio](../img/amshelper/amshelper-project.png)
+
+
+## PN532-Verbindung praktisch bestätigt
+
+Der Einzelreader funktioniert praktisch mit 3.3 V, GND, SDA=GPIO8 und SCL=GPIO9. Firmwareabfrage, NTAG215-Erkennung und Speicherzugriff sind bestätigt.

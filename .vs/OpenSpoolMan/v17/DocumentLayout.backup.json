@@ -3,12 +3,12 @@
   "WorkspaceRootPath": "C:\\Docker\\OpenSpoolMan\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{B5E8E335-810B-4B88-9B48-6A860B509207}|AMSHelper\\AMSHelper.nfproj|c:\\docker\\openspoolman\\amshelper\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{B5E8E335-810B-4B88-9B48-6A860B509207}|AMSHelper\\AMSHelper.nfproj|solutionrelative:amshelper\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{B5E8E335-810B-4B88-9B48-6A860B509207}|AMSHelper\\AMSHelper.nfproj|c:\\docker\\openspoolman\\amshelper\\ams\\amstray.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{B5E8E335-810B-4B88-9B48-6A860B509207}|AMSHelper\\AMSHelper.nfproj|solutionrelative:amshelper\\ams\\amstray.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{B5E8E335-810B-4B88-9B48-6A860B509207}|AMSHelper\\AMSHelper.nfproj|c:\\docker\\openspoolman\\amshelper\\nfc\\nfccard.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{B5E8E335-810B-4B88-9B48-6A860B509207}|AMSHelper\\AMSHelper.nfproj|solutionrelative:amshelper\\nfc\\nfccard.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{B5E8E335-810B-4B88-9B48-6A860B509207}|AMSHelper\\AMSHelper.nfproj|c:\\docker\\openspoolman\\amshelper\\hardware\\pn532device.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{B5E8E335-810B-4B88-9B48-6A860B509207}|AMSHelper\\AMSHelper.nfproj|solutionrelative:amshelper\\hardware\\pn532device.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     }
   ],
   "DocumentGroupContainers": [
@@ -18,7 +18,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 3,
+          "SelectedChildIndex": 2,
           "Children": [
             {
               "$type": "Bookmark",
@@ -30,28 +30,28 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
-              "Title": "NfcCard.cs",
-              "DocumentMoniker": "C:\\Docker\\OpenSpoolMan\\AMSHelper\\Nfc\\NfcCard.cs",
-              "RelativeDocumentMoniker": "AMSHelper\\Nfc\\NfcCard.cs",
-              "ToolTip": "C:\\Docker\\OpenSpoolMan\\AMSHelper\\Nfc\\NfcCard.cs",
-              "RelativeToolTip": "AMSHelper\\Nfc\\NfcCard.cs",
-              "ViewState": "AgIAAI0AAAAAAAAAAAAcwKIAAAAcAAAAAAAAAA==",
+              "DocumentIndex": 0,
+              "Title": "AmsTray.cs",
+              "DocumentMoniker": "C:\\Docker\\OpenSpoolMan\\AMSHelper\\Ams\\AmsTray.cs",
+              "RelativeDocumentMoniker": "AMSHelper\\Ams\\AmsTray.cs",
+              "ToolTip": "C:\\Docker\\OpenSpoolMan\\AMSHelper\\Ams\\AmsTray.cs",
+              "RelativeToolTip": "AMSHelper\\Ams\\AmsTray.cs",
+              "ViewState": "AgIAAB8AAAAAAAAAAAAgwAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-21T12:27:36.237Z",
+              "WhenOpened": "2026-08-22T13:12:51.976Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
-              "Title": "Program.cs",
-              "DocumentMoniker": "C:\\Docker\\OpenSpoolMan\\AMSHelper\\Program.cs",
-              "RelativeDocumentMoniker": "AMSHelper\\Program.cs",
-              "ToolTip": "C:\\Docker\\OpenSpoolMan\\AMSHelper\\Program.cs",
-              "RelativeToolTip": "AMSHelper\\Program.cs",
-              "ViewState": "AgIAANkAAAAAAAAAAAAswPQAAAAAAAAAAAAAAA==",
+              "DocumentIndex": 1,
+              "Title": "Pn532Device.cs",
+              "DocumentMoniker": "C:\\Docker\\OpenSpoolMan\\AMSHelper\\Hardware\\Pn532Device.cs",
+              "RelativeDocumentMoniker": "AMSHelper\\Hardware\\Pn532Device.cs",
+              "ToolTip": "C:\\Docker\\OpenSpoolMan\\AMSHelper\\Hardware\\Pn532Device.cs",
+              "RelativeToolTip": "AMSHelper\\Hardware\\Pn532Device.cs",
+              "ViewState": "AgIAAAwAAAAAAAAAAAAtwCEAAABVAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-08-21T11:39:02.743Z",
+              "WhenOpened": "2026-08-22T13:07:44.499Z",
               "EditorCaption": ""
             }
           ]
