@@ -54,6 +54,8 @@ Diese Datei ist die zentrale und verbindliche Sammlung dauerhafter Projektentsch
 - WLAN/Netzwerk ist eine eigene Klasse und gehört nicht in das gemeinsame ESP-/Hardwareobjekt.
 - Vier `AmsTray`-Objekte repräsentieren AMS-Slot 0–3.
 - `AmsTray` kapselt traybezogene PN532-/NTAG-/UID- und Zustandslogik; Reader wird intern initialisiert.
+- **AMSHelper interessiert fachlich ausschließlich die lokale PN532-/NTAG-UID und der Tray-Zustand. Material, Farbe, Bambu-Tag-UID, Restmenge und sonstige Spulendaten werden im AMSHelper nicht benötigt und nicht als Tray-Fachzustand geführt.**
+- Beim initialen Gesamtstatus werden alle vier Trays einmal mit Belegungszustand, PN532-Readerstatus und – falls bereits vorhanden – PN532-UID ausgegeben.
 - Kein eigener Heartbeat-/Scheduler-Thread pro Tray. Der frühere Tray-Heartbeat mit `0/1/2/3`-Ausgabe ist entfernt.
 - MQTT-Empfang und Tray-Aktionen bleiben logisch getrennt; Ereignisse werden bevorzugt.
 - `OpenSpoolManClient` kapselt HTTP-Kommunikation.
@@ -68,8 +70,7 @@ Diese Datei ist die zentrale und verbindliche Sammlung dauerhafter Projektentsch
 - Producer legen `Write`-/`WriteLine`-Einträge nur in eine Queue; dadurch soll Debug-Ausgabe MQTT/NFC nicht unnötig blockieren.
 - Die Trace-Queue ist auf **128 Einträge** begrenzt. Bei Überlauf wird der **älteste** Eintrag verworfen; Debug-Ausgabe darf die Gerätefunktion nicht gefährden.
 - Der TraceWriter führt einen Drop-Zähler für verworfene Einträge.
-- Der zentrale Heartbeat wird alle 5 Sekunden ausgegeben und enthält freien internen ESP32-Speicher, größten freien Block, Queue-Füllstand und Drop-Zähler.
-- Die Speicherwerte werden über `nanoFramework.Hardware.Esp32.NativeMemory` ermittelt.
+- Der zentrale Speicher-/Queue-Heartbeat ist derzeit **temporär deaktiviert** (`TraceHeartbeatEnabled = false`). Die Trace-Queue selbst bleibt aktiv.
 
 ## NFC / NTAG215
 
@@ -78,7 +79,8 @@ Diese Datei ist die zentrale und verbindliche Sammlung dauerhafter Projektentsch
 - MIFARE Classic ist nicht Bestandteil der Zielimplementierung.
 - NTAG213/215/216 werden über NXP `GET_VERSION (0x60)` unterschieden.
 - NTAG21x `READ (0x30)` liefert vier Pages/16 Byte.
-- NFC-Polling für einen AMS-Ladevorgang startet bereits beim erkannten `ams_change_filament`-Auftrag bzw. sobald der Tray als `target` erkannt wird. `tray_reading_bits` ist nur noch zusätzliche Bestätigung und nicht der Starttrigger.
+- Der früheste bestätigte NFC-Trigger des P1S ist `ams_get_rfid slot_id=<Tray>`; dieser startet den PN532-Lesezyklus.
+- Pro `ams_get_rfid`-Zyklus wird genau eine gültige PN532-UID erfasst. Nach erfolgreichem Read endet das PN532-Polling sofort; spätere `tray_reading_bits` desselben Zyklus starten es nicht erneut.
 - Beim PN532-Passive-Target-Scan wird `MaxRetryPassiveActivation = 0x00` verwendet, damit ein nicht gefundener Tag keinen zusätzlichen PN532-Retry verursacht.
 - Der Reader-Thread prüft ein neu gesetztes Polling-Signal mit kurzer Idle-Latenz (20 ms); aktive Scans werden mit 50 ms Pause gefahren.
 
