@@ -29,10 +29,9 @@ namespace AMSHelper.Config
             public const int MqttPort = 8883;
             public const int MqttKeepAliveSeconds = 60;
             public const int MqttReconnectDelayMs = 5000;
-            // Erster TLS-Versuch erst nach Abschluss der PN532-Hardwareinitialisierung.
-            public const int MqttStartupDelayMs = 4000;
             public const bool MqttUseTls = true;
             public const bool ValidateServerCertificate = false;
+            public const int InitialConnectDelayMs = 4000;
 
             public static string MqttReportTopic => "device/" + PrinterSerial + "/report";
             public static string MqttRequestTopic => "device/" + PrinterSerial + "/request";
@@ -41,8 +40,6 @@ namespace AMSHelper.Config
 
         public static class OpenSpoolMan
         {
-            // Host/IP des Rechners, auf dem OpenSpoolMan aus Sicht des ESP32 erreichbar ist.
-            // Nicht localhost verwenden, wenn OpenSpoolMan auf einem anderen Rechner laeuft.
             public const string Host = "";
             public const int Port = 8000;
             public const int SpoolmanPort = 7912;
@@ -73,7 +70,6 @@ namespace AMSHelper.Config
             public const int IdleDelayMs = 20;
             public const int ScanDelayMs = 50;
 
-            // Fuer die spaetere 4x-PN532-SPI-Variante erst nach finaler Verdrahtung setzen.
             public const int SpiBus = 1;
             public const int SpiClockPin = -1;
             public const int SpiMosiPin = -1;
@@ -87,17 +83,13 @@ namespace AMSHelper.Config
         public static class Debugging
         {
             public const bool DumpAllBambuReports = true;
-            // TEMPORAER: kompakte Rohwerte der AMS-Zustandsfelder vor der fachlichen Auswertung.
             public const bool DumpRawAmsStatusFields = true;
-            // Wenn false, werden /report-Pakete, die nach Entfernen der Standard-Telemetrie
-            // keine fachlich relevanten Daten mehr enthalten, nicht ausgegeben.
             public const bool DumpTelemetryOnlyBambuReports = false;
             public const bool DumpNtagPages = true;
 
-            // Debug-Ausgabe darf die Fachthreads nicht blockieren oder unkontrolliert RAM belegen.
-            // Bei voller Queue wird der aelteste Eintrag verworfen.
             public const int TraceQueueSize = 128;
             public const int TraceWriterIdleDelayMs = 20;
+            public const bool TraceHeartbeatEnabled = false;
         }
     }
 }
