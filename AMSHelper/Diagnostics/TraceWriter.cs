@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Threading;
 using AMSHelper.Config;
@@ -71,7 +72,7 @@ namespace AMSHelper.Diagnostics
 
       private static void RunWriter()
       {
-         int heartbeatElapsedMs = 0;
+         int lastHeartbeat = Environment.TickCount;
 
          while (true)
          {
@@ -104,13 +105,13 @@ namespace AMSHelper.Diagnostics
             else
             {
                Thread.Sleep(Configuration.Debugging.TraceWriterIdleDelayMs);
-               heartbeatElapsedMs += Configuration.Debugging.TraceWriterIdleDelayMs;
             }
 
-            if (heartbeatElapsedMs >= Configuration.Device.TrayHeartbeatIntervalMs)
+            int now = Environment.TickCount;
+            if (unchecked(now - lastHeartbeat) >= Configuration.Device.TrayHeartbeatIntervalMs)
             {
                WriteHeartbeat(queueCount, droppedEntries);
-               heartbeatElapsedMs = 0;
+               lastHeartbeat = now;
             }
          }
       }
@@ -132,9 +133,6 @@ namespace AMSHelper.Diagnostics
    }
 }
 
-// Existing Debug.Write/WriteLine calls resolve to these namespace-local facades.
-// This keeps producer code small while guaranteeing that all physical debug
-// output is serialized by TraceWriter.
 namespace AMSHelper.Ams
 {
    internal static class Debug
