@@ -61,6 +61,16 @@ Diese Datei ist die zentrale und verbindliche Sammlung dauerhafter Projektentsch
 - UID→Spool-Auflösung erfolgt ausschließlich serverseitig in OpenSpoolMan/Spoolman.
 - C#-`if`-Anweisungen werden immer mit `{ }` geschrieben.
 
+### Debug-/Trace-Ausgabe
+
+- Fachthreads (MQTT, NFC, AMS, WLAN usw.) schreiben nicht physisch parallel in `System.Diagnostics.Debug`.
+- Alle Debug-Ausgaben laufen über einen zentralen `TraceWriter` mit genau einem Writer-Thread.
+- Producer legen `Write`-/`WriteLine`-Einträge nur in eine Queue; dadurch soll Debug-Ausgabe MQTT/NFC nicht unnötig blockieren.
+- Die Trace-Queue ist auf **128 Einträge** begrenzt. Bei Überlauf wird der **älteste** Eintrag verworfen; Debug-Ausgabe darf die Gerätefunktion nicht gefährden.
+- Der TraceWriter führt einen Drop-Zähler für verworfene Einträge.
+- Der zentrale Heartbeat wird alle 5 Sekunden ausgegeben und enthält freien internen ESP32-Speicher, größten freien Block, Queue-Füllstand und Drop-Zähler.
+- Die Speicherwerte werden über `nanoFramework.Hardware.Esp32.NativeMemory` ermittelt.
+
 ## NFC / NTAG215
 
 - Zieltag ist NTAG215; Hardware-UID ist die stabile Identität.
