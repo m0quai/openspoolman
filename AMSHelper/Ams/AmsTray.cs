@@ -89,6 +89,21 @@ namespace AMSHelper.Ams
             }
          }
 
+         // Der P1S meldet ams_get_rfid fuer den betroffenen Slot deutlich frueher als
+         // tray_reading_bits. Das ist deshalb unser fruehester belastbarer NFC-Trigger.
+         if (update.HasCommand && update.Command == "ams_get_rfid" && update.HasCommandSlotId)
+         {
+            int rfidSlot = BambuStatusParser.ParseTrayId(update.CommandSlotId);
+            if (rfidSlot == Index)
+            {
+               if (StartNfcPolling())
+               {
+                  Write("[AMS] Tray " + Index + " -> NFC-Trigger durch ams_get_rfid");
+                  relevant = true;
+               }
+            }
+         }
+
          if (update.HasCommand && update.Command == "ams_change_filament")
          {
             int requested = GetRequestedTray(update);
@@ -147,7 +162,8 @@ namespace AMSHelper.Ams
 
             if (_isActiveTray)
             {
-               StopNfcPolling();
+               // tray_now bedeutet nur, dass der Tray aktuell aktiv ist. Das ist kein
+               // verlaessliches Ende des RFID-Lesefensters und stoppt NFC daher nicht.
                if (_operation != TrayOperation.Unloading && SetActivity("GELADEN / aktiv"))
                {
                   relevant = true;
@@ -177,7 +193,7 @@ namespace AMSHelper.Ams
                   relevant = true;
                }
             }
-            else if (_operation == TrayOperation.None || _isActiveTray)
+            else
             {
                bool pollingStopped = StopNfcPolling();
                if (_activity == "RFID wird gelesen")
@@ -418,6 +434,7 @@ namespace AMSHelper.Ams
 
          _uid = uid;
          _lastSummary = string.Empty;
+         Write("[NFC] Tray " + Index + " UID=" + uid);
          WriteSummaryIfStable();
       }
 
