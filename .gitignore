@@ -162,3 +162,5 @@ secrets/
 *.zip
 /.vs/OpenSpoolMan/v17/.suo
 /AMSHelper/bin/Debug
+/.vs/OpenSpoolMan/v17/.suo
+/.vs/OpenSpoolMan/v17/DocumentLayout.backup.json
