@@ -18,6 +18,8 @@ namespace AMSHelper.Hardware
       private readonly bool _enabled;
       private Thread _readerThread;
       private bool _polling;
+      private bool _initialized;
+      private bool _initializationFailed;
       private string _lastUid = string.Empty;
 
       public Pn532Device(int trayIndex)
@@ -28,6 +30,8 @@ namespace AMSHelper.Hardware
 
       public bool Enabled { get { return _enabled; } }
       public bool IsPolling { get { return _polling; } }
+      public bool IsInitialized { get { return !_enabled || _initialized; } }
+      public bool InitializationFailed { get { return _initializationFailed; } }
 
       public void Start()
       {
@@ -42,7 +46,7 @@ namespace AMSHelper.Hardware
 
       public bool StartPolling()
       {
-         if (!_enabled || !Config.Configuration.Nfc.Enabled || _polling)
+         if (!_enabled || !Config.Configuration.Nfc.Enabled || !_initialized || _polling)
          {
             return false;
          }
@@ -72,6 +76,7 @@ namespace AMSHelper.Hardware
          int sclPin = GetSclPin(_trayIndex);
          if (sdaPin < 0 || sclPin < 0)
          {
+            _initializationFailed = true;
             Debug.WriteLine("[NFC] Tray " + _trayIndex + " I2C-Pins sind nicht konfiguriert.");
             return;
          }
@@ -98,6 +103,8 @@ namespace AMSHelper.Hardware
                      MaxRetryPSL = 0x00,
                      MaxRetryPassiveActivation = 0x00
                   });
+
+                  _initialized = true;
 
                   while (true)
                   {
@@ -142,6 +149,7 @@ namespace AMSHelper.Hardware
          }
          catch (Exception ex)
          {
+            _initializationFailed = true;
             Debug.WriteLine("[NFC] Tray " + _trayIndex + " PN532 Fehler: " + ex.Message);
          }
       }
