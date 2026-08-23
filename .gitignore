@@ -168,3 +168,5 @@ secrets/
 /AMSHelper/obj/Debug/AMSHelper.pdb
 /AMSHelper/obj/Debug/AMSHelper.pdbx
 /AMSHelper/obj/Debug/AMSHelper.pe
+/AMSHelper/obj/Debug/AMSHelper.nfproj.AssemblyReference.cache
+/.vs/OpenSpoolMan/v17/DocumentLayout.json
