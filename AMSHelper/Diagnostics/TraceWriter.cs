@@ -1,8 +1,8 @@
 using System;
 using System.Collections;
 using System.Threading;
-using AMSHelper.Config;
 using nanoFramework.Hardware.Esp32;
+using AppConfiguration = AMSHelper.Config.Configuration;
 using SystemDebug = System.Diagnostics.Debug;
 
 namespace AMSHelper.Diagnostics
@@ -56,7 +56,7 @@ namespace AMSHelper.Diagnostics
 
          lock (SyncRoot)
          {
-            if (Entries.Count >= Configuration.Debugging.TraceQueueSize)
+            if (Entries.Count >= AppConfiguration.Debugging.TraceQueueSize)
             {
                Entries.Dequeue();
                _droppedEntries++;
@@ -72,7 +72,8 @@ namespace AMSHelper.Diagnostics
 
       private static void RunWriter()
       {
-         int lastHeartbeat = Environment.TickCount;
+         long lastHeartbeatTicks = DateTime.UtcNow.Ticks;
+         long heartbeatIntervalTicks = (long)AppConfiguration.Device.TrayHeartbeatIntervalMs * TimeSpan.TicksPerMillisecond;
 
          while (true)
          {
@@ -104,14 +105,14 @@ namespace AMSHelper.Diagnostics
             }
             else
             {
-               Thread.Sleep(Configuration.Debugging.TraceWriterIdleDelayMs);
+               Thread.Sleep(AppConfiguration.Debugging.TraceWriterIdleDelayMs);
             }
 
-            int now = Environment.TickCount;
-            if (unchecked(now - lastHeartbeat) >= Configuration.Device.TrayHeartbeatIntervalMs)
+            long nowTicks = DateTime.UtcNow.Ticks;
+            if (nowTicks - lastHeartbeatTicks >= heartbeatIntervalTicks)
             {
                WriteHeartbeat(queueCount, droppedEntries);
-               lastHeartbeat = now;
+               lastHeartbeatTicks = nowTicks;
             }
          }
       }
@@ -127,7 +128,7 @@ namespace AMSHelper.Diagnostics
          SystemDebug.WriteLine(
             "[Heartbeat] Free=" + (free / 1024).ToString() + " KB" +
             " | Largest=" + (largestBlock / 1024).ToString() + " KB" +
-            " | TraceQueue=" + queueCount.ToString() + "/" + Configuration.Debugging.TraceQueueSize.ToString() +
+            " | TraceQueue=" + queueCount.ToString() + "/" + AppConfiguration.Debugging.TraceQueueSize.ToString() +
             " | Dropped=" + droppedEntries.ToString());
       }
    }
