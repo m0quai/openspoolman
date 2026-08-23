@@ -165,14 +165,20 @@ namespace AMSHelper.Ams
             bool reading = (bits & (1 << Index)) != 0;
             if (reading)
             {
-               if (SetActivity("RFID wird gelesen"))
+               // Nach erfolgreicher PN532-UID-Erfassung ist Bambus spaeteres
+               // tray_reading_bits fuer AMSHelper nur noch Rohdiagnose. Kein erneuter
+               // Fachstatus und kein erneutes Polling fuer denselben Zyklus.
+               if (!_nfcUidCapturedInCycle)
                {
-                  relevant = true;
-               }
+                  if (SetActivity("RFID wird gelesen"))
+                  {
+                     relevant = true;
+                  }
 
-               if (!_nfcUidCapturedInCycle && StartNfcPolling())
-               {
-                  relevant = true;
+                  if (StartNfcPolling())
+                  {
+                     relevant = true;
+                  }
                }
             }
             else
