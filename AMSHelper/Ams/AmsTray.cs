@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.Threading;
 using AMSHelper.Mqtt;
 using AMSHelper.Hardware;
 
@@ -17,9 +16,9 @@ namespace AMSHelper.Ams
          Loading,
          Unloading
       }
+
       private readonly BambuMqtt _mqtt;
       private readonly Pn532Device _pn532Device;
-      private Thread _heartbeatThread;
       private string _uid = string.Empty;
       private string _material = string.Empty;
       private string _color = string.Empty;
@@ -63,9 +62,6 @@ namespace AMSHelper.Ams
       public void Start()
       {
          _pn532Device.Start();
-
-         _heartbeatThread = new Thread(RunHeartbeat);
-         _heartbeatThread.Start();
       }
 
       private void BambuStatusUpdateReceived(BambuStatusUpdate update)
@@ -98,9 +94,7 @@ namespace AMSHelper.Ams
             int requested = GetRequestedTray(update);
             if (requested == Index)
             {
-               _operation = TrayOperation.Loading;
-               _isTargetTray = true;
-               if (SetActivity("LADEN gestartet"))
+               if (BeginLoading())
                {
                   relevant = true;
                }
@@ -108,6 +102,7 @@ namespace AMSHelper.Ams
             else if (requested == 255 && (_isActiveTray || _wasPreviousTray))
             {
                _operation = TrayOperation.Unloading;
+               StopNfcPolling();
                if (SetActivity("ENTLADEN gestartet"))
                {
                   relevant = true;
@@ -121,12 +116,15 @@ namespace AMSHelper.Ams
             _isTargetTray = target == Index;
             if (_isTargetTray)
             {
-               _operation = TrayOperation.Loading;
-               relevant = true;
+               if (BeginLoading())
+               {
+                  relevant = true;
+               }
             }
             else if (target == 255 && (_isActiveTray || _wasPreviousTray || _operation != TrayOperation.None))
             {
                _operation = TrayOperation.Unloading;
+               StopNfcPolling();
                relevant = true;
             }
          }
@@ -149,6 +147,7 @@ namespace AMSHelper.Ams
 
             if (_isActiveTray)
             {
+               StopNfcPolling();
                if (_operation != TrayOperation.Unloading && SetActivity("GELADEN / aktiv"))
                {
                   relevant = true;
@@ -178,7 +177,7 @@ namespace AMSHelper.Ams
                   relevant = true;
                }
             }
-            else
+            else if (_operation == TrayOperation.None || _isActiveTray)
             {
                bool pollingStopped = StopNfcPolling();
                if (_activity == "RFID wird gelesen")
@@ -198,16 +197,17 @@ namespace AMSHelper.Ams
          if (update.HasTrayReadDoneBits)
          {
             int bits = BambuStatusParser.ParseTrayBits(update.TrayReadDoneBits);
-            if ((bits & (1 << Index)) != 0 && _activity == "RFID wird gelesen")
+            if ((bits & (1 << Index)) != 0)
             {
-               SetActivity(_isActiveTray ? "GELADEN / aktiv" : "BEREIT");
                StopNfcPolling();
+               if (_activity == "RFID wird gelesen")
+               {
+                  SetActivity(_isActiveTray ? "GELADEN / aktiv" : "BEREIT");
+               }
                relevant = true;
             }
          }
 
-         // ams_status is global. A tray consumes it only while that tray owns
-         // an already established loading/unloading operation.
          if (update.HasAmsStatus && _operation != TrayOperation.None)
          {
             bool completed;
@@ -224,6 +224,7 @@ namespace AMSHelper.Ams
             {
                _operation = TrayOperation.None;
                _isTargetTray = false;
+               StopNfcPolling();
             }
             else if (_operation != TrayOperation.Unloading && BambuStatusParser.IsFilamentChangeStatus(update.AmsStatus))
             {
@@ -235,6 +236,25 @@ namespace AMSHelper.Ams
          {
             update.AmsOutputProduced = true;
          }
+      }
+
+      private bool BeginLoading()
+      {
+         bool changed = false;
+         _operation = TrayOperation.Loading;
+         _isTargetTray = true;
+
+         if (SetActivity("LADEN gestartet"))
+         {
+            changed = true;
+         }
+
+         if (StartNfcPolling())
+         {
+            changed = true;
+         }
+
+         return changed;
       }
 
       private BambuTrayUpdate GetOwnTrayUpdate(BambuStatusUpdate update)
@@ -329,6 +349,7 @@ namespace AMSHelper.Ams
             _wasPreviousTray = false;
             _isTargetTray = false;
             _operation = TrayOperation.None;
+            StopNfcPolling();
             return SetActivity("LEER");
          }
 
@@ -400,15 +421,6 @@ namespace AMSHelper.Ams
          WriteSummaryIfStable();
       }
 
-      private void RunHeartbeat()
-      {
-         while (true)
-         {
-            Thread.Sleep(Config.Configuration.Device.TrayHeartbeatIntervalMs);
-            Debug.Write(Index.ToString());
-         }
-      }
-
       private void WriteSummaryIfStable()
       {
          string activity = _activity;
@@ -462,7 +474,6 @@ namespace AMSHelper.Ams
          _lastSummary = info;
          Write(info);
       }
-
 
       private static string NormalizeUid(string uid)
       {
