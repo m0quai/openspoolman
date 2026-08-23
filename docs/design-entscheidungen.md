@@ -1,0 +1,100 @@
+# OpenSpoolMan – Design-Entscheidungen
+
+Diese Datei ist die zentrale und verbindliche Sammlung dauerhafter Projektentscheidungen.
+
+## Dokumentation und Workflow
+
+- Einziger Dokumentationseinstieg ist `docs/START.md`.
+- Die Root-`AGENTS.md` entfällt; Agentenregeln liegen in `docs/entwicklung/agenten.md`.
+- Markdown verwendet Windows-Zeilenenden CRLF.
+- Dokumentation wird auf Deutsch geführt.
+- Dauerhafte Entscheidungen werden hier gepflegt; Detaildokumente definieren keine konkurrierenden Zielarchitekturen.
+- Der Repository-Code ist Quelle der Wahrheit für den Implementierungsstand; diese Datei ist Quelle der Wahrheit für die beschlossene Zielarchitektur.
+- Regulärer Arbeits- und Übergabeweg ist der GitHub-Branch `feature/NewFiles`. Änderungen werden dort direkt gepflegt und committed. Patch-ZIPs werden nicht mehr als regulärer Übergabeweg verwendet.
+
+## OpenSpoolMan-Struktur
+
+- OpenSpoolMan wird als eigener Fork gepflegt.
+- `app.py` darf für projektspezifische Anpassungen nicht geändert werden.
+- Eigener Einstieg: `app_custom.py`.
+- Bambu-Routen: `bambu_auth_routes.py`.
+- Bambu-Authentifizierung: `bambu_auth.py`.
+- Bambu-UI: `templates/bambu_auth.html`.
+- Navigation: `templates/base.html`.
+- Zertifikats-/Signing-Funktionalität: `bambu_certificate.py`.
+- Eigene Funktionalität bleibt modular und updatefreundlich; keine aufgabenfremden Refactorings.
+
+## Bambu-Verbindungsmodi und Cloud
+
+- Standard ist **Lokaler LAN-Modus**; **Online-Authentifizierung** bleibt erhalten.
+- LAN-Modus verwendet `Printer Access LAN` / `PRINTER_ACCESS_LAN`.
+- MQTT-Status in der UI nur verbunden/nicht verbunden; keine gelbe Zwischenanzeige.
+- Bambu Cloud ist direkt im Hauptmenü integriert.
+- Login mit E-Mail/Passwort und ggf. E-Mail-Verifizierungscode.
+- Passwort wird nicht gespeichert.
+- Access Token, numerische User-ID und Token-Metadaten dürfen lokal gespeichert werden.
+- User-ID wird über `/v1/design-user-service/my/preference` ermittelt und der Token dort live geprüft.
+- Token-, Credential- und Secret-Dateien dürfen nicht in Git gelangen.
+
+## Bambu MQTT
+
+- P1S lokal: TLS Port 8883, Benutzer `bblp`, Passwort = LAN Access Code.
+- Report: `device/<SERIAL>/report`; Request: `device/<SERIAL>/request`.
+- `BambuMqtt` ist ausschließlich für Transport, TLS, Subscribe, Empfang und Reconnect zuständig.
+- JSON-Auswertung ist separat gekapselt und verarbeitet inkrementelle Reports über `Has...`-Flags.
+- `nozzle_temper` gehört nicht zur gewünschten Standardausgabe; vollständiges Report-Dumping ist konfigurierbar.
+- `pushall` und `ams_filament_setting` funktionieren im LAN-Pfad ohne RSA-SHA256/X.509-Signierung.
+- Signing bleibt für den Online-/Cloud-Kontext relevant.
+- Sparse AMS-Materialdaten werden serverseitig mit dem zuletzt bestätigten Cache ergänzt.
+- `Clear` löscht zuerst am Drucker, danach die OpenSpoolMan-/Spoolman-Zuordnung und invalidiert den Cache sofort.
+
+## AMSHelper-Softwarearchitektur
+
+- ESP32-S3, C#/.NET nanoFramework.
+- WLAN/Netzwerk ist eine eigene Klasse und gehört nicht in das gemeinsame ESP-/Hardwareobjekt.
+- Vier `AmsTray`-Objekte repräsentieren AMS-Slot 0–3.
+- `AmsTray` kapselt traybezogene PN532-/NTAG-/UID- und Zustandslogik; Reader wird intern initialisiert.
+- Ziel: ein gemeinsamer Scheduler-Thread für alle vier Trays, kein eigener Scheduler-Thread je Tray.
+- MQTT-Empfang und Tray-Aktionen bleiben logisch getrennt; Ereignisse werden bevorzugt.
+- `OpenSpoolManClient` kapselt HTTP-Kommunikation.
+- AMSHelper meldet UID + AMS-Slot und zusätzlich „Tray leer“.
+- UID→Spool-Auflösung erfolgt ausschließlich serverseitig in OpenSpoolMan/Spoolman.
+- C#-`if`-Anweisungen werden immer mit `{ }` geschrieben.
+
+## NFC / NTAG215
+
+- Zieltag ist NTAG215; Hardware-UID ist die stabile Identität.
+- Bei neuem/leeren Tag wird NDEF geprüft und einmalig eine URL wie `/nfc/<UID>` geschrieben; sie bleibt bei Wiederverwendung unverändert.
+- MIFARE Classic ist nicht Bestandteil der Zielimplementierung.
+- NTAG213/215/216 werden über NXP `GET_VERSION (0x60)` unterschieden.
+- NTAG21x `READ (0x30)` liefert vier Pages/16 Byte.
+
+## PN532-Hardware
+
+### Verifizierter aktueller Teststand
+
+Ein PN532 V3 läuft über I²C1: VCC 3.3 V, GND, SDA GPIO8, SCL GPIO9; IRQ/RSTO unbenutzt. Adresse `0x24`. Firmwareerkennung und NTAG215-Zugriff sind bestätigt.
+
+Dieser I²C-Aufbau ist der aktuelle Einzelreader-Teststand, **nicht** die Zielarchitektur für vier Reader.
+
+### Zielarchitektur
+
+- Vier PN532, einer pro AMS-Slot.
+- Endgültige Vier-Reader-Anbindung über **SPI**.
+- Gemeinsamer Clock/MOSI/MISO-Bus, eigener Chip-Select je Reader.
+- Die frühere TCA9548A-/Vierfach-I²C-Planung ist verworfen.
+- Direkte Parallelschaltung von vier PN532 mit gleicher I²C-Adresse ist ebenfalls verworfen.
+- Der funktionierende I²C-Einzelreaderpfad bleibt erhalten, bis SPI praktisch umgesetzt und getestet ist.
+
+## UI
+
+- AMS links, `External Spool` rechts.
+- Große Bildschirme: AMS `col-lg-8`, External Spool `col-lg-4`.
+- Beide sind getrennte Geschwister-Karten.
+- Grüne Erfolgsmeldungen schließen nach 10 Sekunden automatisch; manuelles Schließen bleibt möglich.
+
+## Entwicklung und Sicherheit
+
+- Primärer Testweg ist Visual Studio Debug; Docker-Rebuild/Compose ist nicht Standard.
+- Vor Änderungen aktuellen `feature/NewFiles`-Stand prüfen und unabhängige Nutzeränderungen nicht überschreiben.
+- Keine Passwörter, WLAN-Zugangsdaten, Tokens, API-Schlüssel, Drucker-Zugangscodes oder private Schlüssel in Git, Dokumentation oder Debugausgaben.
