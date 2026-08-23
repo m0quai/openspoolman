@@ -85,6 +85,8 @@ namespace AMSHelper.Config
         public static class Debugging
         {
             public const bool DumpAllBambuReports = true;
+            // TEMPORAER: kompakte Rohwerte der AMS-Zustandsfelder vor der fachlichen Auswertung.
+            public const bool DumpRawAmsStatusFields = true;
             // Wenn false, werden /report-Pakete, die nach Entfernen der Standard-Telemetrie
             // keine fachlich relevanten Daten mehr enthalten, nicht ausgegeben.
             public const bool DumpTelemetryOnlyBambuReports = false;
