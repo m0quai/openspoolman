@@ -2,6 +2,7 @@ using System;
 using System.Net.NetworkInformation;
 using System.Threading;
 using AMSHelper.Config;
+using AMSHelper.Diagnostics;
 
 namespace AMSHelper.Network
 {
@@ -13,7 +14,7 @@ namespace AMSHelper.Network
          {
             try
             {
-               Debug.WriteLine("[WiFi] Verbinde mit " + Configuration.Wifi.Ssid + " ...");
+               TraceWriter.WriteLine("[WiFi] Verbinde mit " + Configuration.Wifi.Ssid + " ...");
                bool connected = nanoFramework.Networking.WifiNetworkHelper.ConnectDhcp(
                   Configuration.Wifi.Ssid,
                   Configuration.Wifi.Password,
@@ -21,20 +22,20 @@ namespace AMSHelper.Network
 
                if (connected)
                {
-                  Debug.WriteLine("[WiFi] Verbunden.");
+                  TraceWriter.WriteLine("[WiFi] Verbunden.");
                   this.DumpNetworkInformation();
                   return true;
                }
 
-               Debug.WriteLine("[WiFi] Verbindung fehlgeschlagen: " + nanoFramework.Networking.WifiNetworkHelper.Status.ToString());
+               TraceWriter.WriteLine("[WiFi] Verbindung fehlgeschlagen: " + nanoFramework.Networking.WifiNetworkHelper.Status.ToString());
                if (nanoFramework.Networking.WifiNetworkHelper.HelperException != null)
                {
-                  Debug.WriteLine("[WiFi] " + nanoFramework.Networking.WifiNetworkHelper.HelperException.Message);
+                  TraceWriter.WriteLine("[WiFi] " + nanoFramework.Networking.WifiNetworkHelper.HelperException.Message);
                }
             }
             catch (Exception ex)
             {
-               Debug.WriteLine("[WiFi] Fehler: " + ex.Message);
+               TraceWriter.WriteLine("[WiFi] Fehler: " + ex.Message);
             }
 
             Thread.Sleep(Configuration.Wifi.ReconnectDelayMs);
@@ -52,8 +53,8 @@ namespace AMSHelper.Network
                continue;
             }
 
-            Debug.WriteLine("[WiFi] IP: " + ni.IPv4Address);
-            Debug.WriteLine("[WiFi] Gateway: " + ni.IPv4GatewayAddress);
+            TraceWriter.WriteLine("[WiFi] IP: " + ni.IPv4Address);
+            TraceWriter.WriteLine("[WiFi] Gateway: " + ni.IPv4GatewayAddress);
             break;
          }
       }
