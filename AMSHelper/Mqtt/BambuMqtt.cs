@@ -9,7 +9,6 @@ using nanoFramework.M2Mqtt.Messages;
 namespace AMSHelper.Mqtt
 {
 #pragma warning disable CS0162
-
    public delegate void BambuStatusUpdateReceivedHandler(BambuStatusUpdate update);
 
    public sealed class BambuMqtt
@@ -20,7 +19,6 @@ namespace AMSHelper.Mqtt
       private bool _running;
 
       public event BambuStatusUpdateReceivedHandler StatusUpdateReceived;
-
       public bool IsConnected => _client != null && _client.IsConnected;
 
       public void Start()
@@ -29,7 +27,6 @@ namespace AMSHelper.Mqtt
          {
             return;
          }
-
          _running = true;
          _worker = new Thread(this.Run);
          _worker.Start();
@@ -66,7 +63,6 @@ namespace AMSHelper.Mqtt
                TraceWriter.WriteLine("[BambuMQTT] Fehler: " + ex.Message);
                this.DisposeClient();
             }
-
             Thread.Sleep(Configuration.Bambu.MqttReconnectDelayMs);
          }
       }
@@ -83,7 +79,6 @@ namespace AMSHelper.Mqtt
          {
             throw new Exception("MQTT Connect fehlgeschlagen: " + result.ToString());
          }
-
          _client.Subscribe(new string[] { Configuration.Bambu.MqttReportTopic }, new MqttQoSLevel[] { MqttQoSLevel.AtMostOnce });
          TraceWriter.WriteLine("[BambuMQTT] Verbunden.");
          TraceWriter.WriteLine("[BambuMQTT] Subscribe: " + Configuration.Bambu.MqttReportTopic);
@@ -96,7 +91,6 @@ namespace AMSHelper.Mqtt
          {
             return;
          }
-
          string payload = "{\"pushing\":{\"sequence_id\":\"0\",\"command\":\"pushall\"}}";
          TraceWriter.WriteLine("[BambuMQTT] Fordere aktuellen Gesamtstatus an (pushall)...");
          _client.Publish(Configuration.Bambu.MqttRequestTopic, Encoding.UTF8.GetBytes(payload), null, null, MqttQoSLevel.AtMostOnce, false);
@@ -109,53 +103,45 @@ namespace AMSHelper.Mqtt
          BambuStatusUpdate update = _parser.Parse(payload);
          if (Configuration.Debugging.DumpRawAmsStatusFields)
          {
-            DumpRawAmsStatusFields(update);
+            BambuMqtt.DumpRawAmsStatusFields(update);
          }
-
          BambuStatusUpdateReceivedHandler handler = this.StatusUpdateReceived;
          if (handler != null)
          {
             handler(update);
          }
-
          if (!Configuration.Debugging.DumpAllBambuReports)
          {
             return;
          }
-
-         bool hasAmsInformation = HasAmsInformation(update);
+         bool hasAmsInformation = BambuMqtt.HasAmsInformation(update);
          if (update != null && update.HasCommand && update.Command == "ams_get_rfid")
          {
             return;
          }
-
          if (update != null && update.AmsOutputProduced)
          {
             return;
          }
-
          if (update != null && update.HasCommand && update.Command == "push_status")
          {
             return;
          }
-
          if (!hasAmsInformation && !Configuration.Debugging.DumpTelemetryOnlyBambuReports)
          {
             return;
          }
-
          TraceWriter.WriteLine(string.Empty);
          TraceWriter.WriteLine("================ BAMBU MQTT /report ================");
          TraceWriter.WriteLine("Topic: " + e.Topic);
          if (hasAmsInformation)
          {
-            DumpCompactAmsReport(update);
+            BambuMqtt.DumpCompactAmsReport(update);
          }
          else
          {
             TraceWriter.WriteLine("[nur Standard-Telemetrie]");
          }
-
          TraceWriter.WriteLine("================ END BAMBU MQTT =====================");
          TraceWriter.WriteLine(string.Empty);
       }
@@ -166,63 +152,24 @@ namespace AMSHelper.Mqtt
          {
             return;
          }
-
          bool hasRawAmsState = update.HasAmsStatus || update.HasActiveTray || update.HasTargetTray || update.HasPreviousTray || update.HasTrayReadingBits || update.HasTrayReadDoneBits || update.HasTrayExistBits || update.HasCommandSlotId || update.HasCommandTarget || (update.HasCommand && update.Command != null && update.Command.IndexOf("ams_") == 0);
          if (!hasRawAmsState)
          {
             return;
          }
-
          string line = "[AMS-RAW]";
-         if (update.HasCommand)
-         {
-            line += " cmd=" + update.Command;
-         }
-         if (update.HasAmsStatus)
-         {
-            line += " ams_status=" + update.AmsStatus;
-         }
-         if (update.HasTargetTray)
-         {
-            line += " tray_tar=" + update.TargetTray;
-         }
-         if (update.HasActiveTray)
-         {
-            line += " tray_now=" + update.ActiveTray;
-         }
-         if (update.HasPreviousTray)
-         {
-            line += " tray_pre=" + update.PreviousTray;
-         }
-         if (update.HasTrayReadingBits)
-         {
-            line += " reading=" + update.TrayReadingBits;
-         }
-         if (update.HasTrayReadDoneBits)
-         {
-            line += " read_done=" + update.TrayReadDoneBits;
-         }
-         if (update.HasTrayExistBits)
-         {
-            line += " exist=" + update.TrayExistBits;
-         }
-         if (update.HasCommandSlotId)
-         {
-            line += " slot_id=" + update.CommandSlotId;
-         }
-         if (update.HasCommandTarget)
-         {
-            line += " target=" + update.CommandTarget;
-         }
-         if (update.HasResult)
-         {
-            line += " result=" + update.Result;
-         }
-         if (update.HasReason)
-         {
-            line += " reason=" + update.Reason;
-         }
-
+         if (update.HasCommand) { line += " cmd=" + update.Command; }
+         if (update.HasAmsStatus) { line += " ams_status=" + update.AmsStatus; }
+         if (update.HasTargetTray) { line += " tray_tar=" + update.TargetTray; }
+         if (update.HasActiveTray) { line += " tray_now=" + update.ActiveTray; }
+         if (update.HasPreviousTray) { line += " tray_pre=" + update.PreviousTray; }
+         if (update.HasTrayReadingBits) { line += " reading=" + update.TrayReadingBits; }
+         if (update.HasTrayReadDoneBits) { line += " read_done=" + update.TrayReadDoneBits; }
+         if (update.HasTrayExistBits) { line += " exist=" + update.TrayExistBits; }
+         if (update.HasCommandSlotId) { line += " slot_id=" + update.CommandSlotId; }
+         if (update.HasCommandTarget) { line += " target=" + update.CommandTarget; }
+         if (update.HasResult) { line += " result=" + update.Result; }
+         if (update.HasReason) { line += " reason=" + update.Reason; }
          TraceWriter.WriteLine(line);
       }
 
@@ -232,17 +179,14 @@ namespace AMSHelper.Mqtt
          {
             return false;
          }
-
          if (update.HasAmsStatus || update.HasActiveTray || update.HasTargetTray || update.HasPreviousTray || update.HasTrayReadingBits || update.HasTrayReadDoneBits || update.HasAmsId || update.HasCommandSlotId || update.HasCommandTarget)
          {
             return true;
          }
-
          if (update.HasCommand && update.Command != null && update.Command.IndexOf("ams_") == 0)
          {
             return true;
          }
-
          for (int i = 0; i < update.Trays.Length; i++)
          {
             if (update.Trays[i] != null)
@@ -250,52 +194,21 @@ namespace AMSHelper.Mqtt
                return true;
             }
          }
-
          return false;
       }
 
       private static void DumpCompactAmsReport(BambuStatusUpdate update)
       {
-         if (update.HasCommand)
-         {
-            TraceWriter.WriteLine("command=" + update.Command);
-         }
-         if (update.HasAmsStatus)
-         {
-            TraceWriter.WriteLine("ams_status=" + update.AmsStatus + " (" + BambuStatusParser.DescribeAmsStatus(update.AmsStatus) + ")");
-         }
-         if (update.HasCommandSlotId)
-         {
-            TraceWriter.WriteLine("slot_id=" + update.CommandSlotId + " (" + BambuStatusParser.DescribeTrayId(update.CommandSlotId, "angeforderter Tray") + ")");
-         }
-         if (update.HasCommandTarget)
-         {
-            TraceWriter.WriteLine("target=" + update.CommandTarget + " (" + BambuStatusParser.DescribeTrayId(update.CommandTarget, "Ziel") + ")");
-         }
-         if (update.HasTargetTray)
-         {
-            TraceWriter.WriteLine("tray_tar=" + update.TargetTray + " (" + BambuStatusParser.DescribeTrayId(update.TargetTray, "Ziel-Tray") + ")");
-         }
-         if (update.HasActiveTray)
-         {
-            TraceWriter.WriteLine("tray_now=" + update.ActiveTray + " (" + BambuStatusParser.DescribeTrayId(update.ActiveTray, "aktiver Tray") + ")");
-         }
-         if (update.HasPreviousTray)
-         {
-            TraceWriter.WriteLine("tray_pre=" + update.PreviousTray + " (" + BambuStatusParser.DescribeTrayId(update.PreviousTray, "vorheriger Tray") + ")");
-         }
-         if (update.HasTrayReadingBits)
-         {
-            TraceWriter.WriteLine("tray_reading_bits=" + update.TrayReadingBits + " (" + BambuStatusParser.DescribeTrayBits(update.TrayReadingBits, "RFID-Lesen aktiv") + ")");
-         }
-         if (update.HasTrayReadDoneBits)
-         {
-            TraceWriter.WriteLine("tray_read_done_bits=" + update.TrayReadDoneBits + " (" + BambuStatusParser.DescribeTrayBits(update.TrayReadDoneBits, "RFID-Lesen abgeschlossen") + ")");
-         }
-         if (update.HasResult)
-         {
-            TraceWriter.WriteLine("result=" + update.Result);
-         }
+         if (update.HasCommand) { TraceWriter.WriteLine("command=" + update.Command); }
+         if (update.HasAmsStatus) { TraceWriter.WriteLine("ams_status=" + update.AmsStatus + " (" + BambuStatusParser.DescribeAmsStatus(update.AmsStatus) + ")"); }
+         if (update.HasCommandSlotId) { TraceWriter.WriteLine("slot_id=" + update.CommandSlotId + " (" + BambuStatusParser.DescribeTrayId(update.CommandSlotId, "angeforderter Tray") + ")"); }
+         if (update.HasCommandTarget) { TraceWriter.WriteLine("target=" + update.CommandTarget + " (" + BambuStatusParser.DescribeTrayId(update.CommandTarget, "Ziel") + ")"); }
+         if (update.HasTargetTray) { TraceWriter.WriteLine("tray_tar=" + update.TargetTray + " (" + BambuStatusParser.DescribeTrayId(update.TargetTray, "Ziel-Tray") + ")"); }
+         if (update.HasActiveTray) { TraceWriter.WriteLine("tray_now=" + update.ActiveTray + " (" + BambuStatusParser.DescribeTrayId(update.ActiveTray, "aktiver Tray") + ")"); }
+         if (update.HasPreviousTray) { TraceWriter.WriteLine("tray_pre=" + update.PreviousTray + " (" + BambuStatusParser.DescribeTrayId(update.PreviousTray, "vorheriger Tray") + ")"); }
+         if (update.HasTrayReadingBits) { TraceWriter.WriteLine("tray_reading_bits=" + update.TrayReadingBits + " (" + BambuStatusParser.DescribeTrayBits(update.TrayReadingBits, "RFID-Lesen aktiv") + ")"); }
+         if (update.HasTrayReadDoneBits) { TraceWriter.WriteLine("tray_read_done_bits=" + update.TrayReadDoneBits + " (" + BambuStatusParser.DescribeTrayBits(update.TrayReadDoneBits, "RFID-Lesen abgeschlossen") + ")"); }
+         if (update.HasResult) { TraceWriter.WriteLine("result=" + update.Result); }
       }
 
       private void DisposeClient()
@@ -304,7 +217,6 @@ namespace AMSHelper.Mqtt
          {
             return;
          }
-
          try
          {
             _client.MqttMsgPublishReceived -= this.OnMessageReceived;
@@ -316,7 +228,6 @@ namespace AMSHelper.Mqtt
          catch
          {
          }
-
          _client = null;
       }
    }
