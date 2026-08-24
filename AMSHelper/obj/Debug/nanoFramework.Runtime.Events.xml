@@ -215,11 +215,6 @@
             Specifies an EspNow event.
             </summary>
         </member>
-        <member name="F:nanoFramework.Runtime.Events.EventCategory.PicoPio">
-            <summary>
-            Specifies a PIO event.
-            </summary>
-        </member>
         <member name="T:nanoFramework.Runtime.Events.NativeEventHandler">
             <summary>
             A multicast (combinable) delegate that defines the event handler for a native event.

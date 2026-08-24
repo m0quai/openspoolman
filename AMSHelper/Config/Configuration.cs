@@ -81,7 +81,7 @@ namespace AMSHelper.Config
         public static class Debugging
         {
             public const bool DumpAllBambuReports = true;
-            public const bool DumpRawAmsStatusFields = true;
+            public const bool DumpRawAmsStatusFields = false;
             public const bool DumpTelemetryOnlyBambuReports = false;
             public const bool DumpNtagPages = true;
             public const int TraceQueueSize = 128;
