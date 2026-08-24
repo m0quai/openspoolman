@@ -23,7 +23,7 @@ namespace AMSHelper.Diagnostics
 
       public static void Start()
       {
-         lock (SyncRoot)
+         lock (TraceWriter.SyncRoot)
          {
             if (_running)
             {
@@ -49,15 +49,15 @@ namespace AMSHelper.Diagnostics
       private static void Enqueue(string text, bool newLine)
       {
          TraceWriter.Start();
-         lock (SyncRoot)
+         lock (TraceWriter.SyncRoot)
          {
-            if (Entries.Count >= AppConfiguration.Debugging.TraceQueueSize)
+            if (TraceWriter.Entries.Count >= AppConfiguration.Debugging.TraceQueueSize)
             {
-               Entries.Dequeue();
+               TraceWriter.Entries.Dequeue();
                _droppedEntries++;
             }
 
-            Entries.Enqueue(new TraceEntry { Text = text == null ? string.Empty : text, NewLine = newLine });
+            TraceWriter.Entries.Enqueue(new TraceEntry { Text = text == null ? string.Empty : text, NewLine = newLine });
          }
       }
 
@@ -70,14 +70,14 @@ namespace AMSHelper.Diagnostics
             TraceEntry entry = null;
             int queueCount;
             int droppedEntries;
-            lock (SyncRoot)
+            lock (TraceWriter.SyncRoot)
             {
-               if (Entries.Count > 0)
+               if (TraceWriter.Entries.Count > 0)
                {
-                  entry = (TraceEntry)Entries.Dequeue();
+                  entry = (TraceEntry)TraceWriter.Entries.Dequeue();
                }
 
-               queueCount = Entries.Count;
+               queueCount = TraceWriter.Entries.Count;
                droppedEntries = _droppedEntries;
             }
 
@@ -113,86 +113,6 @@ namespace AMSHelper.Diagnostics
          uint largestBlock;
          NativeMemory.GetMemoryInfo(NativeMemory.MemoryType.Internal, out total, out free, out largestBlock);
          SystemDebug.WriteLine("[Heartbeat] Free=" + (free / 1024).ToString() + " KB | Largest=" + (largestBlock / 1024).ToString() + " KB | TraceQueue=" + queueCount.ToString() + "/" + AppConfiguration.Debugging.TraceQueueSize.ToString() + " | Dropped=" + droppedEntries.ToString());
-      }
-   }
-}
-
-namespace AMSHelper.Ams
-{
-   internal static class Debug
-   {
-      public static void Write(string text)
-      {
-         Diagnostics.TraceWriter.Write(text);
-      }
-
-      public static void WriteLine(string text)
-      {
-         Diagnostics.TraceWriter.WriteLine(text);
-      }
-   }
-}
-
-namespace AMSHelper.Mqtt
-{
-   internal static class Debug
-   {
-      public static void Write(string text)
-      {
-         Diagnostics.TraceWriter.Write(text);
-      }
-
-      public static void WriteLine(string text)
-      {
-         Diagnostics.TraceWriter.WriteLine(text);
-      }
-   }
-}
-
-namespace AMSHelper.Hardware
-{
-   internal static class Debug
-   {
-      public static void Write(string text)
-      {
-         Diagnostics.TraceWriter.Write(text);
-      }
-
-      public static void WriteLine(string text)
-      {
-         Diagnostics.TraceWriter.WriteLine(text);
-      }
-   }
-}
-
-namespace AMSHelper.Network
-{
-   internal static class Debug
-   {
-      public static void Write(string text)
-      {
-         Diagnostics.TraceWriter.Write(text);
-      }
-
-      public static void WriteLine(string text)
-      {
-         Diagnostics.TraceWriter.WriteLine(text);
-      }
-   }
-}
-
-namespace AMSHelper.Nfc
-{
-   internal static class Debug
-   {
-      public static void Write(string text)
-      {
-         Diagnostics.TraceWriter.Write(text);
-      }
-
-      public static void WriteLine(string text)
-      {
-         Diagnostics.TraceWriter.WriteLine(text);
       }
    }
 }
