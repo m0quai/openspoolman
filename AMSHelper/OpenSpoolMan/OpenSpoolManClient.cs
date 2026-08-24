@@ -1,6 +1,5 @@
 using System;
-using System.IO;
-using System.Net;
+using System.Net.Http;
 using System.Text;
 using AMSHelper.Config;
 using AMSHelper.Diagnostics;
@@ -9,6 +8,8 @@ namespace AMSHelper.OpenSpoolMan
 {
    public sealed class OpenSpoolManClient
    {
+      private readonly HttpClient _httpClient = new HttpClient();
+
       public bool AssignUid(int trayIndex, string uid)
       {
          if (string.IsNullOrEmpty(uid))
@@ -34,22 +35,11 @@ namespace AMSHelper.OpenSpoolMan
 
          string url = Configuration.OpenSpoolMan.BaseUrl + "/ams/nfc/" + trayIndex.ToString() + "/assign";
          string json = "{\"uid\":\"" + OpenSpoolManClient.EscapeJson(uid) + "\"}";
-         byte[] data = Encoding.UTF8.GetBytes(json);
 
          try
          {
-            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
-            request.Method = "POST";
-            request.ContentType = "application/json";
-            request.ContentLength = data.Length;
-            request.Timeout = Configuration.OpenSpoolMan.RequestTimeoutMs;
-
-            using (Stream stream = request.GetRequestStream())
-            {
-               stream.Write(data, 0, data.Length);
-            }
-
-            using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+            using (StringContent content = new StringContent(json, Encoding.UTF8, "application/json"))
+            using (HttpResponseMessage response = _httpClient.Post(url, content))
             {
                int statusCode = (int)response.StatusCode;
                bool success = statusCode >= 200 && statusCode < 300;
@@ -71,7 +61,17 @@ namespace AMSHelper.OpenSpoolMan
             return string.Empty;
          }
 
-         return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+         string escaped = string.Empty;
+         for (int i = 0; i < value.Length; i++)
+         {
+            char character = value[i];
+            if (character == '\\' || character == '"')
+            {
+               escaped += "\\";
+            }
+            escaped += character;
+         }
+         return escaped;
       }
    }
 }
