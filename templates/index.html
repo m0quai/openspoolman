@@ -3,7 +3,10 @@
 {% from 'fragments/ams_metrics.html' import humidity_display %}
 
 {% block content %}
-<div class="d-flex justify-content-end mb-3">
+<div class="d-flex justify-content-end gap-2 mb-3">
+  <a href="{{ url_for('ams_nfc.pending_tags') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-tags me-1"></i> NFC-Tags
+  </a>
   <form method="post" action="{{ url_for('refresh_ams') }}">
     <button type="submit" class="btn btn-outline-primary">
       <i class="bi bi-arrow-clockwise me-1"></i> AMS aktualisieren
