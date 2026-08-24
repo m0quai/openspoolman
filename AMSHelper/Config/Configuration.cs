@@ -24,7 +24,6 @@ namespace AMSHelper.Config
             public const string PrinterIp = "192.168.52.84";
             public const string PrinterSerial = "01P00C612200050";
             public const string LanAccessCode = "60e81882";
-
             public const string MqttUsername = "bblp";
             public const int MqttPort = 8883;
             public const int MqttKeepAliveSeconds = 60;
@@ -32,7 +31,6 @@ namespace AMSHelper.Config
             public const bool MqttUseTls = true;
             public const bool ValidateServerCertificate = false;
             public const int InitialConnectDelayMs = 4000;
-
             public static string MqttReportTopic => "device/" + PrinterSerial + "/report";
             public static string MqttRequestTopic => "device/" + PrinterSerial + "/request";
             public static string MqttClientId => "AMSHelper-" + PrinterSerial;
@@ -52,6 +50,7 @@ namespace AMSHelper.Config
             public const bool Enabled = true;
             public const int StartupDelayMs = 1000;
             public const int ReadTimeoutMs = 1000;
+            public const int PollingCycleTimeoutMs = 20000;
             public const int ReaderCount = 4;
             public const bool Tray0Enabled = true;
             public const bool Tray1Enabled = false;
@@ -69,7 +68,6 @@ namespace AMSHelper.Config
             public const int Pn532I2cAddress = 0x24;
             public const int IdleDelayMs = 20;
             public const int ScanDelayMs = 50;
-
             public const int SpiBus = 1;
             public const int SpiClockPin = -1;
             public const int SpiMosiPin = -1;
@@ -86,7 +84,6 @@ namespace AMSHelper.Config
             public const bool DumpRawAmsStatusFields = true;
             public const bool DumpTelemetryOnlyBambuReports = false;
             public const bool DumpNtagPages = true;
-
             public const int TraceQueueSize = 128;
             public const int TraceWriterIdleDelayMs = 20;
             public const bool TraceHeartbeatEnabled = false;
