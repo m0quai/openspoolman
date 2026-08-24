@@ -30,6 +30,7 @@
     <Compile Include="Mqtt\BambuStatusUpdate.cs" />
     <Compile Include="Network\WifiConnection.cs" />
     <Compile Include="Nfc\NfcCard.cs" />
+    <Compile Include="OpenSpoolMan\OpenSpoolManClient.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
