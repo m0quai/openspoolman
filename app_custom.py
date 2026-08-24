@@ -146,7 +146,7 @@ if not app.secret_key:
 
 from bambu_auth_routes import bp as bambu_cloud_bp
 from nfc_routes import bp as ams_nfc_bp
-from flask import redirect, request, url_for, render_template
+from flask import jsonify, redirect, request, url_for, render_template
 import mqtt_bambulab
 
 app.register_blueprint(bambu_cloud_bp)
@@ -174,6 +174,11 @@ def _load_openspoolman_version():
 @app.context_processor
 def inject_openspoolman_version():
     return {"openspoolman_version": _load_openspoolman_version()}
+
+
+@app.get("/ams/state-generation")
+def ams_state_generation():
+    return jsonify({"generation": getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0)})
 
 
 @app.post("/refresh-ams")
