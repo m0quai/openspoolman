@@ -29,59 +29,51 @@ namespace AMSHelper.Ams
 
       public AmsTray(int index, BambuMqtt mqtt)
       {
-         Index = index;
-         _mqtt = mqtt;
-         _pn532Device = new Pn532Device(index);
-         _pn532Device.UidRead += Pn532UidRead;
+         this.Index = index;
+         this._mqtt = mqtt;
+         this._pn532Device = new Pn532Device(index);
+         this._pn532Device.UidRead += this.Pn532UidRead;
 
-         if (_mqtt != null)
+         if (this._mqtt != null)
          {
-            _mqtt.StatusUpdateReceived += BambuStatusUpdateReceived;
+            this._mqtt.StatusUpdateReceived += this.BambuStatusUpdateReceived;
          }
       }
 
       public int Index { get; private set; }
-      public bool Pn532Enabled { get { return _pn532Device.Enabled; } }
-      public string Uid { get { return _uid; } }
-      public string Activity { get { return _activity; } }
-      public bool IsOccupied { get { return _occupied; } }
-      public bool IsNfcPolling { get { return _pn532Device.IsPolling; } }
+      public bool Pn532Enabled { get { return this._pn532Device.Enabled; } }
+      public string Uid { get { return this._uid; } }
+      public string Activity { get { return this._activity; } }
+      public bool IsOccupied { get { return this._occupied; } }
+      public bool IsNfcPolling { get { return this._pn532Device.IsPolling; } }
 
       public void Start()
       {
-         _pn532Device.Start();
+         this._pn532Device.Start();
       }
 
       private void BambuStatusUpdateReceived(BambuStatusUpdate update)
       {
-         if (update == null)
-         {
-            return;
-         }
-
+         if (update == null) { return; }
          bool relevant = false;
 
          if (update.HasTrayExistBits)
          {
             int bits = BambuStatusParser.ParseTrayBits(update.TrayExistBits);
-            if (SetOccupied((bits & (1 << Index)) != 0))
-            {
-               relevant = true;
-            }
+            if (this.SetOccupied((bits & (1 << this.Index)) != 0)) { relevant = true; }
          }
 
          if (update.HasCommand && update.Command == "ams_get_rfid" && update.HasCommandSlotId)
          {
             int rfidSlot = BambuStatusParser.ParseTrayId(update.CommandSlotId);
-            if (rfidSlot == Index)
+            if (rfidSlot == this.Index)
             {
-               _nfcUidCapturedInCycle = false;
-               _uid = string.Empty;
-               _lastSummary = string.Empty;
-
-               if (StartNfcPolling())
+               this._nfcUidCapturedInCycle = false;
+               this._uid = string.Empty;
+               this._lastSummary = string.Empty;
+               if (this.StartNfcPolling())
                {
-                  Write("[AMS] Tray " + Index + " -> NFC-Trigger durch ams_get_rfid");
+                  Write("[AMS] Tray " + this.Index + " -> NFC-Trigger durch ams_get_rfid");
                   relevant = true;
                }
             }
@@ -89,40 +81,31 @@ namespace AMSHelper.Ams
 
          if (update.HasCommand && update.Command == "ams_change_filament")
          {
-            int requested = GetRequestedTray(update);
-            if (requested == Index)
+            int requested = this.GetRequestedTray(update);
+            if (requested == this.Index)
             {
-               if (BeginLoading())
-               {
-                  relevant = true;
-               }
+               if (this.BeginLoading()) { relevant = true; }
             }
-            else if (requested == 255 && (_isActiveTray || _wasPreviousTray))
+            else if (requested == 255 && (this._isActiveTray || this._wasPreviousTray))
             {
-               _operation = TrayOperation.Unloading;
-               StopNfcPolling();
-               if (SetActivity("ENTLADEN gestartet"))
-               {
-                  relevant = true;
-               }
+               this._operation = TrayOperation.Unloading;
+               this.StopNfcPolling();
+               if (this.SetActivity("ENTLADEN gestartet")) { relevant = true; }
             }
          }
 
          if (update.HasTargetTray)
          {
             int target = BambuStatusParser.ParseTrayId(update.TargetTray);
-            _isTargetTray = target == Index;
-            if (_isTargetTray)
+            this._isTargetTray = target == this.Index;
+            if (this._isTargetTray)
             {
-               if (BeginLoading())
-               {
-                  relevant = true;
-               }
+               if (this.BeginLoading()) { relevant = true; }
             }
-            else if (target == 255 && (_isActiveTray || _wasPreviousTray || _operation != TrayOperation.None))
+            else if (target == 255 && (this._isActiveTray || this._wasPreviousTray || this._operation != TrayOperation.None))
             {
-               _operation = TrayOperation.Unloading;
-               StopNfcPolling();
+               this._operation = TrayOperation.Unloading;
+               this.StopNfcPolling();
                relevant = true;
             }
          }
@@ -130,292 +113,177 @@ namespace AMSHelper.Ams
          if (update.HasPreviousTray)
          {
             int previous = BambuStatusParser.ParseTrayId(update.PreviousTray);
-            _wasPreviousTray = previous == Index;
-            if (_wasPreviousTray)
-            {
-               relevant = true;
-            }
+            this._wasPreviousTray = previous == this.Index;
+            if (this._wasPreviousTray) { relevant = true; }
          }
 
          if (update.HasActiveTray)
          {
             int active = BambuStatusParser.ParseTrayId(update.ActiveTray);
-            bool wasActive = _isActiveTray;
-            _isActiveTray = active == Index;
-
-            if (_isActiveTray)
+            bool wasActive = this._isActiveTray;
+            this._isActiveTray = active == this.Index;
+            if (this._isActiveTray)
             {
-               if (_operation != TrayOperation.Unloading && SetActivity("GELADEN / aktiv"))
-               {
-                  relevant = true;
-               }
+               if (this._operation != TrayOperation.Unloading && this.SetActivity("GELADEN / aktiv")) { relevant = true; }
             }
-            else if (active == 255 && wasActive && _operation == TrayOperation.Unloading)
+            else if (active == 255 && wasActive && this._operation == TrayOperation.Unloading)
             {
-               if (SetActivity("ENTLADEN abgeschlossen / kein Filament aktiv"))
-               {
-                  relevant = true;
-               }
+               if (this.SetActivity("ENTLADEN abgeschlossen / kein Filament aktiv")) { relevant = true; }
             }
          }
 
          if (update.HasTrayReadingBits)
          {
             int bits = BambuStatusParser.ParseTrayBits(update.TrayReadingBits);
-            bool reading = (bits & (1 << Index)) != 0;
+            bool reading = (bits & (1 << this.Index)) != 0;
             if (reading)
             {
-               // Nach erfolgreicher PN532-UID-Erfassung ist Bambus spaeteres
-               // tray_reading_bits fuer AMSHelper nur noch Rohdiagnose. Kein erneuter
-               // Fachstatus und kein erneutes Polling fuer denselben Zyklus.
-               if (!_nfcUidCapturedInCycle)
+               if (!this._nfcUidCapturedInCycle)
                {
-                  if (SetActivity("RFID wird gelesen"))
-                  {
-                     relevant = true;
-                  }
-
-                  if (StartNfcPolling())
-                  {
-                     relevant = true;
-                  }
+                  if (this.SetActivity("RFID wird gelesen")) { relevant = true; }
+                  if (this.StartNfcPolling()) { relevant = true; }
                }
             }
             else
             {
-               bool pollingStopped = StopNfcPolling();
-               if (_activity == "RFID wird gelesen")
+               bool pollingStopped = this.StopNfcPolling();
+               if (this._activity == "RFID wird gelesen")
                {
-                  if (SetActivity(_isActiveTray ? "GELADEN / aktiv" : "BEREIT"))
-                  {
-                     relevant = true;
-                  }
+                  if (this.SetActivity(this._isActiveTray ? "GELADEN / aktiv" : "BEREIT")) { relevant = true; }
                }
-               if (pollingStopped)
-               {
-                  relevant = true;
-               }
+               if (pollingStopped) { relevant = true; }
             }
          }
 
          if (update.HasTrayReadDoneBits)
          {
             int bits = BambuStatusParser.ParseTrayBits(update.TrayReadDoneBits);
-            if ((bits & (1 << Index)) != 0)
+            if ((bits & (1 << this.Index)) != 0)
             {
-               StopNfcPolling();
-               if (_activity == "RFID wird gelesen")
-               {
-                  SetActivity(_isActiveTray ? "GELADEN / aktiv" : "BEREIT");
-               }
+               this.StopNfcPolling();
+               if (this._activity == "RFID wird gelesen") { this.SetActivity(this._isActiveTray ? "GELADEN / aktiv" : "BEREIT"); }
                relevant = true;
             }
          }
 
-         if (update.HasAmsStatus && _operation != TrayOperation.None)
+         if (update.HasAmsStatus && this._operation != TrayOperation.None)
          {
             bool completed;
-            string activity = BambuStatusParser.InterpretAmsActivity(update.AmsStatus, _operation == TrayOperation.Unloading, out completed);
+            string activity = BambuStatusParser.InterpretAmsActivity(update.AmsStatus, this._operation == TrayOperation.Unloading, out completed);
             if (!string.IsNullOrEmpty(activity))
             {
-               if (SetActivity(activity))
-               {
-                  relevant = true;
-               }
+               if (this.SetActivity(activity)) { relevant = true; }
             }
-
             if (completed)
             {
-               _operation = TrayOperation.None;
-               _isTargetTray = false;
-               StopNfcPolling();
+               this._operation = TrayOperation.None;
+               this._isTargetTray = false;
+               this.StopNfcPolling();
             }
-            else if (_operation != TrayOperation.Unloading && BambuStatusParser.IsFilamentChangeStatus(update.AmsStatus))
+            else if (this._operation != TrayOperation.Unloading && BambuStatusParser.IsFilamentChangeStatus(update.AmsStatus))
             {
-               _operation = TrayOperation.Loading;
+               this._operation = TrayOperation.Loading;
             }
          }
 
-         if (relevant)
-         {
-            update.AmsOutputProduced = true;
-         }
+         if (relevant) { update.AmsOutputProduced = true; }
       }
 
       private bool BeginLoading()
       {
          bool changed = false;
-         _operation = TrayOperation.Loading;
-         _isTargetTray = true;
-
-         if (SetActivity("LADEN gestartet"))
-         {
-            changed = true;
-         }
-
-         if (!_nfcUidCapturedInCycle && StartNfcPolling())
-         {
-            changed = true;
-         }
-
+         this._operation = TrayOperation.Loading;
+         this._isTargetTray = true;
+         if (this.SetActivity("LADEN gestartet")) { changed = true; }
+         if (!this._nfcUidCapturedInCycle && this.StartNfcPolling()) { changed = true; }
          return changed;
       }
 
       private int GetRequestedTray(BambuStatusUpdate update)
       {
          int requested = -1;
-         if (update.HasCommandSlotId)
-         {
-            requested = BambuStatusParser.ParseTrayId(update.CommandSlotId);
-         }
-
-         if (requested < 0 && update.HasCommandTarget)
-         {
-            requested = BambuStatusParser.ParseTrayId(update.CommandTarget);
-         }
-
+         if (update.HasCommandSlotId) { requested = BambuStatusParser.ParseTrayId(update.CommandSlotId); }
+         if (requested < 0 && update.HasCommandTarget) { requested = BambuStatusParser.ParseTrayId(update.CommandTarget); }
          return requested;
       }
 
       private bool SetOccupied(bool occupied)
       {
-         bool changed = !_occupiedKnown || _occupied != occupied;
-         _occupiedKnown = true;
-         _occupied = occupied;
-
+         bool changed = !this._occupiedKnown || this._occupied != occupied;
+         this._occupiedKnown = true;
+         this._occupied = occupied;
          if (!occupied)
          {
-            _uid = string.Empty;
-            _lastSummary = string.Empty;
-            _isActiveTray = false;
-            _wasPreviousTray = false;
-            _isTargetTray = false;
-            _operation = TrayOperation.None;
-            _nfcUidCapturedInCycle = false;
-            StopNfcPolling();
-            return SetActivity("LEER");
+            this._uid = string.Empty;
+            this._lastSummary = string.Empty;
+            this._isActiveTray = false;
+            this._wasPreviousTray = false;
+            this._isTargetTray = false;
+            this._operation = TrayOperation.None;
+            this._nfcUidCapturedInCycle = false;
+            this.StopNfcPolling();
+            return this.SetActivity("LEER");
          }
-
-         if (_activity == "LEER" || _activity == "Unbekannt")
-         {
-            return SetActivity("BELEGT");
-         }
-
-         if (changed)
-         {
-            WriteSummaryIfStable();
-         }
-
+         if (this._activity == "LEER" || this._activity == "Unbekannt") { return this.SetActivity("BELEGT"); }
+         if (changed) { this.WriteSummaryIfStable(); }
          return changed;
       }
 
       private bool SetActivity(string activity)
       {
-         if (activity == null || _activity == activity)
-         {
-            return false;
-         }
-
-         _activity = activity;
-
+         if (activity == null || this._activity == activity) { return false; }
+         this._activity = activity;
          if (activity != "GELADEN / aktiv" && activity != "BELEGT" && activity != "BEREIT" && activity != "LEER")
          {
-            Write("[AMS] Tray " + Index + " -> " + activity);
+            Write("[AMS] Tray " + this.Index + " -> " + activity);
          }
-         else
-         {
-            WriteSummaryIfStable();
-         }
-
+         else { this.WriteSummaryIfStable(); }
          return true;
       }
 
       private bool StartNfcPolling()
       {
-         if (_nfcUidCapturedInCycle)
-         {
-            return false;
-         }
-
-         bool started = _pn532Device.StartPolling();
-         if (started && _pn532Device.Enabled)
-         {
-            Write("[AMS] Tray " + Index + " -> NFC-Polling START");
-         }
-
+         if (this._nfcUidCapturedInCycle) { return false; }
+         bool started = this._pn532Device.StartPolling();
+         if (started && this._pn532Device.Enabled) { Write("[AMS] Tray " + this.Index + " -> NFC-Polling START"); }
          return started;
       }
 
       private bool StopNfcPolling()
       {
-         bool stopped = _pn532Device.StopPolling();
-         if (stopped && _pn532Device.Enabled)
-         {
-            Write("[AMS] Tray " + Index + " -> NFC-Polling ENDE");
-         }
-
-         if (stopped)
-         {
-            WriteSummaryIfStable();
-         }
-
+         bool stopped = this._pn532Device.StopPolling();
+         if (stopped && this._pn532Device.Enabled) { Write("[AMS] Tray " + this.Index + " -> NFC-Polling ENDE"); }
+         if (stopped) { this.WriteSummaryIfStable(); }
          return stopped;
       }
 
       private void Pn532UidRead(string uid)
       {
-         if (string.IsNullOrEmpty(uid))
-         {
-            return;
-         }
-
-         _uid = uid;
-         _nfcUidCapturedInCycle = true;
-         _lastSummary = string.Empty;
-         Write("[NFC] Tray " + Index + " UID=" + uid);
-         StopNfcPolling();
-         WriteSummaryIfStable();
+         if (string.IsNullOrEmpty(uid)) { return; }
+         this._uid = uid;
+         this._nfcUidCapturedInCycle = true;
+         this._lastSummary = string.Empty;
+         Write("[NFC] Tray " + this.Index + " UID=" + uid);
+         this.StopNfcPolling();
+         this.WriteSummaryIfStable();
       }
 
       private void WriteSummaryIfStable()
       {
-         string activity = _activity;
-         if (activity == "Unbekannt" && _occupiedKnown && _occupied)
-         {
-            activity = "BELEGT";
-         }
-
+         string activity = this._activity;
+         if (activity == "Unbekannt" && this._occupiedKnown && this._occupied) { activity = "BELEGT"; }
          bool stable = activity == "BELEGT" || activity == "GELADEN / aktiv" || activity == "BEREIT" || activity == "LEER";
-         if (!stable)
-         {
-            return;
-         }
-
-         string info = "[AMS] Tray " + Index + ": " + activity;
-
-         if (_pn532Device.Enabled)
+         if (!stable) { return; }
+         string info = "[AMS] Tray " + this.Index + ": " + activity;
+         if (this._pn532Device.Enabled)
          {
             info += " | PN532=aktiv";
-            if (_uid.Length > 0)
-            {
-               info += " | UID=" + _uid;
-            }
-            else if (activity != "LEER")
-            {
-               info += " | UID=noch nicht gelesen";
-            }
+            if (this._uid.Length > 0) { info += " | UID=" + this._uid; }
+            else if (activity != "LEER") { info += " | UID=noch nicht gelesen"; }
          }
-         else
-         {
-            info += " | PN532=deaktiviert";
-         }
-
-         if (_lastSummary == info)
-         {
-            return;
-         }
-
-         _lastSummary = info;
+         else { info += " | PN532=deaktiviert"; }
+         if (this._lastSummary == info) { return; }
+         this._lastSummary = info;
          Write(info);
       }
 
