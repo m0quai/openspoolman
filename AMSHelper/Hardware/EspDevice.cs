@@ -4,29 +4,29 @@ namespace AMSHelper.Hardware
    {
       protected EspDevice(int trayCount)
       {
-         Trays = new Ams.AmsTray[trayCount];
+         this.Trays = new Ams.AmsTray[trayCount];
       }
 
       public Ams.AmsTray[] Trays { get; private set; }
 
       protected void SetTray(int index, Ams.AmsTray tray)
       {
-         if (index < 0 || index >= Trays.Length)
+         if (index < 0 || index >= this.Trays.Length)
          {
             return;
          }
 
-         Trays[index] = tray;
+         this.Trays[index] = tray;
       }
 
       public Ams.AmsTray GetTray(int index)
       {
-         if (index < 0 || index >= Trays.Length)
+         if (index < 0 || index >= this.Trays.Length)
          {
             return null;
          }
 
-         return Trays[index];
+         return this.Trays[index];
       }
    }
 }
