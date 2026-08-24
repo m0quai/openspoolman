@@ -3,6 +3,7 @@ using AMSHelper.Diagnostics;
 using AMSHelper.Hardware;
 using AMSHelper.Mqtt;
 using AMSHelper.Network;
+using AMSHelper.OpenSpoolMan;
 
 namespace AMSHelper.Ams
 {
@@ -29,10 +30,11 @@ namespace AMSHelper.Ams
          var wifi = new WifiConnection();
          wifi.Connect();
          _mqtt = new BambuMqtt();
-         this.SetTray(0, new AmsTray(0, _mqtt));
-         this.SetTray(1, new AmsTray(1, _mqtt));
-         this.SetTray(2, new AmsTray(2, _mqtt));
-         this.SetTray(3, new AmsTray(3, _mqtt));
+         var openSpoolMan = new OpenSpoolManClient();
+         this.SetTray(0, new AmsTray(0, _mqtt, openSpoolMan));
+         this.SetTray(1, new AmsTray(1, _mqtt, openSpoolMan));
+         this.SetTray(2, new AmsTray(2, _mqtt, openSpoolMan));
+         this.SetTray(3, new AmsTray(3, _mqtt, openSpoolMan));
          _mqtt.StatusUpdateReceived += this.BambuStatusUpdateReceived;
          for (int i = 0; i < this.Trays.Length; i++)
          {
