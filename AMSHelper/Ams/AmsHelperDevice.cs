@@ -13,7 +13,10 @@ namespace AMSHelper.Ams
       private string _amsHumidityRaw = string.Empty;
       private string _amsTemperature = string.Empty;
 
-      public AmsHelperDevice() : base(Config.Configuration.Device.AmsSlotCount) { }
+      public AmsHelperDevice() : base(Config.Configuration.Device.AmsSlotCount)
+      {
+      }
+
       public string AmsHumidity { get { return _amsHumidity; } }
       public string AmsHumidityRaw { get { return _amsHumidityRaw; } }
       public string AmsTemperature { get { return _amsTemperature; } }
@@ -34,20 +37,41 @@ namespace AMSHelper.Ams
          for (int i = 0; i < this.Trays.Length; i++)
          {
             AmsTray tray = this.GetTray(i);
-            if (tray != null) { tray.Start(); }
+            if (tray != null)
+            {
+               tray.Start();
+            }
          }
          Thread.Sleep(Config.Configuration.Bambu.InitialConnectDelayMs);
          _mqtt.Start();
-         while (true) { Thread.Sleep(Config.Configuration.Device.MainLoopDelayMs); }
+         while (true)
+         {
+            Thread.Sleep(Config.Configuration.Device.MainLoopDelayMs);
+         }
       }
 
       private void BambuStatusUpdateReceived(BambuStatusUpdate update)
       {
-         if (update == null) { return; }
-         if (update.HasAmsHumidity) { _amsHumidity = update.AmsHumidity; }
-         if (update.HasAmsHumidityRaw) { _amsHumidityRaw = update.AmsHumidityRaw; }
-         if (update.HasAmsTemperature) { _amsTemperature = update.AmsTemperature; }
-         if (update.AmsOutputProduced) { this.WriteTrayStatus(); }
+         if (update == null)
+         {
+            return;
+         }
+         if (update.HasAmsHumidity)
+         {
+            _amsHumidity = update.AmsHumidity;
+         }
+         if (update.HasAmsHumidityRaw)
+         {
+            _amsHumidityRaw = update.AmsHumidityRaw;
+         }
+         if (update.HasAmsTemperature)
+         {
+            _amsTemperature = update.AmsTemperature;
+         }
+         if (update.AmsOutputProduced)
+         {
+            this.WriteTrayStatus();
+         }
       }
 
       private void WriteTrayStatus()
@@ -56,11 +80,20 @@ namespace AMSHelper.Ams
          for (int i = 0; i < this.Trays.Length; i++)
          {
             AmsTray tray = this.GetTray(i);
-            if (tray == null) { continue; }
+            if (tray == null)
+            {
+               continue;
+            }
             string line = "[AMS] Tray " + tray.Index + ": " + tray.Activity;
-            if (tray.Activity != "BELEGT" && tray.Activity != "LEER") { line += tray.IsOccupied ? " | BELEGT" : " | LEER"; }
+            if (tray.Activity != "BELEGT" && tray.Activity != "LEER")
+            {
+               line += tray.IsOccupied ? " | BELEGT" : " | LEER";
+            }
             line += tray.Pn532Enabled ? " | PN532=aktiv" : " | PN532=deaktiviert";
-            if (tray.Pn532Enabled) { line += tray.Uid.Length > 0 ? " | UID=" + tray.Uid : " | UID=noch nicht gelesen"; }
+            if (tray.Pn532Enabled)
+            {
+               line += tray.Uid.Length > 0 ? " | UID=" + tray.Uid : " | UID=noch nicht gelesen";
+            }
             TraceWriter.WriteLine(line);
          }
          TraceWriter.WriteLine("[AMS] ------------------------------");
