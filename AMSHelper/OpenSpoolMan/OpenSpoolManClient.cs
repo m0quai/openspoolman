@@ -17,15 +17,15 @@ namespace AMSHelper.OpenSpoolMan
             return false;
          }
 
-         return this.PostAssignment(trayIndex, uid);
+         return this.SetTray(trayIndex, uid);
       }
 
       public bool ClearTray(int trayIndex)
       {
-         return this.PostAssignment(trayIndex, "CLEAR");
+         return this.SetTray(trayIndex, "CLEAR");
       }
 
-      private bool PostAssignment(int trayIndex, string uid)
+      private bool SetTray(int trayIndex, string uid)
       {
          if (string.IsNullOrEmpty(Configuration.OpenSpoolMan.BaseUrl))
          {
@@ -33,7 +33,7 @@ namespace AMSHelper.OpenSpoolMan
             return false;
          }
 
-         string url = Configuration.OpenSpoolMan.BaseUrl + "/ams/nfc/" + trayIndex.ToString() + "/assign";
+         string url = Configuration.OpenSpoolMan.BaseUrl + "/ams/nfc/" + trayIndex.ToString() + "/set";
          string json = "{\"uid\":\"" + OpenSpoolManClient.EscapeJson(uid) + "\"}";
 
          try
