@@ -4,7 +4,6 @@ import traceback
 from flask import Blueprint, jsonify, request
 
 import mqtt_bambulab
-import spoolman_client
 import spoolman_service
 
 bp = Blueprint("ams_nfc", __name__, url_prefix="/ams/nfc")
@@ -45,8 +44,8 @@ def _resolve_tray(tray_index):
     return None, None
 
 
-@bp.post("/<int:tray_index>/assign")
-def assign_nfc_tray(tray_index):
+@bp.post("/<int:tray_index>/set")
+def set_nfc_tray(tray_index):
     body = request.get_json(silent=True) or {}
     uid = _normalize_uid(body.get("uid"))
     if not uid:
@@ -61,9 +60,9 @@ def assign_nfc_tray(tray_index):
             spoolman_service.clear_active_spool_for_tray(ams_id, tray_id)
             return jsonify({
                 "success": True,
+                "action": "clear",
                 "tray_index": tray_index,
                 "ams_id": ams_id,
-                "cleared": True,
             })
 
         spool = _find_spool_by_uid(uid)
@@ -78,6 +77,7 @@ def assign_nfc_tray(tray_index):
 
         return jsonify({
             "success": True,
+            "action": "assign",
             "tray_index": tray_index,
             "ams_id": ams_id,
             "uid": uid,
