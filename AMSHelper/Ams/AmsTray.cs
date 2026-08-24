@@ -113,7 +113,7 @@ namespace AMSHelper.Ams
          {
             int target = BambuStatusParser.ParseTrayId(update.TargetTray);
             _isTargetTray = target == this.Index;
-            if (_isTargetTray)
+            if (_isTargetTray && !_isActiveTray)
             {
                if (this.BeginLoading())
                {
@@ -148,7 +148,9 @@ namespace AMSHelper.Ams
             _isActiveTray = active == this.Index;
             if (_isActiveTray)
             {
-               if (_operation == TrayOperation.None && this.SetActivity("GELADEN / aktiv"))
+               _operation = TrayOperation.None;
+               _isTargetTray = false;
+               if (this.SetActivity("IN USE"))
                {
                   relevant = true;
                }
@@ -185,7 +187,7 @@ namespace AMSHelper.Ams
                bool pollingStopped = this.StopNfcPolling();
                if (_activity == "RFID wird gelesen")
                {
-                  string nextActivity = _operation == TrayOperation.Loading ? "LADEN" : (_isActiveTray ? "GELADEN / aktiv" : "BEREIT");
+                  string nextActivity = _isActiveTray ? "IN USE" : (_operation == TrayOperation.Loading ? "LADEN" : "BEREIT");
                   if (this.SetActivity(nextActivity))
                   {
                      relevant = true;
@@ -206,7 +208,7 @@ namespace AMSHelper.Ams
                this.StopNfcPolling();
                if (_activity == "RFID wird gelesen")
                {
-                  this.SetActivity(_operation == TrayOperation.Loading ? "LADEN" : (_isActiveTray ? "GELADEN / aktiv" : "BEREIT"));
+                  this.SetActivity(_isActiveTray ? "IN USE" : (_operation == TrayOperation.Loading ? "LADEN" : "BEREIT"));
                }
                relevant = true;
             }
@@ -231,7 +233,7 @@ namespace AMSHelper.Ams
                this.StopNfcPolling();
                if (completedOperation == TrayOperation.Loading && _isActiveTray)
                {
-                  if (this.SetActivity("GELADEN / aktiv"))
+                  if (this.SetActivity("IN USE"))
                   {
                      relevant = true;
                   }
@@ -251,6 +253,13 @@ namespace AMSHelper.Ams
 
       private bool BeginLoading()
       {
+         if (_isActiveTray)
+         {
+            _operation = TrayOperation.None;
+            _isTargetTray = false;
+            return this.SetActivity("IN USE");
+         }
+
          bool changed = false;
          _operation = TrayOperation.Loading;
          _isTargetTray = true;
@@ -318,7 +327,7 @@ namespace AMSHelper.Ams
             return false;
          }
          _activity = activity;
-         if (activity != "GELADEN / aktiv" && activity != "BELEGT" && activity != "BEREIT" && activity != "LEER" && activity != "LADEN" && activity != "ENTLADEN")
+         if (activity != "IN USE" && activity != "BELEGT" && activity != "BEREIT" && activity != "LEER" && activity != "LADEN" && activity != "ENTLADEN")
          {
             AmsTray.Write("[AMS] Tray " + this.Index + " -> " + activity);
          }
@@ -382,7 +391,7 @@ namespace AMSHelper.Ams
          {
             activity = "BELEGT";
          }
-         bool stable = activity == "BELEGT" || activity == "GELADEN / aktiv" || activity == "BEREIT" || activity == "LEER" || activity == "LADEN" || activity == "ENTLADEN";
+         bool stable = activity == "BELEGT" || activity == "IN USE" || activity == "BEREIT" || activity == "LEER" || activity == "LADEN" || activity == "ENTLADEN";
          if (!stable)
          {
             return;
