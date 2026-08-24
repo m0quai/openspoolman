@@ -1,7 +1,7 @@
 using System;
 using System.Device.I2c;
-using System.Diagnostics;
 using System.Threading;
+using AMSHelper.Diagnostics;
 using nanoFramework.Hardware.Esp32;
 using Iot.Device.Pn532;
 using Iot.Device.Pn532.ListPassive;
@@ -35,14 +35,20 @@ namespace AMSHelper.Hardware
 
       public void Start()
       {
-         if (!_enabled || _readerThread != null) { return; }
+         if (!_enabled || _readerThread != null)
+         {
+            return;
+         }
          _readerThread = new Thread(this.RunReader);
          _readerThread.Start();
       }
 
       public bool StartPolling()
       {
-         if (!_enabled || !_initialized || _polling) { return false; }
+         if (!_enabled || !_initialized || _polling)
+         {
+            return false;
+         }
          _lastUid = string.Empty;
          _pollingStartedTicks = DateTime.UtcNow.Ticks;
          _polling = true;
@@ -51,14 +57,20 @@ namespace AMSHelper.Hardware
 
       public bool StopPolling()
       {
-         if (!_polling) { return false; }
+         if (!_polling)
+         {
+            return false;
+         }
          _polling = false;
          return true;
       }
 
       private bool HasPollingTimedOut()
       {
-         if (!_polling) { return false; }
+         if (!_polling)
+         {
+            return false;
+         }
          long timeoutTicks = (long)Config.Configuration.Nfc.PollingCycleTimeoutMs * TimeSpan.TicksPerMillisecond;
          return DateTime.UtcNow.Ticks - _pollingStartedTicks >= timeoutTicks;
       }
@@ -66,13 +78,13 @@ namespace AMSHelper.Hardware
       private void RunReader()
       {
          Thread.Sleep(Config.Configuration.Nfc.StartupDelayMs);
-         Debug.WriteLine("[NFC] Tray " + _trayIndex + " Thread gestartet.");
+         TraceWriter.WriteLine("[NFC] Tray " + _trayIndex + " Thread gestartet.");
          int sdaPin = Config.Configuration.Nfc.Tray0I2cSdaPin;
          int sclPin = Config.Configuration.Nfc.Tray0I2cSclPin;
          if (sdaPin < 0 || sclPin < 0)
          {
             _initializationFailed = true;
-            Debug.WriteLine("[NFC] Tray " + _trayIndex + " I2C-Pins sind nicht konfiguriert.");
+            TraceWriter.WriteLine("[NFC] Tray " + _trayIndex + " I2C-Pins sind nicht konfiguriert.");
             return;
          }
          nanoFramework.Hardware.Esp32.Configuration.SetPinFunction(sdaPin, DeviceFunction.I2C1_DATA);
@@ -85,7 +97,7 @@ namespace AMSHelper.Hardware
                using (Pn532 pn532 = new Pn532(i2cDevice))
                {
                   pn532.ReadTimeOut = Config.Configuration.Nfc.ReadTimeoutMs;
-                  Debug.WriteLine("[NFC] Tray " + _trayIndex + " PN532 erkannt: " + pn532.FirmwareVersion.Version);
+                  TraceWriter.WriteLine("[NFC] Tray " + _trayIndex + " PN532 erkannt: " + pn532.FirmwareVersion.Version);
                   pn532.SetMaxRetriesInitialization(new MaxRetriesMode { MaxRetryAnswerToReset = 0x00, MaxRetryPSL = 0x00, MaxRetryPassiveActivation = 0x00 });
                   _initialized = true;
                   while (true)
@@ -98,7 +110,7 @@ namespace AMSHelper.Hardware
                      if (this.HasPollingTimedOut())
                      {
                         _polling = false;
-                        Debug.WriteLine("[NFC] Tray " + _trayIndex + " Polling TIMEOUT nach " + Config.Configuration.Nfc.PollingCycleTimeoutMs.ToString() + " ms");
+                        TraceWriter.WriteLine("[NFC] Tray " + _trayIndex + " Polling TIMEOUT nach " + Config.Configuration.Nfc.PollingCycleTimeoutMs.ToString() + " ms");
                         continue;
                      }
                      try
@@ -114,7 +126,10 @@ namespace AMSHelper.Hardware
                               {
                                  _lastUid = uid;
                                  UidReadHandler handler = this.UidRead;
-                                 if (handler != null) { handler(uid); }
+                                 if (handler != null)
+                                 {
+                                    handler(uid);
+                                 }
                               }
                               pn532.ReleaseTarget(tag.TargetNumber);
                            }
@@ -122,7 +137,7 @@ namespace AMSHelper.Hardware
                      }
                      catch (Exception ex)
                      {
-                        Debug.WriteLine("[NFC] Tray " + _trayIndex + " FEHLER bei ReadPassiveTarget: " + ex.GetType().FullName + " | " + ex.Message);
+                        TraceWriter.WriteLine("[NFC] Tray " + _trayIndex + " FEHLER bei ReadPassiveTarget: " + ex.GetType().FullName + " | " + ex.Message);
                      }
                      Thread.Sleep(Config.Configuration.Nfc.ScanDelayMs);
                   }
@@ -132,7 +147,7 @@ namespace AMSHelper.Hardware
          catch (Exception ex)
          {
             _initializationFailed = true;
-            Debug.WriteLine("[NFC] Tray " + _trayIndex + " PN532 Fehler: " + ex.GetType().FullName + " | " + ex.Message);
+            TraceWriter.WriteLine("[NFC] Tray " + _trayIndex + " PN532 Fehler: " + ex.GetType().FullName + " | " + ex.Message);
          }
       }
    }
