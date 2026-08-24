@@ -102,7 +102,7 @@ namespace AMSHelper.Ams
             {
                _operation = TrayOperation.Unloading;
                this.StopNfcPolling();
-               if (this.SetActivity("ENTLADEN gestartet"))
+               if (this.SetActivity("ENTLADEN"))
                {
                   relevant = true;
                }
@@ -124,7 +124,10 @@ namespace AMSHelper.Ams
             {
                _operation = TrayOperation.Unloading;
                this.StopNfcPolling();
-               relevant = true;
+               if (this.SetActivity("ENTLADEN"))
+               {
+                  relevant = true;
+               }
             }
          }
 
@@ -145,7 +148,7 @@ namespace AMSHelper.Ams
             _isActiveTray = active == this.Index;
             if (_isActiveTray)
             {
-               if (_operation != TrayOperation.Unloading && this.SetActivity("GELADEN / aktiv"))
+               if (_operation == TrayOperation.None && this.SetActivity("GELADEN / aktiv"))
                {
                   relevant = true;
                }
@@ -182,7 +185,8 @@ namespace AMSHelper.Ams
                bool pollingStopped = this.StopNfcPolling();
                if (_activity == "RFID wird gelesen")
                {
-                  if (this.SetActivity(_isActiveTray ? "GELADEN / aktiv" : "BEREIT"))
+                  string nextActivity = _operation == TrayOperation.Loading ? "LADEN" : (_isActiveTray ? "GELADEN / aktiv" : "BEREIT");
+                  if (this.SetActivity(nextActivity))
                   {
                      relevant = true;
                   }
@@ -202,7 +206,7 @@ namespace AMSHelper.Ams
                this.StopNfcPolling();
                if (_activity == "RFID wird gelesen")
                {
-                  this.SetActivity(_isActiveTray ? "GELADEN / aktiv" : "BEREIT");
+                  this.SetActivity(_operation == TrayOperation.Loading ? "LADEN" : (_isActiveTray ? "GELADEN / aktiv" : "BEREIT"));
                }
                relevant = true;
             }
@@ -221,9 +225,17 @@ namespace AMSHelper.Ams
             }
             if (completed)
             {
+               TrayOperation completedOperation = _operation;
                _operation = TrayOperation.None;
                _isTargetTray = false;
                this.StopNfcPolling();
+               if (completedOperation == TrayOperation.Loading && _isActiveTray)
+               {
+                  if (this.SetActivity("GELADEN / aktiv"))
+                  {
+                     relevant = true;
+                  }
+               }
             }
             else if (_operation != TrayOperation.Unloading && BambuStatusParser.IsFilamentChangeStatus(update.AmsStatus))
             {
@@ -242,7 +254,7 @@ namespace AMSHelper.Ams
          bool changed = false;
          _operation = TrayOperation.Loading;
          _isTargetTray = true;
-         if (this.SetActivity("LADEN gestartet"))
+         if (this.SetActivity("LADEN"))
          {
             changed = true;
          }
@@ -306,7 +318,7 @@ namespace AMSHelper.Ams
             return false;
          }
          _activity = activity;
-         if (activity != "GELADEN / aktiv" && activity != "BELEGT" && activity != "BEREIT" && activity != "LEER")
+         if (activity != "GELADEN / aktiv" && activity != "BELEGT" && activity != "BEREIT" && activity != "LEER" && activity != "LADEN" && activity != "ENTLADEN")
          {
             AmsTray.Write("[AMS] Tray " + this.Index + " -> " + activity);
          }
@@ -370,7 +382,7 @@ namespace AMSHelper.Ams
          {
             activity = "BELEGT";
          }
-         bool stable = activity == "BELEGT" || activity == "GELADEN / aktiv" || activity == "BEREIT" || activity == "LEER";
+         bool stable = activity == "BELEGT" || activity == "GELADEN / aktiv" || activity == "BEREIT" || activity == "LEER" || activity == "LADEN" || activity == "ENTLADEN";
          if (!stable)
          {
             return;
