@@ -52,10 +52,6 @@ def _ensure_url_config():
 
 _url_config = _ensure_url_config()
 
-# Preserve the public Spoolman URL. Before importing the original application,
-# temporarily expose the Docker-internal URL as SPOOLMAN_BASE_URL. This makes
-# the existing config.py build SPOOLMAN_API_URL from the internal address
-# without requiring config.py to be modified or a migration script to be run.
 _SPOOLMAN_PUBLIC_BASE_URL = _url_config.get(
     "SPOOLMAN_BASE_URL", _URL_DEFAULTS["SPOOLMAN_BASE_URL"]
 ).rstrip("/")
@@ -67,8 +63,6 @@ _OPENSPOOLMAN_PUBLIC_BASE_URL = _url_config.get(
 ).rstrip("/")
 
 def _running_inside_docker():
-    # Docker creates /.dockerenv in normal Linux containers. The cgroup check
-    # covers runtimes where that marker is absent.
     if Path("/.dockerenv").exists():
         return True
     try:
@@ -78,9 +72,6 @@ def _running_inside_docker():
         return False
 
 def _docker_spoolman_url():
-    # Prefer the configured Docker/Compose URL only if its hostname is actually
-    # resolvable from this container. This matters when OpenSpoolMan and Spoolman
-    # are started by different Compose projects/networks.
     import socket
     from urllib.parse import urlparse
 
@@ -93,9 +84,6 @@ def _docker_spoolman_url():
     except OSError:
         pass
 
-    # Docker Desktop exposes host.docker.internal inside containers. Spoolman is
-    # published on the Windows host as port 7912, so this works even when the
-    # two containers do not share a Docker network.
     host_fallback = "http://host.docker.internal:7912"
     try:
         socket.getaddrinfo("host.docker.internal", None)
@@ -103,13 +91,8 @@ def _docker_spoolman_url():
     except OSError:
         pass
 
-    # Last fallback keeps the configured public URL. This is useful for native
-    # Linux installations where localhost may actually host Spoolman.
     return _SPOOLMAN_PUBLIC_BASE_URL
 
-# Native Windows debugger -> localhost:7912.
-# Docker with shared network -> configured spoolman:8000.
-# Docker without shared network -> host.docker.internal:7912.
 _SPOOLMAN_RUNTIME_BASE_URL = (
     _docker_spoolman_url() if _running_inside_docker()
     else _SPOOLMAN_PUBLIC_BASE_URL
@@ -120,29 +103,18 @@ os.environ["SPOOLMAN_BASE_URL"] = _SPOOLMAN_RUNTIME_BASE_URL
 
 from app import app
 
-# The original app and spoolman_client have now imported SPOOLMAN_API_URL using
-# the internal address. Restore the public URL for templates/browser links.
 os.environ["SPOOLMAN_BASE_URL"] = _SPOOLMAN_PUBLIC_BASE_URL
 
 import config as _openspoolman_config
 import app as _openspoolman_app_module
 
-# config.SPOOLMAN_API_URL remains internal for code that reads it later.
 _openspoolman_config.SPOOLMAN_BASE_URL = _SPOOLMAN_PUBLIC_BASE_URL
 _openspoolman_config.SPOOLMAN_INTERNAL_BASE_URL = _SPOOLMAN_DOCKER_BASE_URL
 _openspoolman_config.SPOOLMAN_RUNTIME_BASE_URL = _SPOOLMAN_RUNTIME_BASE_URL
 _openspoolman_config.SPOOLMAN_API_URL = f"{_SPOOLMAN_RUNTIME_BASE_URL}/api/v1"
-
-# app.py imports SPOOLMAN_BASE_URL by value for its template context processor.
-# Restore that copy to the public URL, while spoolman_client keeps the already
-# imported internal SPOOLMAN_API_URL.
 _openspoolman_app_module.SPOOLMAN_BASE_URL = _SPOOLMAN_PUBLIC_BASE_URL
 
 
-# Keep AMS rendering and refresh strictly read-only.
-# Upstream _augment_tray() may clear assignments / send empty filament settings
-# while merely rendering a printer state. Override that behavior here without
-# modifying app.py. Explicit Fill/Clear routes remain responsible for writes.
 def _readonly_augment_tray(spool_list, tray_data, ams_id, tray_id):
     _openspoolman_app_module.augmentTrayDataWithSpoolMan(
         spool_list, tray_data, ams_id, tray_id
@@ -151,9 +123,6 @@ def _readonly_augment_tray(spool_list, tray_data, ams_id, tray_id):
 _openspoolman_app_module._augment_tray = _readonly_augment_tray
 
 
-# Flask sessions are required by the Bambu verification-code flow.
-# Keep this local to the running OpenSpoolMan instance. The authentication
-# request itself is intentionally unchanged from the known mail-producing build.
 if not app.secret_key:
     import os
     import secrets
@@ -176,15 +145,15 @@ if not app.secret_key:
             _secret_file.write_text(app.secret_key, encoding="utf-8")
 
 from bambu_auth_routes import bp as bambu_cloud_bp
+from nfc_routes import bp as ams_nfc_bp
 from flask import redirect, request, url_for, render_template
 import mqtt_bambulab
 
-# Register the custom Bambu Cloud routes before any request handler uses them.
 app.register_blueprint(bambu_cloud_bp)
+app.register_blueprint(ams_nfc_bp)
+
 @app.before_request
 def open_bambu_setup_when_mqtt_is_offline():
-    # On a fresh/unconfigured installation, opening the application should lead
-    # directly to setup. Do not interfere with API/static/Bambu routes.
     if request.endpoint == "home" and not mqtt_bambulab.isMqttClientConnected():
         return redirect(url_for("bambu_cloud.index"))
 
@@ -205,8 +174,6 @@ def _load_openspoolman_version():
 @app.context_processor
 def inject_openspoolman_version():
     return {"openspoolman_version": _load_openspoolman_version()}
-
-
 
 
 @app.post("/refresh-ams")
@@ -230,9 +197,6 @@ def refresh_ams():
             success_message="AMS-Abfrage konnte nicht gesendet werden."
         ))
 
-    # Wait for an actual NEW AMS MQTT response. Comparing the AMS JSON itself is
-    # insufficient because a successful refresh can legitimately return exactly
-    # the same values as before.
     deadline = time.monotonic() + 3.0
     while time.monotonic() < deadline:
         time.sleep(0.10)
@@ -245,15 +209,6 @@ def refresh_ams():
     ))
 
 
-# ---------------------------------------------------------------------------
-# AMS Clear override
-#
-# app.py bleibt unveraendert. Die dort registrierte tray_clear-View wird hier
-# durch die Custom-Implementierung ersetzt. Ein Clear muss sowohl die
-# OpenSpoolMan/Spoolman-Zuordnung als auch die Materialbelegung im Drucker
-# loeschen. Erst wenn das MQTT-Clear erfolgreich gesendet wurde, wird die
-# lokale Spulenzuordnung entfernt.
-# ---------------------------------------------------------------------------
 def _custom_tray_clear():
     import traceback
     import spoolman_service
@@ -297,21 +252,9 @@ def _custom_tray_clear():
         traceback.print_exc()
         return render_template("error.html", exception=str(exc))
 
-# Replace only the registered view function. Do not modify upstream app.py.
 app.view_functions["tray_clear"] = _custom_tray_clear
 
 
-# ---------------------------------------------------------------------------
-# AMS generic-material compatibility
-#
-# Keep Spoolman's material name (e.g. PLA+) unchanged, but normalize only the
-# payload handed to the upstream setActiveSpool implementation.
-#
-# Bambu's AMS expects the base material "PLA" for PLA+ and a real Bambu
-# tray_info_idx. Numeric legacy placeholders are not Bambu profile IDs.
-# For non-Bambu filaments we deliberately omit setting_id; filament.py then
-# supplies the established generic IDs such as GFL99 / GFU99 / GFG99.
-# ---------------------------------------------------------------------------
 _original_set_active_spool = _openspoolman_app_module.setActiveSpool
 
 def _set_active_spool_bambu_compatible(ams_id, tray_id, spool_data):
@@ -324,19 +267,13 @@ def _set_active_spool_bambu_compatible(ams_id, tray_id, spool_data):
     material = str(filament.get("material") or "").strip()
     material_key = material.upper().replace(" ", "")
 
-    # PLA+ remains PLA+ in Spoolman. Only the AMS write uses Bambu's base PLA.
     if material_key == "PLA+":
         filament["material"] = "PLA"
 
-    # Old OpenSpoolMan fields sometimes contain Spoolman/local numeric IDs.
-    # They must never be sent as Bambu tray_info_idx values.
     raw_filament_id = str(extra.get("filament_id", "") or "").strip().strip('"')
     if raw_filament_id.isdigit():
         extra["filament_id"] = ""
 
-    # Generic/third-party AMS entries do not need a Bambu Studio preset
-    # setting_id. Sending guessed values such as GFSL99 made the assignment
-    # transient on the printer.
     if vendor not in {"BAMBU", "BAMBU LAB"}:
         extra["setting_id"] = ""
 
@@ -345,9 +282,6 @@ def _set_active_spool_bambu_compatible(ams_id, tray_id, spool_data):
 _openspoolman_app_module.setActiveSpool = _set_active_spool_bambu_compatible
 
 
-
-# Do not send an empty setting_id in ams_filament_setting.
-# Bambu treats "field absent" differently from an explicitly empty preset id.
 _original_mqtt_publish = mqtt_bambulab.publish
 
 def _publish_without_empty_setting_id(client, message):
