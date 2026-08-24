@@ -6,10 +6,6 @@ using AMSHelper.Network;
 
 namespace AMSHelper.Ams
 {
-   /// <summary>
-   /// Root device: lifecycle, shared ESP hardware setup, MQTT and global telemetry only.
-   /// Tray state and NFC hardware are owned by the individual AmsTray instances.
-   /// </summary>
    public sealed class AmsHelperDevice : EspDevice
    {
       private BambuMqtt _mqtt;
@@ -35,12 +31,16 @@ namespace AMSHelper.Ams
          wifi.Connect();
 
          this._mqtt = new BambuMqtt();
-         this._mqtt.StatusUpdateReceived += this.BambuStatusUpdateReceived;
 
          this.SetTray(0, new AmsTray(0, this._mqtt));
          this.SetTray(1, new AmsTray(1, this._mqtt));
          this.SetTray(2, new AmsTray(2, this._mqtt));
          this.SetTray(3, new AmsTray(3, this._mqtt));
+
+         // Wichtig: Device-Handler zuletzt registrieren. Dadurch haben alle AmsTray-
+         // Instanzen denselben MQTT-Status bereits verarbeitet, bevor der gemeinsame
+         // Gesamtstatus ausgegeben wird.
+         this._mqtt.StatusUpdateReceived += this.BambuStatusUpdateReceived;
 
          for (int i = 0; i < this.Trays.Length; i++)
          {
@@ -51,12 +51,7 @@ namespace AMSHelper.Ams
             }
          }
 
-         // nanoFrameworks nativer TLS-Handshake kann bei einem fehlgeschlagenen
-         // Verbindungsversuch fuer viele Sekunden die Managed-Ausfuehrung stark
-         // ausbremsen. Deshalb bekommt die NFC-Hardware vor dem ersten MQTT/TLS-
-         // Versuch Zeit, ihre Initialisierung vollstaendig abzuschliessen.
          Thread.Sleep(Config.Configuration.Bambu.InitialConnectDelayMs);
-
          this._mqtt.Start();
 
          while (true)
@@ -65,10 +60,6 @@ namespace AMSHelper.Ams
          }
       }
 
-      /// <summary>
-      /// Device subscriber receives global telemetry only. No tray state is kept here.
-      /// Every AmsTray subscribes independently to the same MQTT status event.
-      /// </summary>
       private void BambuStatusUpdateReceived(BambuStatusUpdate update)
       {
          if (update == null)
@@ -90,6 +81,38 @@ namespace AMSHelper.Ams
          {
             this._amsTemperature = update.AmsTemperature;
          }
+
+         if (update.AmsOutputProduced)
+         {
+            this.WriteTrayStatus();
+         }
+      }
+
+      private void WriteTrayStatus()
+      {
+         Debug.WriteLine("[AMS] -------- Gesamtstatus --------");
+
+         for (int i = 0; i < this.Trays.Length; i++)
+         {
+            AmsTray tray = this.GetTray(i);
+            if (tray == null)
+            {
+               continue;
+            }
+
+            string line = "[AMS] Tray " + tray.Index + ": " + tray.Activity;
+            line += tray.IsOccupied ? " | BELEGT" : " | LEER";
+            line += tray.Pn532Enabled ? " | PN532=aktiv" : " | PN532=deaktiviert";
+
+            if (tray.Pn532Enabled)
+            {
+               line += tray.Uid.Length > 0 ? " | UID=" + tray.Uid : " | UID=noch nicht gelesen";
+            }
+
+            Debug.WriteLine(line);
+         }
+
+         Debug.WriteLine("[AMS] ------------------------------");
       }
    }
 }
