@@ -21,9 +21,9 @@ namespace AMSHelper.Ams
       {
       }
 
-      public string AmsHumidity { get { return _amsHumidity; } }
-      public string AmsHumidityRaw { get { return _amsHumidityRaw; } }
-      public string AmsTemperature { get { return _amsTemperature; } }
+      public string AmsHumidity { get { return this._amsHumidity; } }
+      public string AmsHumidityRaw { get { return this._amsHumidityRaw; } }
+      public string AmsTemperature { get { return this._amsTemperature; } }
 
       public void Start()
       {
@@ -34,17 +34,17 @@ namespace AMSHelper.Ams
          var wifi = new WifiConnection();
          wifi.Connect();
 
-         _mqtt = new BambuMqtt();
-         _mqtt.StatusUpdateReceived += BambuStatusUpdateReceived;
+         this._mqtt = new BambuMqtt();
+         this._mqtt.StatusUpdateReceived += this.BambuStatusUpdateReceived;
 
-         SetTray(0, new AmsTray(0, _mqtt));
-         SetTray(1, new AmsTray(1, _mqtt));
-         SetTray(2, new AmsTray(2, _mqtt));
-         SetTray(3, new AmsTray(3, _mqtt));
+         this.SetTray(0, new AmsTray(0, this._mqtt));
+         this.SetTray(1, new AmsTray(1, this._mqtt));
+         this.SetTray(2, new AmsTray(2, this._mqtt));
+         this.SetTray(3, new AmsTray(3, this._mqtt));
 
-         for (int i = 0; i < Trays.Length; i++)
+         for (int i = 0; i < this.Trays.Length; i++)
          {
-            AmsTray tray = GetTray(i);
+            AmsTray tray = this.GetTray(i);
             if (tray != null)
             {
                tray.Start();
@@ -57,7 +57,7 @@ namespace AMSHelper.Ams
          // Versuch Zeit, ihre Initialisierung vollstaendig abzuschliessen.
          Thread.Sleep(Config.Configuration.Bambu.InitialConnectDelayMs);
 
-         _mqtt.Start();
+         this._mqtt.Start();
 
          while (true)
          {
@@ -78,17 +78,17 @@ namespace AMSHelper.Ams
 
          if (update.HasAmsHumidity)
          {
-            _amsHumidity = update.AmsHumidity;
+            this._amsHumidity = update.AmsHumidity;
          }
 
          if (update.HasAmsHumidityRaw)
          {
-            _amsHumidityRaw = update.AmsHumidityRaw;
+            this._amsHumidityRaw = update.AmsHumidityRaw;
          }
 
          if (update.HasAmsTemperature)
          {
-            _amsTemperature = update.AmsTemperature;
+            this._amsTemperature = update.AmsTemperature;
          }
       }
    }
