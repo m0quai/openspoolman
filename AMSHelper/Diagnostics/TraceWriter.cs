@@ -58,10 +58,12 @@ namespace AMSHelper.Diagnostics
                else { SystemDebug.Write(entry.Text); }
             }
             else { Thread.Sleep(AppConfiguration.Debugging.TraceWriterIdleDelayMs); }
-            if (AppConfiguration.Debugging.TraceHeartbeatEnabled)
+
+            long nowTicks = DateTime.UtcNow.Ticks;
+            if (nowTicks - lastHeartbeatTicks >= heartbeatIntervalTicks)
             {
-               long nowTicks = DateTime.UtcNow.Ticks;
-               if (nowTicks - lastHeartbeatTicks >= heartbeatIntervalTicks) { WriteHeartbeat(queueCount, droppedEntries); lastHeartbeatTicks = nowTicks; }
+               WriteHeartbeat(queueCount, droppedEntries);
+               lastHeartbeatTicks = nowTicks;
             }
          }
       }
