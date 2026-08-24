@@ -52,6 +52,7 @@
     <Reference Include="System.IO.Ports"><HintPath>..\packages\nanoFramework.System.IO.Ports.1.1.139\lib\System.IO.Ports.dll</HintPath></Reference>
     <Reference Include="System.IO.Streams"><HintPath>..\packages\nanoFramework.System.IO.Streams.1.1.96\lib\System.IO.Streams.dll</HintPath></Reference>
     <Reference Include="System.Net"><HintPath>..\packages\nanoFramework.System.Net.1.11.60\lib\System.Net.dll</HintPath></Reference>
+    <Reference Include="System.Net.Http"><HintPath>..\packages\nanoFramework.System.Net.Http.1.5.208\lib\System.Net.Http.dll</HintPath></Reference>
     <Reference Include="System.Threading"><HintPath>..\packages\nanoFramework.System.Threading.1.1.52\lib\System.Threading.dll</HintPath></Reference>
     <Reference Include="nanoFramework.M2Mqtt"><HintPath>..\packages\nanoFramework.M2Mqtt.5.1.221\lib\nanoFramework.M2Mqtt.dll</HintPath></Reference>
     <Reference Include="nanoFramework.Runtime.Native"><HintPath>..\packages\nanoFramework.Runtime.Native.1.7.11\lib\nanoFramework.Runtime.Native.dll</HintPath></Reference>
