@@ -1,4 +1,35 @@
-﻿[*.cs]
+root = true
+
+[*.cs]
+
+indent_style = space
+indent_size = 3
+tab_width = 3
+end_of_line = crlf
+insert_final_newline = true
+
+# Braces and layout
+csharp_new_line_before_open_brace = all
+csharp_prefer_braces = true:error
+csharp_preserve_single_line_blocks = false
+csharp_preserve_single_line_statements = false
+
+# Instance members use this.; private fields use _name without this.
+dotnet_style_qualification_for_field = false:error
+dotnet_style_qualification_for_property = true:error
+dotnet_style_qualification_for_method = true:error
+dotnet_style_qualification_for_event = true:error
+
+# Private fields: _camelCase
+dotnet_naming_rule.private_fields_start_with_underscore.severity = error
+dotnet_naming_rule.private_fields_start_with_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_start_with_underscore.style = underscore_camel_case
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+dotnet_naming_style.underscore_camel_case.required_prefix = _
+dotnet_naming_style.underscore_camel_case.capitalization = camel_case
 
 # CS0162: Unreachable code detected
 dotnet_diagnostic.CS0162.severity = none
