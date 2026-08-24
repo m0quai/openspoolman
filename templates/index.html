@@ -48,8 +48,7 @@
 
 <script>
 (() => {
-  const initialGeneration = {{ mqtt_generation|default(0)|tojson }};
-  let generation = initialGeneration;
+  let generation = null;
   let reloading = false;
 
   async function checkAmsState() {
@@ -71,6 +70,11 @@
         return;
       }
 
+      if (generation === null) {
+        generation = state.generation;
+        return;
+      }
+
       if (state.generation > generation) {
         reloading = true;
         window.location.reload();
@@ -83,6 +87,7 @@
     }
   }
 
+  checkAmsState();
   window.setInterval(checkAmsState, 1000);
 })();
 </script>
