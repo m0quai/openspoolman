@@ -38,7 +38,7 @@ namespace AMSHelper.Config
 
         public static class OpenSpoolMan
         {
-            public const string Host = "NBK-01-548";
+            public const string Host = "192.168.52.73";
             public const int Port = 8000;
             public const int SpoolmanPort = 7912;
             public const int RequestTimeoutMs = 10000;
