@@ -45,4 +45,45 @@
     {% endwith %}
   </div>
 </div>
+
+<script>
+(() => {
+  const initialGeneration = {{ mqtt_generation|default(0)|tojson }};
+  let generation = initialGeneration;
+  let reloading = false;
+
+  async function checkAmsState() {
+    if (reloading || document.hidden) {
+      return;
+    }
+
+    try {
+      const response = await fetch("{{ url_for('ams_state_generation') }}", {
+        cache: "no-store",
+        headers: { "Accept": "application/json" }
+      });
+      if (!response.ok) {
+        return;
+      }
+
+      const state = await response.json();
+      if (typeof state.generation !== "number") {
+        return;
+      }
+
+      if (state.generation > generation) {
+        reloading = true;
+        window.location.reload();
+        return;
+      }
+
+      generation = state.generation;
+    } catch (_) {
+      // A temporary network error must not disturb the Home page.
+    }
+  }
+
+  window.setInterval(checkAmsState, 1000);
+})();
+</script>
 {% endblock %}
