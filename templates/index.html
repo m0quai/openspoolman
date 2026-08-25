@@ -8,19 +8,19 @@
     <span>
       Hotend:
       <span id="printer-hotend" class="fw-semibold">
-        {% if printer_temperatures.hotend is not none %}{{ printer_temperatures.hotend }}{% else %}-{% endif %}
+        {% if printer_temperatures.hotend is not none %}{{ printer_temperatures.hotend|round|int }}{% else %}-{% endif %}
       </span>°C
       <span id="printer-hotend-target-wrapper"{% if printer_temperatures.hotend_target is none %} class="d-none"{% endif %}>
-        / <span id="printer-hotend-target">{% if printer_temperatures.hotend_target is not none %}{{ printer_temperatures.hotend_target }}{% endif %}</span>°C
+        / <span id="printer-hotend-target">{% if printer_temperatures.hotend_target is not none %}{{ printer_temperatures.hotend_target|round|int }}{% endif %}</span>°C
       </span>
     </span>
     <span>
       Bed:
       <span id="printer-bed" class="fw-semibold">
-        {% if printer_temperatures.bed is not none %}{{ printer_temperatures.bed }}{% else %}-{% endif %}
+        {% if printer_temperatures.bed is not none %}{{ printer_temperatures.bed|round|int }}{% else %}-{% endif %}
       </span>°C
       <span id="printer-bed-target-wrapper"{% if printer_temperatures.bed_target is none %} class="d-none"{% endif %}>
-        / <span id="printer-bed-target">{% if printer_temperatures.bed_target is not none %}{{ printer_temperatures.bed_target }}{% endif %}</span>°C
+        / <span id="printer-bed-target">{% if printer_temperatures.bed_target is not none %}{{ printer_temperatures.bed_target|round|int }}{% endif %}</span>°C
       </span>
     </span>
   </div>
@@ -93,7 +93,7 @@
     const targetElement = document.getElementById(targetId);
 
     if (valueElement) {
-      valueElement.textContent = value === null || value === undefined ? '-' : value;
+      valueElement.textContent = value === null || value === undefined ? '-' : Math.round(Number(value));
     }
 
     if (!wrapperElement || !targetElement) {
@@ -106,7 +106,7 @@
       return;
     }
 
-    targetElement.textContent = target;
+    targetElement.textContent = Math.round(Number(target));
     wrapperElement.classList.remove('d-none');
   }
 
