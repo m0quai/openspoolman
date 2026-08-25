@@ -156,6 +156,25 @@ app.register_blueprint(bambu_cloud_bp)
 app.register_blueprint(ams_nfc_bp)
 
 
+# Bambu's FTPS server can be very slow while a print is being prepared. A hard
+# 30-second transfer timeout aborts valid multi-megabyte 3MF downloads halfway
+# through. Keep the short connection timeout, but allow the actual transfer up
+# to three minutes.
+_original_setup_pycurl_connection = _tools_3mf.setupPycurlConnection
+
+
+def _setup_pycurl_connection_for_large_3mf(ftp_user, ftp_pass):
+    connection = _original_setup_pycurl_connection(ftp_user, ftp_pass)
+    try:
+        connection.setopt(connection.CONNECTTIMEOUT, 5)
+        connection.setopt(connection.TIMEOUT, 180)
+    except Exception:
+        pass
+    return connection
+
+
+_tools_3mf.setupPycurlConnection = _setup_pycurl_connection_for_large_3mf
+
 _original_download3mf_from_ftp = _tools_3mf.download3mfFromFTP
 
 
@@ -164,8 +183,8 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file):
 
     Bambu .bbl files may reference /sdcard/Kerstin.gcode.3mf while FTPS exposes
     the same job as /ItsLitho_Kerstin.gcode.3mf. Try the normal resolver first.
-    Only if that fails, inspect the FTPS root and accept a suffix match when it
-    is unique. Multiple matches are intentionally rejected.
+    If that fails, inspect the FTPS root. An exact filename wins over suffix
+    variants; otherwise a suffix match is accepted only when it is unique.
     """
     try:
         return _original_download3mf_from_ftp(filename, dest_file)
@@ -184,12 +203,25 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file):
             )
             raise original_error
 
+        root_names = [name.strip() for name in root_names if name.strip()]
         expected_lower = expected_name.lower()
+
+        exact_matches = [
+            name for name in root_names
+            if name.lower() == expected_lower and name.lower().endswith(".3mf")
+        ]
+        if len(exact_matches) == 1:
+            resolved_path = "/" + exact_matches[0]
+            _log(
+                f"[3MF] Exakter FTPS-Root-Treffer fuer {expected_name!r}: {resolved_path}; erneuter Download."
+            )
+            return _original_download3mf_from_ftp(resolved_path, dest_file)
+
         matches = [
-            name.strip()
+            name
             for name in root_names
-            if name.strip().lower().endswith(expected_lower)
-            and name.strip().lower().endswith(".3mf")
+            if name.lower().endswith(expected_lower)
+            and name.lower().endswith(".3mf")
         ]
 
         if len(matches) == 1:
