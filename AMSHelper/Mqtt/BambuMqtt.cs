@@ -209,7 +209,15 @@ namespace AMSHelper.Mqtt
             return string.Empty;
          }
 
-         string result = value.Trim().Replace('\\', '/');
+         string trimmed = value.Trim();
+         StringBuilder builder = new StringBuilder(trimmed.Length);
+         for (int i = 0; i < trimmed.Length; i++)
+         {
+            char current = trimmed[i];
+            builder.Append(current == '\\' ? '/' : current);
+         }
+
+         string result = builder.ToString();
          while (result.StartsWith("/"))
          {
             result = result.Substring(1);
