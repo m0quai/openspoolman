@@ -171,14 +171,35 @@ def _load_openspoolman_version():
         pass
     return "unknown"
 
+
+def _printer_temperature_status():
+    print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
+    return {
+        "hotend": print_state.get("nozzle_temper"),
+        "hotend_target": print_state.get("nozzle_target_temper"),
+        "bed": print_state.get("bed_temper"),
+        "bed_target": print_state.get("bed_target_temper"),
+    }
+
+
 @app.context_processor
 def inject_openspoolman_version():
-    return {"openspoolman_version": _load_openspoolman_version()}
+    return {
+        "openspoolman_version": _load_openspoolman_version(),
+        "printer_temperatures": _printer_temperature_status(),
+    }
 
 
 @app.get("/ams/state-generation")
 def ams_state_generation():
-    return jsonify({"generation": getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0)})
+    temperatures = _printer_temperature_status()
+    return jsonify({
+        "generation": getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0),
+        "hotend": temperatures.get("hotend"),
+        "hotend_target": temperatures.get("hotend_target"),
+        "bed": temperatures.get("bed"),
+        "bed_target": temperatures.get("bed_target"),
+    })
 
 
 @app.post("/refresh-ams")
