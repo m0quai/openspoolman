@@ -17,9 +17,15 @@ namespace AMSHelper.Mqtt
       private MqttClient _client;
       private Thread _worker;
       private bool _running;
+      private string _currentPrintFile = string.Empty;
+      private string _currentPrintState = string.Empty;
+      private string _currentSubtaskName = string.Empty;
 
       public event BambuStatusUpdateReceivedHandler StatusUpdateReceived;
       public bool IsConnected => _client != null && _client.IsConnected;
+      public string CurrentPrintFile => _currentPrintFile;
+      public string CurrentPrintState => _currentPrintState;
+      public string CurrentSubtaskName => _currentSubtaskName;
 
       public void Start()
       {
@@ -101,6 +107,7 @@ namespace AMSHelper.Mqtt
       {
          string payload = e.Message == null ? string.Empty : Encoding.UTF8.GetString(e.Message, 0, e.Message.Length);
          BambuStatusUpdate update = _parser.Parse(payload);
+         this.TrackPrintJob(update);
          if (Configuration.Debugging.DumpRawAmsStatusFields)
          {
             BambuMqtt.DumpRawAmsStatusFields(update);
@@ -144,6 +151,70 @@ namespace AMSHelper.Mqtt
          }
          TraceWriter.WriteLine("================ END BAMBU MQTT =====================");
          TraceWriter.WriteLine(string.Empty);
+      }
+
+      private void TrackPrintJob(BambuStatusUpdate update)
+      {
+         if (update == null)
+         {
+            return;
+         }
+
+         if (update.HasGcodeState)
+         {
+            string state = update.GcodeState == null ? string.Empty : update.GcodeState.Trim();
+            if (state != _currentPrintState)
+            {
+               _currentPrintState = state;
+               TraceWriter.WriteLine("[PRINT] gcode_state=" + (_currentPrintState.Length == 0 ? "<leer>" : _currentPrintState));
+            }
+         }
+
+         if (update.HasSubtaskName)
+         {
+            string subtaskName = update.SubtaskName == null ? string.Empty : update.SubtaskName.Trim();
+            if (subtaskName != _currentSubtaskName)
+            {
+               _currentSubtaskName = subtaskName;
+               TraceWriter.WriteLine("[PRINT] subtask_name=" + (_currentSubtaskName.Length == 0 ? "<leer>" : _currentSubtaskName));
+            }
+         }
+
+         if (!update.HasGcodeFile)
+         {
+            return;
+         }
+
+         string printFile = BambuMqtt.NormalizePrintFile(update.GcodeFile);
+         if (printFile == _currentPrintFile)
+         {
+            return;
+         }
+
+         _currentPrintFile = printFile;
+         if (_currentPrintFile.Length == 0)
+         {
+            TraceWriter.WriteLine("[PRINT] Aktuelle Druckdatei geleert (MQTT gcode_file ist leer).");
+         }
+         else
+         {
+            TraceWriter.WriteLine("[PRINT] Aktuelle Druckdatei aus MQTT gcode_file: " + _currentPrintFile);
+         }
+      }
+
+      private static string NormalizePrintFile(string value)
+      {
+         if (string.IsNullOrEmpty(value))
+         {
+            return string.Empty;
+         }
+
+         string result = value.Trim().Replace('\\', '/');
+         while (result.StartsWith("/"))
+         {
+            result = result.Substring(1);
+         }
+         return result;
       }
 
       private static void DumpRawAmsStatusFields(BambuStatusUpdate update)
