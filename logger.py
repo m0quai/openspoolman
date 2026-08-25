@@ -4,6 +4,12 @@ import re
 import builtins
 from datetime import datetime
 
+
+_pending_ams_tray = None
+_pending_ams_uid = None
+_ZERO_AMS_UID = "00000000000000000000000000000000"
+
+
 def append_to_rotating_file(file_path: str, text: str, max_size: int = 1_048_576, max_files: int = 5) -> None:
     """
     Appends the given text with a timestamp to a rotating log file.
@@ -13,29 +19,165 @@ def append_to_rotating_file(file_path: str, text: str, max_size: int = 1_048_576
     directory, base_filename = os.path.split(file_path)
     base_filename = os.path.splitext(base_filename)[0]
     os.makedirs(directory, exist_ok=True)
-    
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_entry = f"{timestamp} :: {text}\n"
-    
+
     # Rotate the file if it exceeds the size limit
     if os.path.exists(file_path) and os.path.getsize(file_path) > max_size:
         archive_filename = f"{base_filename}_{time.strftime('%Y%m%d_%H%M%S')}.log"
         archived_file = os.path.join(directory, archive_filename)
         os.rename(file_path, archived_file)
-    
+
     # Append the text with timestamp to the current file
     with open(file_path, "a", encoding="utf-8") as file:
         file.write(log_entry)
-    
+
     # Find all log files that exactly match the expected pattern
     pattern = re.compile(rf"^{re.escape(base_filename)}_\d{{8}}_\d{{6}}\.log$")
     log_files = sorted(
         [f for f in os.listdir(directory) if pattern.match(f)],
         key=lambda f: os.path.getctime(os.path.join(directory, f))  # Sort by creation time
     )
-    
+
     while len(log_files) > max_files:
         os.remove(os.path.join(directory, log_files.pop(0)))  # Remove the oldest file
+
+
+def _is_real_ams_uid(uid) -> bool:
+    value = str(uid or "").strip()
+    return bool(value and value != _ZERO_AMS_UID and any(ch != "0" for ch in value))
+
+
+def _as_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _find_spoolman_spool(spool_id):
+    try:
+        # Imported lazily to avoid a logger <-> mqtt_bambulab import cycle.
+        import mqtt_bambulab
+
+        for spool in mqtt_bambulab.fetchSpools(True) or []:
+            if str(spool.get("id")) == str(spool_id):
+                return spool
+    except Exception:
+        pass
+    return None
+
+
+def _spoolman_remaining_text(spool) -> str:
+    if not isinstance(spool, dict):
+        return ""
+
+    remaining = _as_float(spool.get("remaining_weight"))
+    used = _as_float(spool.get("used_weight"))
+    filament = spool.get("filament") or {}
+    full_weight = _as_float(filament.get("weight"))
+
+    # Spoolman's filament.weight is the nominal net filament weight. Older or
+    # incomplete records may omit it; remaining + used still gives a useful
+    # original net amount in that case.
+    if (full_weight is None or full_weight <= 0) and remaining is not None and used is not None:
+        full_weight = remaining + used
+
+    if remaining is None:
+        return ""
+
+    remaining_g = int(round(remaining))
+    if full_weight is None or full_weight <= 0:
+        return f" | Rest: {remaining_g} g"
+
+    full_g = int(round(full_weight))
+    percent = int(round(max(0.0, min(100.0, remaining / full_weight * 100.0))))
+    return f" | Rest: {remaining_g} g / {full_g} g ({percent} %)"
+
+
+def _uid_suffix(uid) -> str:
+    return f" [{uid}]" if _is_real_ams_uid(uid) else ""
+
+
+def _format_ams_console_message(text):
+    """Collapse verbose Bambu tray diagnostics into one Spoolman-centric line.
+
+    Raw Bambu tray color/remain values are intentionally hidden. Spoolman is
+    authoritative for the assigned spool and remaining amount. A real RFID UID
+    is retained only as a final debug suffix; the all-zero non-RFID UID is not
+    displayed.
+    """
+    global _pending_ams_tray, _pending_ams_uid
+
+    # app_custom currently translates the raw Bambu humidity into one of these
+    # human-readable variants before forwarding it to this logger. Normalize all
+    # variants to the explicit Bambu humidity index wording.
+    match = re.match(
+        r"^AMS \[([A-Z])\] \(hum: [^,]+%, level: ([^,]+), temp: (.+)\)$",
+        text,
+    )
+    if match:
+        _pending_ams_tray = None
+        _pending_ams_uid = None
+        return f"AMS [{match.group(1)}] (humidity_index: {match.group(2)}, temp: {match.group(3)})"
+
+    match = re.match(
+        r"^AMS \[([A-Z])\] \(humidity level: ([^,]+), temp: (.+)\)$",
+        text,
+    )
+    if match:
+        _pending_ams_tray = None
+        _pending_ams_uid = None
+        return f"AMS [{match.group(1)}] (humidity_index: {match.group(2)}, temp: {match.group(3)})"
+
+    match = re.match(
+        r"^AMS \[([A-Z])\] \(hum: ([^,]+), temp: (.+)\)$",
+        text,
+    )
+    if match:
+        _pending_ams_tray = None
+        _pending_ams_uid = None
+        return f"AMS [{match.group(1)}] (humidity_index: {match.group(2)}, temp: {match.group(3)})"
+
+    # Raw tray header. app_custom may already have removed (-01%) and a zero
+    # UUID, so accept both the original and cleaned forms. Suppress this line;
+    # the following Spoolman result is emitted as the single authoritative row.
+    tray_match = re.match(r"^\s*- \[([A-Z]\d+)\](.*)$", text)
+    if tray_match:
+        remainder = tray_match.group(2) or ""
+        uid_match = re.search(r"\[\[\s*([^\]]+?)\s*\]\]", remainder)
+        _pending_ams_tray = tray_match.group(1)
+        _pending_ams_uid = uid_match.group(1).strip() if uid_match else None
+        return None
+
+    spool_match = re.match(r"^\s*- Spoolman Spool #(\d+):\s*(.*)$", text)
+    if spool_match and _pending_ams_tray:
+        spool_id = spool_match.group(1)
+        description = spool_match.group(2).strip() or "zugeordnet"
+        spool = _find_spoolman_spool(spool_id)
+        output = (
+            f"    - [{_pending_ams_tray}] Spoolman Spool #{spool_id}: {description}"
+            f"{_spoolman_remaining_text(spool)}{_uid_suffix(_pending_ams_uid)}"
+        )
+        _pending_ams_tray = None
+        _pending_ams_uid = None
+        return output
+
+    if _pending_ams_tray and (
+        re.match(r"^\s*- Keine Spoolman-Spule diesem Tray zugeordnet\.$", text)
+        or re.match(r"^\s*- No Spool!$", text)
+        or re.match(r"^\s*- Not found\. Update spool tag!$", text)
+    ):
+        output = (
+            f"    - [{_pending_ams_tray}] Keine Spoolman-Spule zugeordnet."
+            f"{_uid_suffix(_pending_ams_uid)}"
+        )
+        _pending_ams_tray = None
+        _pending_ams_uid = None
+        return output
+
+    return text
 
 
 def log_with_timestamp(*args, sep=" ", end="\n", file=None, flush=True) -> None:
@@ -43,6 +185,15 @@ def log_with_timestamp(*args, sep=" ", end="\n", file=None, flush=True) -> None:
     Print a message with a leading timestamp, preserving the standard print API.
     """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # AMS console output is produced as one string per log call. Keep all other
+    # logger usage byte-for-byte equivalent to the previous print behavior.
+    if file is None and len(args) == 1 and isinstance(args[0], str):
+        formatted = _format_ams_console_message(args[0])
+        if formatted is None:
+            return
+        args = (formatted,)
+
     builtins.print(f"[{timestamp}]", *args, sep=sep, end=end, file=file, flush=flush)
 
 
