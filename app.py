@@ -23,16 +23,10 @@ import mqtt_bambulab
 import print_history as print_history_service
 import spoolman_client
 import spoolman_service
-import test_data
 from spoolman_service import augmentTrayDataWithSpoolMan, trayUid, normalize_color_hex
 from logger import log
 
-_TEST_PATCH_CONTEXT = None
-if test_data.TEST_MODE_FLAG:
-  _TEST_PATCH_CONTEXT = test_data.activate_test_data_patches()
-
-USE_TEST_DATA = test_data.test_data_active()
-READ_ONLY_MODE = (not USE_TEST_DATA) and os.getenv("OPENSPOOLMAN_LIVE_READONLY") == "1"
+READ_ONLY_MODE = os.getenv("OPENSPOOLMAN_LIVE_READONLY") == "1"
 
 LAYER_TRACKING_STATUS_DISPLAY = {
     "RUNNING": ("Printing", "warning"),
@@ -41,8 +35,7 @@ LAYER_TRACKING_STATUS_DISPLAY = {
     "FAILED": ("Failed", "danger"),
 }
 
-if not USE_TEST_DATA:
-  mqtt_bambulab.init_mqtt()
+mqtt_bambulab.init_mqtt()
 
 app = Flask(__name__)
 
@@ -461,7 +454,7 @@ def _resolve_bambu_profile_ids(spool_data):
 
 
 def setActiveSpool(ams_id, tray_id, spool_data):
-  if USE_TEST_DATA or READ_ONLY_MODE:
+  if READ_ONLY_MODE:
     return None
 
   if not mqtt_bambulab.isMqttClientConnected():

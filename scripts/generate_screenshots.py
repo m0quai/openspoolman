@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from logger import log
 
 # Ensure repository root is importable when executed from the scripts directory
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -18,8 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 os.chdir(REPO_ROOT)
 
-DEFAULT_SNAPSHOT_PATH = Path("data") / "live_snapshot.json"
-
+from logger import log
 
 @dataclass(frozen=True)
 class ScreenshotJob:
@@ -193,24 +191,12 @@ def wait_for_server(url: str, timeout: int = 30) -> None:
 
 def start_server(
     port: int,
-    use_test_data: bool = True,
-    snapshot_path: str | None = None,
     live_read_only: bool = True,
     print_history_db: str | None = None,
 ) -> subprocess.Popen:
     env = os.environ.copy()
-    env.setdefault("FLASK_APP", "app")
+    env.setdefault("FLASK_APP", "app_custom")
     env["FLASK_RUN_PORT"] = str(port)
-    snapshot_for_env = snapshot_path or str(DEFAULT_SNAPSHOT_PATH)
-    if use_test_data:
-        resolved_snapshot = Path(snapshot_for_env)
-        if not resolved_snapshot.exists():
-            raise FileNotFoundError(
-                f"Snapshot not found at {resolved_snapshot}. Create one with 'python scripts/export_live_snapshot.py --output {resolved_snapshot}'."
-            )
-
-        env["OPENSPOOLMAN_TEST_DATA"] = "1"
-        env["OPENSPOOLMAN_TEST_SNAPSHOT"] = str(resolved_snapshot)
     if live_read_only:
         env["OPENSPOOLMAN_LIVE_READONLY"] = "1"
     if print_history_db:
@@ -236,7 +222,7 @@ def stop_server(process: subprocess.Popen) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate UI screenshots using a seeded dataset or live server")
+    parser = argparse.ArgumentParser(description="Generate UI screenshots using a live server")
     parser.add_argument("--port", type=int, default=5001, help="Port to run the Flask app on")
     parser.add_argument(
         "--config",
@@ -259,23 +245,11 @@ def main() -> int:
     )
     parser.add_argument("--output-dir", dest="output_dir", help="Directory to write screenshots (defaults to config outputs)")
     parser.add_argument("--base-url", dest="base_url", help="Use an already-running server instead of starting one")
-    parser.add_argument("--mode", choices=["seed", "live"], default="seed", help="Start Flask in seeded test mode or against live data")
-    parser.add_argument(
-        "--snapshot",
-        dest="snapshot",
-        default=str(DEFAULT_SNAPSHOT_PATH),
-        help="Path to a snapshot JSON to load when using test data (defaults to data/live_snapshot.json)",
-    )
     parser.add_argument(
         "--print-history-db",
         dest="print_history_db",
         default=str(Path("data") / "demo.db"),
         help="Path to a SQLite DB for print history (defaults to data/demo.db for screenshot runs)",
-    )
-    parser.add_argument(
-        "--test-data",
-        action="store_true",
-        help="Explicitly set OPENSPOOLMAN_TEST_DATA=1 when starting the Flask server",
     )
     parser.add_argument(
         "--live-readonly",
@@ -307,24 +281,18 @@ def main() -> int:
 
     try:
         if base_url == f"http://127.0.0.1:{args.port}":
-            use_test_data = args.test_data or args.mode == "seed"
             live_read_only = args.live_readonly or (not args.allow_live_actions)
             server_process = start_server(
                 args.port,
-                use_test_data=use_test_data,
-                snapshot_path=args.snapshot,
                 live_read_only=live_read_only,
                 print_history_db=args.print_history_db,
             )
             wait_for_server(f"{base_url}/health")
-        elif args.mode == "live" and not args.allow_live_actions:
+        elif not args.allow_live_actions:
             log("Live mode reminder: set OPENSPOOLMAN_LIVE_READONLY=1 on the target server to avoid state changes.")
 
         asyncio.run(capture_pages(base_url, jobs, color_scheme=color_scheme))
         return 0
-    except FileNotFoundError as exc:
-        log(exc)
-        return 1
     finally:
         if server_process is not None:
             stop_server(server_process)

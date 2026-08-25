@@ -111,5 +111,6 @@ Dieser I²C-Aufbau ist der aktuelle Einzelreader-Teststand, **nicht** die Zielar
 ## Entwicklung und Sicherheit
 
 - Primärer Testweg ist Visual Studio Debug; Docker-Rebuild/Compose ist nicht Standard.
+- Dokumentationsscreenshots verwenden den Einstieg `app_custom.py` und Live-Daten im Read-only-Modus; einen Snapshot-/Testdatenmodus gibt es nicht.
 - Vor Änderungen aktuellen `feature/NewFiles`-Stand prüfen und unabhängige Nutzeränderungen nicht überschreiben.
 - Keine Passwörter, WLAN-Zugangsdaten, Tokens, API-Schlüssel, Drucker-Zugangscodes oder private Schlüssel in Git, Dokumentation oder Debugausgaben.

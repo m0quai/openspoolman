@@ -26,7 +26,7 @@ ENV VIRTUAL_ENV=/home/app/venv
 # python setup
 RUN python -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
-RUN export FLASK_APP=src/app.py
+ENV FLASK_APP=app_custom
 RUN pip install --no-cache-dir -r requirements.txt
 
 # define the port number the container should expose
