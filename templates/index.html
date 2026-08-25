@@ -51,6 +51,19 @@
   let generation = null;
   let reloading = false;
 
+  // success_message is intentionally a one-shot UI message.  Tray/AMS updates
+  // trigger automatic page reloads; leaving the query parameter in the URL
+  // would show the same old success banner again after every background update.
+  try {
+    const currentUrl = new URL(window.location.href);
+    if (currentUrl.searchParams.has("success_message")) {
+      currentUrl.searchParams.delete("success_message");
+      window.history.replaceState({}, document.title, currentUrl.pathname + currentUrl.search + currentUrl.hash);
+    }
+  } catch (_) {
+    // URL cleanup is cosmetic; never interfere with the AMS page if unavailable.
+  }
+
   async function checkAmsState() {
     if (reloading || document.hidden) {
       return;
