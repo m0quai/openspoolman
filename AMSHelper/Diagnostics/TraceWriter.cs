@@ -15,15 +15,15 @@ namespace AMSHelper.Diagnostics
          public bool NewLine;
       }
 
-      private static readonly object SyncRoot = new object();
-      private static readonly Queue Entries = new Queue();
+      private static readonly object _syncRoot = new object();
+      private static readonly Queue _entries = new Queue();
       private static Thread _writerThread;
       private static bool _running;
       private static int _droppedEntries;
 
       public static void Start()
       {
-         lock (TraceWriter.SyncRoot)
+         lock (TraceWriter._syncRoot)
          {
             if (_running)
             {
@@ -49,15 +49,15 @@ namespace AMSHelper.Diagnostics
       private static void Enqueue(string text, bool newLine)
       {
          TraceWriter.Start();
-         lock (TraceWriter.SyncRoot)
+         lock (TraceWriter._syncRoot)
          {
-            if (TraceWriter.Entries.Count >= AppConfiguration.Debugging.TraceQueueSize)
+            if (TraceWriter._entries.Count >= AppConfiguration.Debugging.TraceQueueSize)
             {
-               TraceWriter.Entries.Dequeue();
+               TraceWriter._entries.Dequeue();
                _droppedEntries++;
             }
 
-            TraceWriter.Entries.Enqueue(new TraceEntry { Text = text == null ? string.Empty : text, NewLine = newLine });
+            TraceWriter._entries.Enqueue(new TraceEntry { Text = text == null ? string.Empty : text, NewLine = newLine });
          }
       }
 
@@ -70,14 +70,14 @@ namespace AMSHelper.Diagnostics
             TraceEntry entry = null;
             int queueCount;
             int droppedEntries;
-            lock (TraceWriter.SyncRoot)
+            lock (TraceWriter._syncRoot)
             {
-               if (TraceWriter.Entries.Count > 0)
+               if (TraceWriter._entries.Count > 0)
                {
-                  entry = (TraceEntry)TraceWriter.Entries.Dequeue();
+                  entry = (TraceEntry)TraceWriter._entries.Dequeue();
                }
 
-               queueCount = TraceWriter.Entries.Count;
+               queueCount = TraceWriter._entries.Count;
                droppedEntries = _droppedEntries;
             }
 
