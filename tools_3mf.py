@@ -189,6 +189,9 @@ def download3mfFromFTP(filename, destFile):
     local_path = destFile.name
 
     filename = str(filename or "").strip()
+    if not filename:
+        log("[3MF] FTP Download abgebrochen: leerer Dateiname.")
+        return False
     if filename.startswith("/sdcard/"):
         filename = "/" + filename[len("/sdcard/"):]
 
@@ -267,7 +270,8 @@ def getMetaDataFrom3mf(url):
             elif url.startswith("local:"):
                 download3mfFromLocalFilesystem(url.replace("local:", ""), temp_file)
             elif url.startswith(("file://", "ftp://", "ftps://")):
-                file_path = urlparse(url).path
+                parsed_source = urlparse(url)
+                file_path = parsed_source.path or parsed_source.netloc
                 if not download3mfFromFTP(file_path, temp_file):
                     return {}
             else:
@@ -277,7 +281,7 @@ def getMetaDataFrom3mf(url):
             temp_file.close()
             metadata["model_path"] = url
             parsed_url = urlparse(url)
-            metadata["file"] = os.path.basename(parsed_url.path or url)
+            metadata["file"] = os.path.basename(parsed_url.path or parsed_url.netloc or url)
             log(f"[3MF] Verwende 3MF: {url!r}; temporaer={temp_file_name}")
 
             with zipfile.ZipFile(temp_file_name, 'r') as z:
