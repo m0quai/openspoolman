@@ -60,6 +60,8 @@ def setupPycurlConnection(ftp_user, ftp_pass):
     c.setopt(c.SSL_VERIFYHOST, 0)
     c.setopt(c.FTP_SSL, c.FTPSSL_ALL)
     c.setopt(c.FTPSSLAUTH, c.FTPAUTH_TLS)
+    c.setopt(c.CONNECTTIMEOUT, 5)
+    c.setopt(c.TIMEOUT, 30)
     return c
 
 
@@ -129,6 +131,21 @@ def _find_bbl_for_subtask(subtask_name):
     return None
 
 
+def _resolved_bbl_3mf_for_current_job():
+    context = _current_print_context()
+    match = _find_bbl_for_subtask(context.get("subtask_name"))
+    if not match:
+        return None
+
+    bbl_name, job = match
+    file_path = job.get("file path")
+    resolved = _normalize_printer_3mf_path(file_path)
+    log(f"[3MF] BBL /cache/{bbl_name}: file path={file_path!r} -> FTP={resolved!r}")
+    if resolved and resolved.lower().endswith(".3mf"):
+        return resolved
+    return None
+
+
 def resolve_local_print_3mf(source):
     context = _current_print_context()
     source = str(source or "").strip()
@@ -161,14 +178,9 @@ def resolve_local_print_3mf(source):
             log(f"[3MF] BBL {bbl_path} konnte nicht ausgewertet werden: {exc}")
             return None
 
-    match = _find_bbl_for_subtask(context.get("subtask_name"))
-    if match:
-        bbl_name, job = match
-        file_path = job.get("file path")
-        resolved = _normalize_printer_3mf_path(file_path)
-        log(f"[3MF] BBL /cache/{bbl_name}: file path={file_path!r} -> FTP={resolved!r}")
-        if resolved and resolved.lower().endswith(".3mf"):
-            return resolved
+    resolved = _resolved_bbl_3mf_for_current_job()
+    if resolved:
+        return resolved
 
     log("[3MF] Keine eindeutige 3MF-Datei fuer den aktuellen Druck ermittelt.")
     return None
@@ -181,6 +193,18 @@ def download3mfFromCloud(url, destFile):
     destFile.write(response.content)
 
 
+def _append_unique_path(paths, remote_path):
+    if not remote_path:
+        return
+    remote_path = str(remote_path).strip()
+    if not remote_path:
+        return
+    if not remote_path.startswith('/'):
+        remote_path = '/' + remote_path
+    if remote_path not in paths:
+        paths.append(remote_path)
+
+
 def download3mfFromFTP(filename, destFile):
     log("Downloading 3MF file from FTP...")
     ftp_host = app_config.PRINTER_IP
@@ -190,60 +214,76 @@ def download3mfFromFTP(filename, destFile):
 
     filename = str(filename or "").strip()
     if not filename:
-        log("[3MF] FTP Download abgebrochen: leerer Dateiname.")
-        return False
+        raise RuntimeError("FTP Download abgebrochen: leerer Dateiname")
     if filename.startswith("/sdcard/"):
         filename = "/" + filename[len("/sdcard/"):]
 
+    remote_paths = []
     if filename.startswith("/") and filename.lower().endswith(".3mf"):
-        remote_paths = [filename]
+        _append_unique_path(remote_paths, filename)
     else:
         base_name = os.path.basename(filename)
-        remote_paths = [f"/cache/{base_name}", f"/{base_name}", f"/sdcard/{base_name}"]
+        _append_unique_path(remote_paths, f"/cache/{base_name}")
 
-    max_retries = max(6, len(remote_paths) * 2)
-    last_err_code = None
-    path_count = len(remote_paths)
+        # project_file/gcode_file can contain only a display name such as
+        # Kerstin.gcode.3mf while the real file on the printer has another name.
+        # Resolve the current Bambu job through its matching .bbl before trying
+        # broad root/sdcard guesses.
+        bbl_resolved = _resolved_bbl_3mf_for_current_job()
+        _append_unique_path(remote_paths, bbl_resolved)
+
+        _append_unique_path(remote_paths, f"/{base_name}")
+        _append_unique_path(remote_paths, f"/sdcard/{base_name}")
+
+    last_error = None
     reconnect_codes = {7, 28, 35, 52, 55, 56}
     c = setupPycurlConnection(ftp_user, ftp_pass)
     try:
-        for attempt in range(1, max_retries + 1):
-            path_index = (attempt - 1) % path_count
-            remote_path = remote_paths[path_index]
+        for path_index, remote_path in enumerate(remote_paths, start=1):
             encoded_remote_path = urllib.parse.quote(remote_path)
             url = f"ftps://{ftp_host}{encoded_remote_path}"
-            log(f"[3MF] FTP Download ({path_index + 1}/{path_count}): {remote_path}")
-            with open(local_path, "wb") as f:
-                try:
-                    c.setopt(c.URL, url)
-                    c.setopt(c.WRITEDATA, f)
-                    c.perform()
-                    log(f"[3MF] FTP Download erfolgreich: {remote_path}")
-                    return True
-                except pycurl.error as e:
-                    last_err_code = e.args[0]
-                    if last_err_code in reconnect_codes:
-                        try:
-                            c.close()
-                        except Exception:
-                            pass
-                        c = setupPycurlConnection(ftp_user, ftp_pass)
-                    if last_err_code in (78, 13) and attempt < max_retries:
-                        time.sleep(1)
-                        continue
-                    if last_err_code == 9:
-                        log(f"[3MF] Zugriff verweigert: {remote_path}")
-                        return False
-                    log(f"[3MF] FTP Fehler {last_err_code} fuer {remote_path}: {e}")
-                    return False
+            log(f"[3MF] FTP Download ({path_index}/{len(remote_paths)}): {remote_path}")
+
+            for attempt in range(2):
+                with open(local_path, "wb") as f:
+                    try:
+                        c.setopt(c.URL, url)
+                        c.setopt(c.WRITEDATA, f)
+                        c.perform()
+                        if os.path.getsize(local_path) <= 0:
+                            raise RuntimeError(f"FTP lieferte eine leere Datei: {remote_path}")
+                        log(f"[3MF] FTP Download erfolgreich: {remote_path}")
+                        return remote_path
+                    except pycurl.error as exc:
+                        last_error = exc
+                        err_code = exc.args[0]
+                        if err_code in reconnect_codes:
+                            try:
+                                c.close()
+                            except Exception:
+                                pass
+                            c = setupPycurlConnection(ftp_user, ftp_pass)
+                        if attempt == 0 and err_code in reconnect_codes:
+                            continue
+                        if err_code == 9:
+                            log(f"[3MF] Zugriff verweigert: {remote_path}")
+                        else:
+                            log(f"[3MF] FTP Fehler {err_code} fuer {remote_path}: {exc}")
+                        break
+                    except Exception as exc:
+                        last_error = exc
+                        log(f"[3MF] FTP Fehler fuer {remote_path}: {exc}")
+                        break
     finally:
         if c is not None:
             try:
                 c.close()
             except Exception:
                 pass
-    log(f"[3MF] Datei nicht gefunden. Letzter FTP-Fehler: {last_err_code}")
-    return False
+
+    raise RuntimeError(
+        f"3MF-Datei konnte nicht vom Drucker geladen werden; letzter Fehler: {last_error}"
+    )
 
 
 def download3mfFromLocalFilesystem(path, destFile):
@@ -265,6 +305,7 @@ def getMetaDataFrom3mf(url):
 
         with tempfile.NamedTemporaryFile(delete_on_close=False, delete=True, suffix=".3mf") as temp_file:
             temp_file_name = temp_file.name
+            downloaded_remote_path = None
             if url.startswith("http"):
                 download3mfFromCloud(url, temp_file)
             elif url.startswith("local:"):
@@ -272,17 +313,24 @@ def getMetaDataFrom3mf(url):
             elif url.startswith(("file://", "ftp://", "ftps://")):
                 parsed_source = urlparse(url)
                 file_path = parsed_source.path or parsed_source.netloc
-                if not download3mfFromFTP(file_path, temp_file):
-                    return {}
+                downloaded_remote_path = download3mfFromFTP(file_path, temp_file)
             else:
-                if not download3mfFromFTP(url, temp_file):
-                    return {}
+                downloaded_remote_path = download3mfFromFTP(url, temp_file)
 
             temp_file.close()
-            metadata["model_path"] = url
-            parsed_url = urlparse(url)
-            metadata["file"] = os.path.basename(parsed_url.path or parsed_url.netloc or url)
-            log(f"[3MF] Verwende 3MF: {url!r}; temporaer={temp_file_name}")
+
+            if downloaded_remote_path:
+                metadata["model_path"] = downloaded_remote_path
+                metadata["file"] = os.path.basename(downloaded_remote_path)
+            else:
+                metadata["model_path"] = url
+                parsed_url = urlparse(url)
+                metadata["file"] = os.path.basename(parsed_url.path or parsed_url.netloc or url)
+
+            log(
+                f"[3MF] Verwende 3MF: {metadata['model_path']!r}; "
+                f"temporaer={temp_file_name}"
+            )
 
             with zipfile.ZipFile(temp_file_name, 'r') as z:
                 slice_info_path = "Metadata/slice_info.config"
