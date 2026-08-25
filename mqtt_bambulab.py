@@ -170,6 +170,16 @@ def _parse_grams(value):
   except (TypeError, ValueError):
     return None
 
+
+def _metadata_is_usable(metadata):
+  return bool(
+    isinstance(metadata, dict)
+    and metadata.get("file") is not None
+    and metadata.get("image") is not None
+    and isinstance(metadata.get("filaments"), dict)
+  )
+
+
 def _mask_serial(serial: str | None, keep_chars: int = 3) -> str:
   if not serial:
     return ""
@@ -263,16 +273,22 @@ def processMessage(data):
     
     if data["print"].get("command") == "project_file" and data["print"].get("url"):
       PENDING_PRINT_METADATA = getMetaDataFrom3mf(data["print"]["url"])
+      if not _metadata_is_usable(PENDING_PRINT_METADATA):
+        log(f"[3MF] project_file Metadaten unvollstaendig; Print-Tracking wird fuer diese Meldung nicht gestartet: {data['print'].get('url')!r}")
+        PENDING_PRINT_METADATA = {}
+        PRINTER_STATE_LAST = copy.deepcopy(PRINTER_STATE)
+        return
+
       PENDING_PRINT_METADATA["print_type"] = PRINTER_STATE["print"].get("print_type")
       PENDING_PRINT_METADATA["task_id"] = PRINTER_STATE["print"].get("task_id")
       PENDING_PRINT_METADATA["subtask_id"] = PRINTER_STATE["print"].get("subtask_id")
       if TRACK_LAYER_USAGE:
         FILAMENT_TRACKER.set_print_metadata(PENDING_PRINT_METADATA)
 
-      print_id = insert_print(PRINTER_STATE["print"]["subtask_name"], "cloud", PENDING_PRINT_METADATA["image"])
+      print_id = insert_print(PRINTER_STATE["print"].get("subtask_name") or PENDING_PRINT_METADATA["file"], "cloud", PENDING_PRINT_METADATA["image"])
 
       if PRINTER_STATE["print"].get("use_ams"):
-        PENDING_PRINT_METADATA["ams_mapping"] = PRINTER_STATE["print"]["ams_mapping"]
+        PENDING_PRINT_METADATA["ams_mapping"] = PRINTER_STATE["print"].get("ams_mapping") or []
       else:
         PENDING_PRINT_METADATA["ams_mapping"] = [EXTERNAL_SPOOL_ID]
 
@@ -313,7 +329,11 @@ def processMessage(data):
 
         if not PENDING_PRINT_METADATA:
           PENDING_PRINT_METADATA = getMetaDataFrom3mf(PRINTER_STATE["print"]["gcode_file"])
-        if PENDING_PRINT_METADATA:
+        if PENDING_PRINT_METADATA and not _metadata_is_usable(PENDING_PRINT_METADATA):
+          log(f"[3MF] Lokale Druckmetadaten unvollstaendig; verwerfe Zwischenstand fuer {PRINTER_STATE['print'].get('gcode_file')!r}.")
+          PENDING_PRINT_METADATA = {}
+
+        if _metadata_is_usable(PENDING_PRINT_METADATA):
           PENDING_PRINT_METADATA["print_type"] = PRINTER_STATE["print"].get("print_type")
           PENDING_PRINT_METADATA["task_id"] = PRINTER_STATE["print"].get("task_id")
           PENDING_PRINT_METADATA["subtask_id"] = PRINTER_STATE["print"].get("subtask_id")
@@ -624,6 +644,7 @@ def on_message(client, userdata, msg):
       LAST_AMS_CONFIG["ams"] = copy.deepcopy(data["print"]["ams"]["ams"])
       _apply_confirmed_ams_filament_settings(LAST_AMS_CONFIG["ams"])
       LAST_AMS_CONFIG_GENERATION += 1
+      spool_list = fetchSpools(True)
       for ams in LAST_AMS_CONFIG["ams"]:
         log(f"AMS [{num2letter(ams['id'])}] (hum: {ams['humidity']}, temp: {ams['temp']}ºC)")
         for tray in ams["tray"]:
@@ -632,29 +653,48 @@ def on_message(client, userdata, msg):
                 f"    - [{num2letter(ams['id'])}{tray['id']}] {tray['tray_sub_brands']} {tray['tray_color']} ({str(tray['remain']).zfill(3)}%) [[ {tray['tray_uuid']} ]]")
 
             found = False
-            tray_uuid = "00000000000000000000000000000000"
+            tray_uuid = str(tray.get("tray_uuid") or "")
+            zero_uuid = "00000000000000000000000000000000"
 
-            for spool in fetchSpools(True):
+            if not tray_uuid or tray_uuid == zero_uuid:
+              # Third-party/non-RFID spool: Bambu cannot identify the physical spool.
+              # OpenSpoolMan can, because Fill/assignment stores its tray in Spoolman's
+              # active_tray extra field. Prefer that authoritative assignment.
+              active_tray = json.dumps(f"{PRINTER_ID}_{ams['id']}_{tray['id']}")
+              for spool in spool_list:
+                if spool.get("extra", {}).get("active_tray") != active_tray:
+                  continue
+                found = True
+                filament = spool.get("filament") or {}
+                vendor = (filament.get("vendor") or {}).get("name") or ""
+                material = filament.get("material") or ""
+                name = filament.get("name") or ""
+                description = " - ".join(value for value in (material, name, vendor) if value)
+                log(f"      - Spoolman Spool #{spool.get('id')}: {description or 'zugeordnet'}")
+                break
+            else:
+              for spool in spool_list:
+                if not spool.get("extra", {}).get("tag"):
+                  continue
+                try:
+                  tag = json.loads(spool["extra"]["tag"])
+                except (TypeError, ValueError):
+                  continue
+                if tag != tray_uuid:
+                  continue
 
-              tray_uuid = tray["tray_uuid"]
+                found = True
+                setActiveTray(spool['id'], spool["extra"], ams['id'], tray["id"])
+                filament = spool.get("filament") or {}
+                vendor = (filament.get("vendor") or {}).get("name") or ""
+                material = filament.get("material") or ""
+                name = filament.get("name") or ""
+                description = " - ".join(value for value in (material, name, vendor) if value)
+                log(f"      - Spoolman Spool #{spool.get('id')}: {description or 'RFID zugeordnet'}")
+                break
 
-              if not spool.get("extra", {}).get("tag"):
-                continue
-              tag = json.loads(spool["extra"]["tag"])
-              if tag != tray["tray_uuid"]:
-                continue
-
-              found = True
-
-              setActiveTray(spool['id'], spool["extra"], ams['id'], tray["id"])
-
-              # TODO: filament remaining - Doesn't work for AMS Lite
-              # requests.patch(f"http://{SPOOLMAN_IP}:7912/api/v1/spool/{spool['id']}", json={
-              #  "remaining_weight": tray["remain"] / 100 * tray["tray_weight"]
-              # })
-
-            if not found and tray_uuid == "00000000000000000000000000000000":
-              log("      - non Bambulab Spool!")
+            if not found and (not tray_uuid or tray_uuid == zero_uuid):
+              log("      - Keine Spoolman-Spule diesem Tray zugeordnet.")
             elif not found:
               log("      - Not found. Update spool tag!")
               tray["unmapped_bambu_tag"] = tray_uuid
