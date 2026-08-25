@@ -148,9 +148,71 @@ from bambu_auth_routes import bp as bambu_cloud_bp
 from nfc_routes import bp as ams_nfc_bp
 from flask import jsonify, redirect, request, url_for, render_template
 import mqtt_bambulab
+import tools_3mf as _tools_3mf
+import filament_usage_tracker as _filament_usage_tracker
+from logger import log as _log
 
 app.register_blueprint(bambu_cloud_bp)
 app.register_blueprint(ams_nfc_bp)
+
+
+_original_download3mf_from_ftp = _tools_3mf.download3mfFromFTP
+
+
+def _download3mf_with_unique_suffix_fallback(filename, dest_file):
+    """Resolve printer-side filename prefixes without guessing between matches.
+
+    Bambu .bbl files may reference /sdcard/Kerstin.gcode.3mf while FTPS exposes
+    the same job as /ItsLitho_Kerstin.gcode.3mf. Try the normal resolver first.
+    Only if that fails, inspect the FTPS root and accept a suffix match when it
+    is unique. Multiple matches are intentionally rejected.
+    """
+    try:
+        return _original_download3mf_from_ftp(filename, dest_file)
+    except Exception as original_error:
+        expected_name = os.path.basename(str(filename or "").strip())
+        if not expected_name.lower().endswith(".3mf"):
+            raise
+
+        try:
+            root_names = _tools_3mf._ftp_read("/", directory=True).decode(
+                "utf-8", errors="replace"
+            ).splitlines()
+        except Exception as list_error:
+            _log(
+                f"[3MF] FTPS-Root konnte fuer Suffix-Fallback nicht gelesen werden: {list_error}"
+            )
+            raise original_error
+
+        expected_lower = expected_name.lower()
+        matches = [
+            name.strip()
+            for name in root_names
+            if name.strip().lower().endswith(expected_lower)
+            and name.strip().lower().endswith(".3mf")
+        ]
+
+        if len(matches) == 1:
+            resolved_path = "/" + matches[0]
+            _log(
+                f"[3MF] Eindeutiger FTPS-Suffix-Treffer fuer {expected_name!r}: {resolved_path}"
+            )
+            return _original_download3mf_from_ftp(resolved_path, dest_file)
+
+        if len(matches) > 1:
+            _log(
+                f"[3MF] Suffix-Fallback mehrdeutig fuer {expected_name!r}: {matches}. Keine Datei gewaehlt."
+            )
+        else:
+            _log(
+                f"[3MF] Kein FTPS-Suffix-Treffer fuer {expected_name!r} im Root-Verzeichnis."
+            )
+        raise original_error
+
+
+_tools_3mf.download3mfFromFTP = _download3mf_with_unique_suffix_fallback
+_filament_usage_tracker.download3mfFromFTP = _download3mf_with_unique_suffix_fallback
+
 
 @app.before_request
 def open_bambu_setup_when_mqtt_is_offline():
