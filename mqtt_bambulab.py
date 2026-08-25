@@ -24,7 +24,7 @@ from tools_3mf import getMetaDataFrom3mf
 import time
 import copy
 from collections.abc import Mapping
-from logger import append_to_rotating_file, log
+from logger import application_log_file, append_to_rotating_file, log
 from print_history import insert_print, insert_filament_usage
 from filament_usage_tracker import FilamentUsageTracker
 MQTT_CLIENT = {}  # Global variable storing MQTT Client
@@ -43,7 +43,7 @@ PRINTER_STATE_LAST = {}
 
 PENDING_PRINT_METADATA = {}
 FILAMENT_TRACKER = FilamentUsageTracker()
-LOG_FILE = "/home/app/logs/mqtt.log"
+LOG_FILE = application_log_file("mqtt.log")
 def getPrinterModel():
     global PRINTER_ID
     model_code = PRINTER_ID[:3]
@@ -627,7 +627,7 @@ def on_message(client, userdata, msg):
       }
 
     if "print" in data:
-      append_to_rotating_file("/home/app/logs/mqtt.log", _mask_mqtt_payload(msg.payload.decode()))
+      append_to_rotating_file(LOG_FILE, _mask_mqtt_payload(msg.payload.decode()))
 
     #print(data)
 

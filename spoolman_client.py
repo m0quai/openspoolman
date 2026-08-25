@@ -1,9 +1,9 @@
 import requests
 from config import SPOOLMAN_API_URL, SPOOL_SORTING
 import json
-from logger import append_to_rotating_file, log
+from logger import application_log_file, append_to_rotating_file, log
 
-SPOOLMAN_LOG_FILE = "/home/app/logs/spoolman.log"
+SPOOLMAN_LOG_FILE = application_log_file("spoolman.log")
 
 
 def _log_spoolman_change(action, spool_id=None, payload=None, status=None):

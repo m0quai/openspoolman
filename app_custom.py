@@ -289,6 +289,98 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file):
 _tools_3mf.download3mfFromFTP = _download3mf_with_unique_suffix_fallback
 _filament_usage_tracker.download3mfFromFTP = _download3mf_with_unique_suffix_fallback
 
+_original_download3mf_from_cloud = _tools_3mf.download3mfFromCloud
+
+
+def _download3mf_from_cloud_with_timeout(url, dest_file):
+    """Download cloud 3MF files with bounded connect and transfer waits."""
+    _log("Downloading 3MF file from cloud...")
+    response = _tools_3mf.requests.get(url, timeout=(5, 180))
+    response.raise_for_status()
+    dest_file.write(response.content)
+
+
+_tools_3mf.download3mfFromCloud = _download3mf_from_cloud_with_timeout
+_filament_usage_tracker.download3mfFromCloud = _download3mf_from_cloud_with_timeout
+
+_original_get_metadata_from_3mf = _tools_3mf.getMetaDataFrom3mf
+_METADATA_RETRY_DELAYS = (2, 5)
+_METADATA_RETRY_TIMEOUT_SECONDS = 240
+
+
+def _metadata_source_with_filename(source):
+    """Replace Bambu's pathless FTP URL with its accompanying 3MF filename."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(str(source or ""))
+    if parsed.scheme not in ("ftp", "ftps") or parsed.path.strip("/"):
+        return source
+
+    print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
+    for key in ("file", "gcode_file"):
+        candidate = str(print_state.get(key) or "").strip()
+        if candidate.lower().endswith(".3mf"):
+            _log(f"[3MF] Pfadlose FTP-URL wird ueber {key}={candidate!r} aufgeloest.")
+            return candidate
+    return source
+
+
+def _metadata_is_complete(metadata):
+    if not isinstance(metadata, dict):
+        return False
+    required_values = (
+        metadata.get("file"),
+        metadata.get("model_path"),
+        metadata.get("plateID"),
+    )
+    return bool(
+        all(required_values)
+        and metadata.get("image") is not None
+        and isinstance(metadata.get("filaments"), dict)
+        and metadata.get("filaments")
+    )
+
+
+def _get_metadata_from_3mf_with_retry(source):
+    """Load complete print metadata with bounded retries for transient failures."""
+    import time
+
+    source = _metadata_source_with_filename(source)
+    deadline = time.monotonic() + _METADATA_RETRY_TIMEOUT_SECONDS
+    attempts = len(_METADATA_RETRY_DELAYS) + 1
+    last_metadata = {}
+
+    for attempt in range(1, attempts + 1):
+        last_metadata = _original_get_metadata_from_3mf(source) or {}
+        if _metadata_is_complete(last_metadata):
+            if attempt > 1:
+                _log(f"[3MF] Metadaten nach Versuch {attempt}/{attempts} vollstaendig geladen.")
+            return last_metadata
+
+        if attempt >= attempts:
+            break
+
+        delay = _METADATA_RETRY_DELAYS[attempt - 1]
+        if time.monotonic() + delay >= deadline:
+            _log("[3MF] Metadaten-Retry wegen erreichtem Gesamt-Timeout beendet.")
+            break
+
+        _log(
+            f"[3MF] Metadaten nach Versuch {attempt}/{attempts} unvollstaendig; "
+            f"neuer Versuch in {delay} Sekunden."
+        )
+        time.sleep(delay)
+
+    _log(
+        f"[3MF] Metadaten nach {attempt} Versuch(en) innerhalb von "
+        f"{_METADATA_RETRY_TIMEOUT_SECONDS} Sekunden nicht vollstaendig."
+    )
+    return last_metadata
+
+
+_tools_3mf.getMetaDataFrom3mf = _get_metadata_from_3mf_with_retry
+mqtt_bambulab.getMetaDataFrom3mf = _get_metadata_from_3mf_with_retry
+
 
 @app.before_request
 def open_bambu_setup_when_mqtt_is_offline():

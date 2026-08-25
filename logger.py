@@ -8,6 +8,12 @@ from datetime import datetime
 _pending_ams_tray = None
 _pending_ams_uid = None
 _ZERO_AMS_UID = "00000000000000000000000000000000"
+_APPLICATION_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def application_log_file(filename: str) -> str:
+    """Return a log path that works from the repository and in Docker."""
+    return os.path.join(_APPLICATION_ROOT, "logs", filename)
 
 
 def append_to_rotating_file(file_path: str, text: str, max_size: int = 1_048_576, max_files: int = 5) -> None:
