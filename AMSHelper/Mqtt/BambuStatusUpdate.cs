@@ -10,6 +10,12 @@ namespace AMSHelper.Mqtt
         public string Command;
         public bool HasSequenceId;
         public string SequenceId;
+        public bool HasGcodeFile;
+        public string GcodeFile;
+        public bool HasGcodeState;
+        public string GcodeState;
+        public bool HasSubtaskName;
+        public string SubtaskName;
         public bool HasAmsHumidity;
         public string AmsHumidity;
         public bool HasAmsHumidityRaw;
