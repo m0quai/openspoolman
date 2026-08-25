@@ -12,8 +12,12 @@ namespace AMSHelper.Mqtt
             return update;
          }
 
+         update.RawJson = json;
          update.HasCommand = BambuStatusParser.TryGetValue(json, "command", out update.Command);
          update.HasSequenceId = BambuStatusParser.TryGetValue(json, "sequence_id", out update.SequenceId);
+         update.HasGcodeFile = BambuStatusParser.TryGetValue(json, "gcode_file", out update.GcodeFile);
+         update.HasGcodeState = BambuStatusParser.TryGetValue(json, "gcode_state", out update.GcodeState);
+         update.HasSubtaskName = BambuStatusParser.TryGetValue(json, "subtask_name", out update.SubtaskName);
          update.HasActiveTray = BambuStatusParser.TryGetValue(json, "tray_now", out update.ActiveTray);
          update.HasTargetTray = BambuStatusParser.TryGetValue(json, "tray_tar", out update.TargetTray);
          update.HasPreviousTray = BambuStatusParser.TryGetValue(json, "tray_pre", out update.PreviousTray);
