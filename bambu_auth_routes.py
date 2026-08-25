@@ -70,7 +70,6 @@ def _apply_runtime_connection(mode, printer_id=None, printer_ip=None, printer_na
         access_code,
         app_config.PRINTER_IP,
         wait_seconds=12,
-        connection_mode=mode,
     )
 
 
@@ -102,9 +101,7 @@ def _apply_printer(device, printer_ip):
     app_config.PRINTER_CODE = access_code
     app_config.PRINTER_IP = printer_ip
     app_config.PRINTER_NAME = name
-    return mqtt_bambulab.reconfigure_printer(
-        dev_id, access_code, printer_ip, wait_seconds=12, connection_mode="online"
-    )
+    return mqtt_bambulab.reconfigure_printer(dev_id, access_code, printer_ip, wait_seconds=12)
 
 
 def _page(**extra):
@@ -223,7 +220,6 @@ def save_lan():
         access_code,
         printer_ip,
         wait_seconds=12,
-        connection_mode="lan",
     )
     if connected:
         flash("LAN-Konfiguration gespeichert und MQTT verbunden.", "success")

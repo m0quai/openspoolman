@@ -23,6 +23,7 @@
     <Content Include="compose.yaml" />
     <Content Include="requirements.txt" />
     <Content Include="Dockerfile" />
+    <Content Include=".dockerignore" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="docs\" />
