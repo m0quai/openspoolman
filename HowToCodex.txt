@@ -1,0 +1,255 @@
+OpenSpoolMan / AMSHelper - HowTo Codex
+=======================================
+Stand: 25.08.2026
+
+ZIEL
+----
+Dieses Repository ist fuer die Weiterentwicklung mit Codex vorbereitet.
+Die verbindlichen Projektregeln stehen im Repository-Root in AGENTS.md.
+Codex soll diese Regeln vor Aenderungen beachten.
+
+Repository:
+  https://github.com/m0quai/openspoolman
+
+Arbeitsbranch:
+  feature/NewFiles
+
+Lokaler Standardpfad:
+  C:\Docker\OpenSpoolMan
+
+
+A. EINMALIGE EINRICHTUNG IN DER NEUEN CHATGPT-/CODEX-DESKTOP-APP
+---------------------------------------------------------------
+
+1. Die neue ChatGPT Desktop App starten und mit demselben OpenAI-Konto anmelden.
+
+2. In der App in den Bereich "Codex" wechseln.
+
+3. Das lokale Repository als Arbeitsordner/Projekt oeffnen:
+
+       C:\Docker\OpenSpoolMan
+
+   Falls das Repository auf diesem PC noch nicht vorhanden ist, zuerst klonen:
+
+       cd C:\Docker
+       git clone https://github.com/m0quai/openspoolman.git OpenSpoolMan
+       cd OpenSpoolMan
+
+4. Den Entwicklungsbranch auschecken:
+
+       git fetch origin
+       git switch feature/NewFiles
+
+   Falls der Branch lokal noch nicht existiert:
+
+       git switch -c feature/NewFiles --track origin/feature/NewFiles
+
+5. Kontrollieren:
+
+       git branch --show-current
+       git status
+
+   Erwarteter Branch:
+
+       feature/NewFiles
+
+6. Vor der ersten Codex-Aufgabe einmal synchronisieren, sofern keine lokalen
+   uncommitteten Aenderungen vorhanden sind:
+
+       git pull --ff-only origin feature/NewFiles
+
+7. Im Repository liegt AGENTS.md. Diese Datei enthaelt die verbindlichen
+   Arbeitsregeln fuer Codex. Sie beschreibt unter anderem:
+
+   - OpenSpoolMan/Fork-Strategie
+   - app_custom.py statt unnoetiger Aenderungen an app.py
+   - AMSHelper-Architektur
+   - BambuMqtt und BambuStatusParser
+   - ESP32-S3 / PN532 / NTAG215
+   - SPI als Zielbus fuer vier PN532
+   - Visual Studio Debug als primaeren Testweg
+   - Git- und Secret-Regeln
+
+
+B. EMPFOHLENER START EINER NEUEN CODEX-UNTERHALTUNG
+---------------------------------------------------
+
+Bei einer neuen Codex-Unterhaltung kann als erste Anweisung verwendet werden:
+
+   Arbeite im aktuellen OpenSpoolMan-Repository. Lies zuerst AGENTS.md und
+   pruefe danach Branch und git status. Der Entwicklungsbranch ist
+   feature/NewFiles. Lies vor Aenderungen die betroffenen vorhandenen Dateien
+   und respektiere die bestehende Architektur. Nimm erst danach die von mir
+   beschriebene Aenderung vor.
+
+Danach die eigentliche Aufgabe beschreiben.
+
+Beispiel:
+
+   Arbeite im aktuellen OpenSpoolMan-Repository. Lies zuerst AGENTS.md und
+   pruefe Branch und git status. Untersuche danach die aktuelle
+   AMSHelper-MQTT-Implementierung. Ich moechte als naechstes ...
+
+
+C. VOR JEDER GROESSEREN AENDERUNG
+---------------------------------
+
+Codex sollte mindestens Folgendes pruefen:
+
+   git status
+   git branch --show-current
+
+Wenn der Working Tree sauber ist:
+
+   git pull --ff-only origin feature/NewFiles
+
+WICHTIG:
+Bei lokalen uncommitteten Aenderungen NICHT einfach pull/reset/checkout
+verwenden und keine Dateien des Benutzers verwerfen. Erst den vorhandenen
+Stand analysieren.
+
+
+D. NACH EINER CODEAENDERUNG
+---------------------------
+
+Codex soll:
+
+1. Die geaenderten Dateien nennen.
+2. Den Diff pruefen.
+3. Passende Tests bzw. Builds ausfuehren oder konkret nennen, was in Visual
+   Studio getestet werden muss.
+4. Bei neuen/entfernten C#-Dateien pruefen, ob AMSHelper.nfproj angepasst
+   werden muss.
+5. Bei NuGet-Aenderungen packages.config und Projektverweise mitpruefen.
+6. Keine Secrets, Tokens, Access Codes, lokale .env-Dateien, .vs-Dateien oder
+   Build-Artefakte committen.
+7. Erst committen/pushen, wenn dies zum Auftrag passt bzw. vom Benutzer
+   gewuenscht ist.
+
+
+E. VISUAL STUDIO TEST
+---------------------
+
+Der primaere lokale Testweg fuer dieses Projekt ist Visual Studio.
+
+Solution:
+
+   C:\Docker\OpenSpoolMan\OpenSpoolMan.sln
+
+Bei Python/OpenSpoolMan-Aenderungen bevorzugt die vorhandene
+Visual-Studio-Debug-Konfiguration verwenden.
+
+Bei AMSHelper-Aenderungen das nanoFramework-Projekt in der Solution bauen und
+auf dem ESP32-S3 testen. Docker ist nicht automatisch der erste Testweg.
+
+
+F. GIT / GITHUB
+---------------
+
+Fork / Origin:
+
+   m0quai/openspoolman
+
+Upstream:
+
+   drndos/openspoolman
+
+Entwicklungsbranch:
+
+   feature/NewFiles
+
+Nuetzliche Kontrolle:
+
+   git remote -v
+
+Erwartetes Prinzip:
+
+   origin   -> eigener Fork m0quai/openspoolman
+   upstream -> drndos/openspoolman
+
+Upstream-Aenderungen nicht ungeprueft in den Entwicklungsbranch mergen.
+Vor einem Upstream-Sync zuerst Auswirkungen auf die eigenen Erweiterungen
+pruefen.
+
+
+G. WICHTIGE ARCHITEKTUR-KURZFASSUNG
+-----------------------------------
+
+OpenSpoolMan:
+- Eigener Fork.
+- Updatefreundliche Erweiterungen.
+- app.py moeglichst unangetastet lassen.
+- Eigene Einstiegspunkte/Erweiterungen bevorzugt ueber app_custom.py und
+  getrennte Module.
+- UID-zu-Spool-Zuordnung liegt in OpenSpoolMan.
+
+AMSHelper:
+- nanoFramework / ESP32-S3.
+- Vier AMS-Trays.
+- Vier PN532 als Zielhardware.
+- NTAG215.
+- Zielanbindung der vier Leser: SPI, gemeinsamer Bus, eigener SS/CS pro Leser.
+- Kein I2C-Multiplexer.
+- BambuMqtt = MQTT-Transport/TLS/Subscribe/Receive/Reconnect.
+- BambuStatusParser = JSON-Auswertung.
+- WLAN = eigene Netzwerkklasse.
+- OpenSpoolManClient = Kommunikation zu OpenSpoolMan.
+- AMSHelper fuehrt keine eigene UID-zu-Spool-ID-Aufloesung durch.
+
+Bambu LAN MQTT:
+- TLS Port 8883.
+- Benutzer bblp.
+- Passwort ist der LAN Access Code und darf niemals committed werden.
+- Report: device/<SERIAL>/report
+- Request: device/<SERIAL>/request
+
+Die vollstaendigen und verbindlichen Regeln stehen in AGENTS.md.
+
+
+H. WENN EIN NEUER CODEX-CHAT DEN KONTEXT NICHT KENNT
+----------------------------------------------------
+
+Nicht alte ChatGPT-Chats exportieren oder in Codex kopieren.
+Stattdessen Codex sagen:
+
+   Lies AGENTS.md vollstaendig und untersuche den aktuellen Code, bevor du
+   Aenderungen machst.
+
+AGENTS.md und der Repository-Code sind die technische Referenz. Dadurch ist
+Codex nicht davon abhaengig, ob ein bestimmter alter Chat im aktuellen
+Kontext vorhanden ist.
+
+
+I. WENN CHATGPT AUF DEM HANDY UND CODEX AM PC GEMEINSAM GENUTZT WERDEN
+---------------------------------------------------------------------
+
+Konzeptionelle Entscheidungen koennen weiterhin im normalen ChatGPT-Chat
+besprochen werden. Sobald eine Entscheidung fuer den Code verbindlich wird,
+soll sie in AGENTS.md bzw. geeigneter Projektdokumentation im Repository
+festgehalten werden. So bleibt der Entwicklungsstand fuer Codex reproduzierbar.
+
+Bei einer neuen verbindlichen Architekturentscheidung Codex beispielsweise
+anweisen:
+
+   Implementiere die Aenderung und aktualisiere gleichzeitig die relevante
+   Projektdokumentation/AGENTS.md, damit die Entscheidung fuer zukuenftige
+   Codex-Sitzungen erhalten bleibt.
+
+
+J. SCHNELLSTART
+---------------
+
+1. ChatGPT Desktop -> Codex.
+2. C:\Docker\OpenSpoolMan oeffnen.
+3. feature/NewFiles auschecken.
+4. Codex eingeben:
+
+   Lies zuerst AGENTS.md. Pruefe git status und den aktuellen Branch. Arbeite
+   ausschliesslich auf Basis des aktuellen Repository-Stands und respektiere
+   die dort dokumentierte Architektur.
+
+5. Danach die konkrete Entwicklungsaufgabe eingeben.
+
+Damit kann die Weiterentwicklung des bisherigen OpenSpoolMan-/AMSHelper-
+Projekts in Codex fortgesetzt werden, ohne den bisherigen technischen Kontext
+manuell neu aufzubauen.
