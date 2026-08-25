@@ -156,6 +156,50 @@ app.register_blueprint(bambu_cloud_bp)
 app.register_blueprint(ams_nfc_bp)
 
 
+# Make the human-readable AMS console output match the values shown in the UI.
+# Bambu's `humidity` field is a 1..5 level, not a percentage. If humidity_raw
+# is available, show that as percent and retain the level as supplemental info.
+# `remain == -1` means unknown, and an all-zero tray UUID is not a real UID.
+_original_mqtt_log = mqtt_bambulab.log
+
+
+def _format_ams_console_log(message):
+    import re
+
+    text = str(message)
+    ams_match = re.match(r"^AMS \[([A-Z])\] \(hum: ([^,]+), temp: (.+)\)$", text)
+    if ams_match:
+        ams_letter = ams_match.group(1)
+        ams_id = ord(ams_letter) - ord("A")
+        for ams in (getattr(mqtt_bambulab, "LAST_AMS_CONFIG", {}) or {}).get("ams", []):
+            try:
+                same_ams = int(ams.get("id")) == ams_id
+            except (TypeError, ValueError):
+                same_ams = False
+            if not same_ams:
+                continue
+
+            level = ams.get("humidity")
+            raw = ams.get("humidity_raw")
+            temp = ams.get("temp")
+            if raw not in (None, "", 0, "0"):
+                return _original_mqtt_log(
+                    f"AMS [{ams_letter}] (hum: {raw}%, level: {level}, temp: {temp}ºC)"
+                )
+            return _original_mqtt_log(
+                f"AMS [{ams_letter}] (humidity level: {level}, temp: {temp}ºC)"
+            )
+
+    if text.lstrip().startswith("- [A"):
+        text = re.sub(r"\s+\(-0?1%\)", "", text)
+        text = re.sub(r"\s+\[\[\s*0{32}\s*\]\]", "", text)
+
+    return _original_mqtt_log(text)
+
+
+mqtt_bambulab.log = _format_ams_console_log
+
+
 # Bambu's FTPS server can be very slow while a print is being prepared. A hard
 # 30-second transfer timeout aborts valid multi-megabyte 3MF downloads halfway
 # through. Keep the short connection timeout, but allow the actual transfer up
