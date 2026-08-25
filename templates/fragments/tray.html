@@ -11,7 +11,9 @@
         {% else %}
           External Spool
         {% endif %}
-        {% if tray_data.tray_type %}
+        {% if tray_data.spool_material %}
+          - {{ tray_data.spool_material }}{% if tray_data.spool_sub_brand %} {{ tray_data.spool_sub_brand }}{% endif %}
+        {% elif tray_data.tray_type %}
           - {{ tray_data.tray_type }}{% if tray_data.tray_sub_brand %} {{ tray_data.tray_sub_brand }}{% endif %}
         {% endif %}
       </div>
