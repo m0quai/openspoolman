@@ -163,10 +163,13 @@ app.register_blueprint(ams_nfc_bp)
 _original_mqtt_log = mqtt_bambulab.log
 
 
-def _format_ams_console_log(message):
+def _format_ams_console_log(*args, **kwargs):
     import re
 
-    text = str(message)
+    if not args:
+        return _original_mqtt_log(*args, **kwargs)
+
+    text = str(args[0])
     ams_match = re.match(r"^AMS \[([A-Z])\] \(hum: ([^,]+), temp: (.+)\)$", text)
     if ams_match:
         ams_letter = ams_match.group(1)
@@ -184,17 +187,21 @@ def _format_ams_console_log(message):
             temp = ams.get("temp")
             if raw not in (None, "", 0, "0"):
                 return _original_mqtt_log(
-                    f"AMS [{ams_letter}] (hum: {raw}%, level: {level}, temp: {temp}ºC)"
+                    f"AMS [{ams_letter}] (hum: {raw}%, level: {level}, temp: {temp}ºC)",
+                    *args[1:],
+                    **kwargs,
                 )
             return _original_mqtt_log(
-                f"AMS [{ams_letter}] (humidity level: {level}, temp: {temp}ºC)"
+                f"AMS [{ams_letter}] (humidity level: {level}, temp: {temp}ºC)",
+                *args[1:],
+                **kwargs,
             )
 
     if text.lstrip().startswith("- [A"):
         text = re.sub(r"\s+\(-0?1%\)", "", text)
         text = re.sub(r"\s+\[\[\s*0{32}\s*\]\]", "", text)
 
-    return _original_mqtt_log(text)
+    return _original_mqtt_log(text, *args[1:], **kwargs)
 
 
 mqtt_bambulab.log = _format_ams_console_log

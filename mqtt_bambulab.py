@@ -748,15 +748,15 @@ def async_subscribe():
   MQTT_CLIENT.on_connect = on_connect
   MQTT_CLIENT.on_disconnect = on_disconnect
   MQTT_CLIENT.on_message = on_message
-  MQTT_CLIENT.loop_start()
   while True:
-    if not MQTT_CLIENT_CONNECTED:
-      try:
-        log("🔄 Trying to connect ...", flush=True)
-        MQTT_CLIENT.connect(PRINTER_IP, 8883, MQTT_KEEPALIVE)
-      except Exception as exc:
-        log(f"⚠️ connection failed: {exc}, new try in 15 seconds...", flush=True)
-    time.sleep(15)
+    try:
+      log("🔄 Trying to connect ...", flush=True)
+      MQTT_CLIENT.connect(PRINTER_IP, 8883, MQTT_KEEPALIVE)
+      MQTT_CLIENT.loop_start()
+      return
+    except Exception as exc:
+      log(f"⚠️ connection failed: {exc}, new try in 15 seconds...", flush=True)
+      time.sleep(15)
 
 def init_mqtt(daemon: bool = False):
   # Start the asynchronous processing in a separate thread
