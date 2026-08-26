@@ -146,14 +146,27 @@ if not app.secret_key:
 
 from bambu_auth_routes import bp as bambu_cloud_bp
 from nfc_routes import bp as ams_nfc_bp
-from flask import jsonify, redirect, request, url_for, render_template
+from flask import jsonify, redirect, request, url_for, render_template, send_from_directory
 import mqtt_bambulab
+from __version__ import __version__
 import tools_3mf as _tools_3mf
 import filament_usage_tracker as _filament_usage_tracker
 from logger import log as _log
 
+_log(f"OpenSpoolMan version {__version__} starting")
+
 app.register_blueprint(bambu_cloud_bp)
 app.register_blueprint(ams_nfc_bp)
+
+
+@app.get("/print-images/<path:filename>")
+def print_image(filename):
+    """Serve print thumbnails from the persistent runtime location."""
+    image_dir = os.path.join(app.root_path, "static", "prints")
+    image_path = os.path.join(image_dir, filename)
+    if not os.path.isfile(image_path):
+        _log(f"[print-image] missing filename={filename!r} path={image_path!r}")
+    return send_from_directory(image_dir, filename)
 
 
 # Make the human-readable AMS console output match the values shown in the UI.

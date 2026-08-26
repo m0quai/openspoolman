@@ -182,14 +182,14 @@
                                                     </span>
                                                 </small>
                                                 </div>
-                                            </div>
+                                    </div>
+                                    </a>
 
                                             <!-- Edit Button rechts -->
                                             <a href="{{ url_for('print_select_spool', ams_slot=filament['ams_slot'], print_id=print['id'], old_spool_id=filament['spool'].id, change_spool=true )}}" class="btn btn-sm btn-outline-primary ms-3">
                                                 <i class="bi bi-pencil"></i>
                                             </a>
                                         </div>
-                                    </a>
                                 {% else %}
                                     <div class="spool-info">
                                         <a href="{{ url_for('print_select_spool', ams_slot=filament['ams_slot'], print_id=print['id']) }}" class="nav-link link-body-emphasis" title="Assign Spool">
@@ -234,7 +234,8 @@
             <div class="card print-image">
                 <div class="card-body d-flex justify-content-center align-items-center">
                     {% if print['image_file'] %}
-                        <img src="{{ url_for('static', filename='prints/' ~ print['image_file']) }}" alt="Print Image" class="img-fluid">
+                        <img src="{{ url_for('print_image', filename=print['image_file']) }}" alt="Print Image" class="img-fluid" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
+                        <span class="text-muted" style="display:none;">No Image</span>
                     {% else %}
                         <span class="text-muted">No Image</span>
                     {% endif %}

@@ -282,9 +282,6 @@ def processMessage(data):
       PENDING_PRINT_METADATA["print_type"] = PRINTER_STATE["print"].get("print_type")
       PENDING_PRINT_METADATA["task_id"] = PRINTER_STATE["print"].get("task_id")
       PENDING_PRINT_METADATA["subtask_id"] = PRINTER_STATE["print"].get("subtask_id")
-      if TRACK_LAYER_USAGE:
-        FILAMENT_TRACKER.set_print_metadata(PENDING_PRINT_METADATA)
-
       print_id = insert_print(PRINTER_STATE["print"].get("subtask_name") or PENDING_PRINT_METADATA["file"], "cloud", PENDING_PRINT_METADATA["image"])
 
       if PRINTER_STATE["print"].get("use_ams"):
@@ -294,6 +291,10 @@ def processMessage(data):
 
       PENDING_PRINT_METADATA["print_id"] = print_id
       PENDING_PRINT_METADATA["complete"] = True
+      if TRACK_LAYER_USAGE:
+        # The tracker must receive the database ID after insert_print();
+        # assigning metadata before that left active cloud jobs with no ID.
+        FILAMENT_TRACKER.set_print_metadata(PENDING_PRINT_METADATA)
 
       for id, filament in PENDING_PRINT_METADATA["filaments"].items():
         parsed_grams = _parse_grams(filament.get("used_g"))
@@ -633,6 +634,10 @@ def on_message(client, userdata, msg):
 
     if AUTO_SPEND:
         processMessage(data)
+
+    # Layer tracking is independent of the legacy upfront-spending switch.
+    # It must continue receiving telemetry whenever it is enabled.
+    if TRACK_LAYER_USAGE:
         FILAMENT_TRACKER.on_message(data)
       
     # Save external spool tray data

@@ -371,6 +371,7 @@ def getMetaDataFrom3mf(url):
                 metadata["image"] = time.strftime('%Y%m%d%H%M%S') + ".png"
                 image_path = "Metadata/plate_" + metadata["plateID"] + ".png"
                 if image_path in z.namelist():
+                    os.makedirs(os.path.join(os.getcwd(), 'static', 'prints'), exist_ok=True)
                     with z.open(image_path) as source_file:
                         with open(os.path.join(os.getcwd(), 'static', 'prints', metadata["image"]), 'wb') as target_file:
                             target_file.write(source_file.read())

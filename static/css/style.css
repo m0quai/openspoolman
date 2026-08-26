@@ -371,3 +371,7 @@ main.container {
     box-sizing: border-box;
     font-size: 0;
 }
+/* Utility class used by the print-history thumbnail overlay. */
+.hidden {
+    display: none !important;
+}

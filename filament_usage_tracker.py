@@ -11,12 +11,13 @@ from urllib.parse import urlparse
 from config import EXTERNAL_SPOOL_AMS_ID, EXTERNAL_SPOOL_ID, TRACK_LAYER_USAGE
 from spoolman_client import consumeSpool
 from spoolman_service import fetchSpools, getAMSFromTray, trayUid
-from tools_3mf import download3mfFromCloud, download3mfFromFTP, download3mfFromLocalFilesystem
-from print_history import update_filament_spool, update_filament_grams_used, get_all_filament_usage_for_print, update_layer_tracking
+from tools_3mf import download3mfFromCloud, download3mfFromFTP, download3mfFromLocalFilesystem, getMetaDataFrom3mf
+from print_history import update_filament_spool, update_filament_grams_used, get_all_filament_usage_for_print, update_layer_tracking, update_print_image, get_print_image, get_latest_running_print_id
 from logger import log
 
 
 CHECKPOINT_DIR = Path(__file__).resolve().parent / "data" / "checkpoint"
+CHECKPOINT_VERSION = 3
 LAYER_TRACKING_STATUS_RUNNING = "RUNNING"
 LAYER_TRACKING_STATUS_COMPLETED = "COMPLETED"
 LAYER_TRACKING_STATUS_ABORTED = "ABORTED"
@@ -67,6 +68,7 @@ def save_checkpoint(*, model_path: str, current_layer: int, task_id, subtask_id,
   existing["current_layer"] = current_layer
   existing["ams_mapping"] = ams_mapping
   existing["gcode_file_name"] = gcode_file_name
+  existing["checkpoint_version"] = CHECKPOINT_VERSION
   _save_checkpoint_metadata(existing)
 
 
@@ -96,7 +98,8 @@ def recover_model(task_id, subtask_id):
   if checkpoint_task_id is None or checkpoint_subtask_id is None:
     return None
 
-  if checkpoint_task_id != task_id or checkpoint_subtask_id != subtask_id:
+  ids_missing = checkpoint_task_id in (None, "", 0, "0") and checkpoint_subtask_id in (None, "", 0, "0")
+  if not ids_missing and (checkpoint_task_id != task_id or checkpoint_subtask_id != subtask_id):
     return None
 
   model_path = _checkpoint_dir() / "model.3mf"
@@ -111,6 +114,28 @@ def recover_model(task_id, subtask_id):
     return None
 
   return str(model_path), gcode_file_name, current_layer, ams_mapping
+
+def _restore_thumbnail(model_path: str, print_id: int) -> None:
+  """Extract a missing print thumbnail from the persisted 3MF checkpoint."""
+  try:
+    existing_image = get_print_image(print_id)
+    if existing_image and (Path(__file__).resolve().parent / "static" / "prints" / existing_image).is_file():
+      log(f"[filament-tracker] Thumbnail already present: {existing_image}")
+      return
+    log(f"[filament-tracker] Thumbnail restore: print_id={print_id}, model={model_path!r}")
+    with zipfile.ZipFile(model_path) as archive:
+      candidates = [name for name in archive.namelist() if name.startswith("Metadata/plate_") and name.endswith(".png")]
+      log(f"[filament-tracker] Thumbnail restore: found {len(candidates)} PNG candidate(s)")
+      if not candidates:
+        return
+      target_dir = Path(__file__).resolve().parent / "static" / "prints"
+      target_dir.mkdir(parents=True, exist_ok=True)
+      image_name = f"{datetime.now().strftime('%Y%m%d%H%M%S')}.png"
+      (target_dir / image_name).write_bytes(archive.read(candidates[0]))
+      update_print_image(print_id, image_name)
+      log(f"[filament-tracker] Restored print thumbnail {image_name} at {target_dir / image_name}")
+  except Exception as exc:
+    log(f"[filament-tracker] Could not restore print thumbnail: {exc!r}")
 
 
 class GCodeOperation:
@@ -293,7 +318,7 @@ class FilamentUsageTracker:
     if self.gcode_state == "RUNNING" and previous_state != "RUNNING" and self.active_model is None:
       task_id = print_obj.get("task_id")
       subtask_id = print_obj.get("subtask_id")
-      self._attempt_print_resume(task_id, subtask_id)
+      self._attempt_print_resume(task_id, subtask_id, print_obj.get("url"))
 
   def _handle_print_start(self, print_obj: dict) -> None:
     log("[filament-tracker] Print start")
@@ -316,6 +341,10 @@ class FilamentUsageTracker:
       task_id=print_obj.get("task_id"),
       subtask_id=print_obj.get("subtask_id"),
     )
+    metadata = _get_checkpoint_metadata()
+    metadata["model_url"] = model_url
+    _save_checkpoint_metadata(metadata)
+    log(f"[filament-tracker] Checkpoint source saved: model_url_present={bool(model_url)}")
 
   def _start_layer_tracking_for_model(
       self,
@@ -342,6 +371,8 @@ class FilamentUsageTracker:
       log("[filament-tracker] Not using AMS, defaulting to external spool")
 
     self._load_model(model_path, gcode_file_name)
+    if self.print_id:
+      _restore_thumbnail(model_path, self.print_id)
 
     if self.active_model:
       self._layer_tracking_total_layers = self._infer_total_layers()
@@ -811,7 +842,30 @@ class FilamentUsageTracker:
       return
     self.active_model = evaluate_gcode(gcode)
 
-  def _attempt_print_resume(self, task_id, subtask_id) -> None:
+  def _attempt_print_resume(self, task_id, subtask_id, model_url=None) -> None:
+    if self.print_id is None:
+      self.print_id = get_latest_running_print_id()
+    checkpoint_metadata = _get_checkpoint_metadata()
+    model_url = model_url or checkpoint_metadata.get("model_url")
+    previous_version = checkpoint_metadata.get("checkpoint_version", 0)
+    if previous_version != CHECKPOINT_VERSION:
+      checkpoint_metadata["checkpoint_version"] = CHECKPOINT_VERSION
+      _save_checkpoint_metadata(checkpoint_metadata)
+      log(f"[filament-tracker] Checkpoint metadata version {previous_version} -> {CHECKPOINT_VERSION}")
+    log(
+      f"[filament-tracker] Resume diagnostics: print_id={self.print_id}, "
+      f"checkpoint_version={checkpoint_metadata.get('checkpoint_version', 0)}, "
+      f"model_url_present={bool(model_url)}"
+    )
+    if previous_version < CHECKPOINT_VERSION and model_url:
+      log(f"[filament-tracker] Legacy checkpoint detected; reloading 3MF from {model_url!r}")
+      refreshed = getMetaDataFrom3mf(model_url)
+      if refreshed.get("model_path"):
+        log(f"[filament-tracker] 3MF reload complete: model_path={refreshed['model_path']!r}, image={refreshed.get('image')!r}")
+      else:
+        log("[filament-tracker] 3MF reload returned no model_path")
+    elif previous_version < CHECKPOINT_VERSION:
+      log("[filament-tracker] Legacy checkpoint detected, but no 3MF source URL is available")
     result = recover_model(task_id, subtask_id)
     if result is None:
       log("[filament-tracker] No checkpoint to recover")
@@ -819,10 +873,13 @@ class FilamentUsageTracker:
     log(f"[filament-tracker] Recovering from checkpoint task={task_id} subtask={subtask_id}")
     model_path, gcode_file_name, current_layer, ams_mapping = result
     self._load_model(model_path, gcode_file_name)
+    if self.print_id:
+      _restore_thumbnail(model_path, self.print_id)
     self.spent_layers = set(range(current_layer + 1))
     self.ams_mapping = ams_mapping
     self.current_layer = current_layer
     self.using_ams = ams_mapping is not None
+    self._update_layer_tracking_progress()
     
     # Initialize cumulative usage from database to continue tracking correctly
     self.cumulative_grams_used = {}

@@ -130,9 +130,37 @@ def insert_print(file_name: str, print_type: str, image_file: str = None, print_
         VALUES (?, ?, ?, ?)
     ''', (print_date, file_name, print_type, image_file))
     print_id = cursor.lastrowid
+    if print_id is None:
+        conn.rollback()
+        conn.close()
+        raise RuntimeError("Print-History konnte keine Print-ID erzeugen")
     conn.commit()
     conn.close()
     return print_id
+
+def update_print_image(print_id: int, image_file: str) -> None:
+    if print_id is None or not image_file:
+        return
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute("UPDATE prints SET image_file = ? WHERE id = ?", (image_file, print_id))
+    conn.commit()
+    conn.close()
+
+def get_print_image(print_id: int) -> str | None:
+    if print_id is None:
+        return None
+    conn = sqlite3.connect(db_config["db_path"])
+    row = conn.execute("SELECT image_file FROM prints WHERE id = ?", (print_id,)).fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
+
+def get_latest_running_print_id() -> int | None:
+    conn = sqlite3.connect(db_config["db_path"])
+    row = conn.execute(
+        "SELECT print_id FROM print_layer_tracking WHERE status = 'RUNNING' ORDER BY print_id DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    return int(row[0]) if row else None
 
 def insert_filament_usage(
     print_id: int,
@@ -147,6 +175,9 @@ def insert_filament_usage(
     """
     Inserts a new filament usage entry for a specific print job.
     """
+    if print_id is None:
+        raise ValueError("Filamentverbrauch benötigt eine gültige Print-ID")
+
     conn = sqlite3.connect(db_config["db_path"])
     cursor = conn.cursor()
     cursor.execute('''

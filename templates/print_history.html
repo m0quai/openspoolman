@@ -33,6 +33,16 @@ function initThumbnailHover() {
   overlayImage.addEventListener('click', closeThumbnailOverlay);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeThumbnailOverlay(); });
 }
+function initPrintHistoryRefresh() {
+  const status = document.getElementById('print-history-refresh-status');
+  const updateStatus = () => {
+    if (status) status.textContent = 'Zuletzt aktualisiert: ' + new Date().toLocaleTimeString();
+  };
+  updateStatus();
+  window.setInterval(() => {
+    if (document.visibilityState === 'visible') window.location.reload();
+  }, 15000);
+}
 function closeThumbnailOverlay() {
   const overlay = document.getElementById('image-overlay');
   if (!overlay) return;
@@ -41,8 +51,10 @@ function closeThumbnailOverlay() {
   document.body.classList.remove('modal-open');
 }
 window.addEventListener('load', initThumbnailHover);
+window.addEventListener('load', initPrintHistoryRefresh);
 </script>
 <h1 class="mb-4 text-center">Print history</h1>
+<div id="print-history-refresh-status" class="text-center text-body-secondary small mb-3" aria-live="polite"></div>
 {% if prints %}
   {% if total_pages > 1 %}
   <nav aria-label="Print history pagination" class="mb-3"><ul class="pagination justify-content-center">
@@ -59,7 +71,7 @@ window.addEventListener('load', initThumbnailHover);
     <li class="page-item {% if page >= total_pages %}disabled{% endif %}"><a class="page-link" href="{{ url_for('print_history', page=page+1) }}">Next</a></li>
   </ul></nav>
   {% endif %}
-  <div id="image-overlay" class="image-overlay hidden"><div class="overlay-backdrop"></div><div class="overlay-content bg-body p-3 rounded"><img src="" class="overlay-image" style="width:100%;height:100%;"/></div></div>
+  <div id="image-overlay" class="image-overlay hidden"><div class="overlay-backdrop"></div><div class="overlay-content bg-body p-3 rounded"><img class="overlay-image" style="width:100%;height:100%;"/></div></div>
 {% else %}
   <div class="text-center text-body-secondary py-5"><p class="mb-0 fs-5">Keine Historie vorhanden.</p></div>
 {% endif %}
