@@ -1,6 +1,6 @@
 services:
   openspoolman:
-    image: openspoolman:1.0.7
+    build: .
     container_name: openspoolman
     restart: unless-stopped
     env_file:
