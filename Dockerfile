@@ -3,6 +3,7 @@ FROM python:3.12.9-slim-bookworm
 
 ARG BUILD_NUMBER=dev
 ENV BUILD_NUMBER=$BUILD_NUMBER
+ENV TZ=Europe/Berlin
 
 # permissions and nonroot user for tightened security
 RUN adduser --disabled-login nonroot
@@ -13,7 +14,7 @@ RUN mkdir -p /home/app/logs /home/app/data /home/app/static/prints /var/log/flas
 WORKDIR /home/app
 
 RUN if [ "$(printenv BUILD_NUMBER)" = "dev" ]; then \
-        date -u +%Y%m%d.%H%M%S > /home/app/build_number; \
+        date +%Y%m%d.%H%M%S > /home/app/build_number; \
     else \
         printenv BUILD_NUMBER > /home/app/build_number; \
     fi
