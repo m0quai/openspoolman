@@ -798,7 +798,7 @@ def async_subscribe():
   reconnect_started_at = time.monotonic()
   reconnect_failure_logged = False
   reconnect_backoff_logged = False
-  log("=" * 80)
+  log("OpenSpoolMan " + "=" * 80)
   while True:
     try:
       if not reconnect_failure_logged:
