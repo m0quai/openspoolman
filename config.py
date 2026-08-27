@@ -41,17 +41,20 @@ if BAMBU_CONNECTION_MODE not in ("lan", "online"):
 # Backwards-compatible active access code used by existing printer/FTP code.
 # The selected mode decides which credential is active.
 PRINTER_CODE = PRINTER_ACCESS_LAN if BAMBU_CONNECTION_MODE == "lan" else PRINTER_ACCESS_ONLINE
-PRINTER_IP = os.getenv("PRINTER_IP")  # Printer local IP address - Check wireless on printer
+PRINTER_IP = os.getenv("PRINTER_IP")  # Required printer IP address for the connection
 PRINTER_NAME = os.getenv("PRINTER_NAME")  # Printer name - Check wireless on printer
 SPOOLMAN_BASE_URL = os.getenv("SPOOLMAN_BASE_URL")
 SPOOLMAN_API_URL = f"{SPOOLMAN_BASE_URL}/api/v1"
-AUTO_SPEND = _env_to_bool("AUTO_SPEND", False)
-TRACK_LAYER_USAGE = _env_to_bool("TRACK_LAYER_USAGE", False)
+AUTO_SPEND = True
+TRACK_LAYER_USAGE = True
+LOG_AMS_MODE = (os.getenv("LOG_AMS_MODE") or "changes").strip().lower()
+if LOG_AMS_MODE not in ("none", "changes", "everything"):
+    LOG_AMS_MODE = "changes"
 SPOOL_SORTING = os.getenv(
     "SPOOL_SORTING", "filament.material:asc,filament.vendor.name:asc,filament.name:asc"
 )
 DISABLE_MISMATCH_WARNING = _env_to_bool("DISABLE_MISMATCH_WARNING", False)
-CLEAR_ASSIGNMENT_WHEN_EMPTY = _env_to_bool("CLEAR_ASSIGNMENT_WHEN_EMPTY", False)
+CLEAR_ASSIGNMENT_WHEN_EMPTY = False
 COLOR_DISTANCE_TOLERANCE = _env_to_int("COLOR_DISTANCE_TOLERANCE", 40)
 
 # Bambu MQTT command signing (optional)

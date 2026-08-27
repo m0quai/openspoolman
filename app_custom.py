@@ -13,8 +13,9 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 _CONFIG_ENV = Path(__file__).resolve().parent / "config.env"
 _URL_DEFAULTS = {
-    "OPENSPOOLMAN_BASE_URL": "http://localhost:8000",
-    "SPOOLMAN_BASE_URL": "http://localhost:7912",
+    "HOST_IP": "localhost",
+    "OPENSPOOLMAN_BASE_PORT": "8000",
+    "SPOOLMAN_BASE_PORT": "7912",
     "SPOOLMAN_INTERNAL_BASE_URL": "http://spoolman:8000",
 }
 
@@ -52,15 +53,14 @@ def _ensure_url_config():
 
 _url_config = _ensure_url_config()
 
-_SPOOLMAN_PUBLIC_BASE_URL = _url_config.get(
-    "SPOOLMAN_BASE_URL", _URL_DEFAULTS["SPOOLMAN_BASE_URL"]
-).rstrip("/")
+_host = _url_config.get("HOST_IP", _URL_DEFAULTS["HOST_IP"])
+_openspoolman_port = _url_config.get("OPENSPOOLMAN_BASE_PORT", _URL_DEFAULTS["OPENSPOOLMAN_BASE_PORT"])
+_spoolman_port = _url_config.get("SPOOLMAN_BASE_PORT", _URL_DEFAULTS["SPOOLMAN_BASE_PORT"])
+_SPOOLMAN_PUBLIC_BASE_URL = f"http://{_host}:{_spoolman_port}".rstrip("/")
 _SPOOLMAN_DOCKER_BASE_URL = _url_config.get(
     "SPOOLMAN_INTERNAL_BASE_URL", _SPOOLMAN_PUBLIC_BASE_URL
 ).rstrip("/")
-_OPENSPOOLMAN_PUBLIC_BASE_URL = _url_config.get(
-    "OPENSPOOLMAN_BASE_URL", _URL_DEFAULTS["OPENSPOOLMAN_BASE_URL"]
-).rstrip("/")
+_OPENSPOOLMAN_PUBLIC_BASE_URL = f"http://{_host}:{_openspoolman_port}".rstrip("/")
 
 def _running_inside_docker():
     if Path("/.dockerenv").exists():

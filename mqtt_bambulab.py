@@ -16,6 +16,7 @@ from config import (
     AUTO_SPEND,
     EXTERNAL_SPOOL_ID,
     TRACK_LAYER_USAGE,
+    LOG_AMS_MODE,
     CLEAR_ASSIGNMENT_WHEN_EMPTY,
 )
 from messages import GET_VERSION, PUSH_ALL, AMS_FILAMENT_SETTING
@@ -32,6 +33,7 @@ MQTT_CLIENT_CONNECTED = False
 MQTT_KEEPALIVE = 60
 LAST_AMS_CONFIG = {}  # Global variable storing last AMS configuration
 LAST_AMS_CONFIG_GENERATION = 0  # Incremented whenever fresh AMS data arrives from MQTT
+LAST_LOGGED_AMS_STATE = None
 # Last successfully acknowledged AMS material settings for non-RFID/third-party trays.
 # P1/P1S can acknowledge ams_filament_setting with success and then emit sparse
 # push_status tray objects whose material fields are empty. Keep the confirmed
@@ -597,7 +599,7 @@ def clear_ams_tray_assignment(ams_id, tray_id):
 
 # Inspired by https://github.com/Donkie/Spoolman/issues/217#issuecomment-2303022970
 def on_message(client, userdata, msg):
-  global LAST_AMS_CONFIG, LAST_AMS_CONFIG_GENERATION, PRINTER_STATE, PRINTER_STATE_LAST, PENDING_PRINT_METADATA, PRINTER_MODEL
+  global LAST_AMS_CONFIG, LAST_AMS_CONFIG_GENERATION, LAST_LOGGED_AMS_STATE, PRINTER_STATE, PRINTER_STATE_LAST, PENDING_PRINT_METADATA, PRINTER_MODEL
   
   try:
     data = json.loads(msg.payload.decode())
@@ -650,10 +652,23 @@ def on_message(client, userdata, msg):
       _apply_confirmed_ams_filament_settings(LAST_AMS_CONFIG["ams"])
       LAST_AMS_CONFIG_GENERATION += 1
       spool_list = fetchSpools(True)
+      ams_log_state = [
+        {"id": ams.get("id"), "trays": [
+          {key: tray.get(key) for key in ("id", "tray_sub_brands", "tray_color", "remain", "tray_uuid")}
+          for tray in ams.get("tray", [])
+        ]}
+        for ams in LAST_AMS_CONFIG["ams"]
+      ]
+      log_ams = LOG_AMS_MODE != "none" and (
+        LOG_AMS_MODE == "everything" or ams_log_state != LAST_LOGGED_AMS_STATE
+      )
+      if log_ams:
+        LAST_LOGGED_AMS_STATE = ams_log_state
       for ams in LAST_AMS_CONFIG["ams"]:
-        log(f"AMS [{num2letter(ams['id'])}] (hum: {ams['humidity']}, temp: {ams['temp']}ºC)")
+        if log_ams:
+          log(f"AMS [{num2letter(ams['id'])}]")
         for tray in ams["tray"]:
-          if "tray_sub_brands" in tray:
+          if log_ams and "tray_sub_brands" in tray:
             log(
                 f"    - [{num2letter(ams['id'])}{tray['id']}] {tray['tray_sub_brands']} {tray['tray_color']} ({str(tray['remain']).zfill(3)}%) [[ {tray['tray_uuid']} ]]")
 
