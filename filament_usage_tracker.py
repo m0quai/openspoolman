@@ -281,7 +281,10 @@ class FilamentUsageTracker:
       time.sleep(interval)
       builtins.print(".", end="", flush=True)
       self._status_heartbeat_dots += 1
-      if self._status_heartbeat_dots >= 50:
+      # Docker exposes stdout reliably at line boundaries. Keep dots compact,
+      # but flush a visible line at least once per minute during the 15 s phase.
+      line_break_after = 4 if time.monotonic() - started < 600 else 1
+      if self._status_heartbeat_dots >= line_break_after:
         builtins.print()
         self._status_heartbeat_dots = 0
 
