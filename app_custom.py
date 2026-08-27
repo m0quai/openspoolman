@@ -1,6 +1,11 @@
 """Custom OpenSpoolMan entry point; keeps local extensions outside upstream app.py."""
 import os
+import logging
 from pathlib import Path
+
+# Waitress' startup banner is informational and duplicates the application
+# startup log; retain warnings/errors while keeping normal container logs tidy.
+logging.getLogger("waitress").setLevel(logging.WARNING)
 
 # ---------------------------------------------------------------------------
 # OpenSpoolMan / Spoolman URL split
