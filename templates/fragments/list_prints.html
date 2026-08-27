@@ -124,6 +124,7 @@
                         {% endif %}
                         <div class="card">
                             <div class="card-body">
+                                <div class="text-muted small fw-semibold mb-2">Tray {{ filament['ams_slot'] }}</div>
                                 {% if filament['spool'] %}
                                     <a href="{{ url_for('spool_info', spool_id=filament['spool'].id) }}" class="nav-link link-body-emphasis">
                                         <div class="filament-info d-flex justify-content-between align-items-center">
