@@ -733,6 +733,11 @@ def on_message(client, userdata, msg):
                 f"    - [{num2letter(ams['id'])}{int(tray['id']) + 1}]")
             log("      - No Spool!")
 
+      # Start the independent activity heartbeat only after the complete AMS
+      # block (including all spool lines) has been emitted.
+      if TRACK_LAYER_USAGE:
+        FILAMENT_TRACKER._start_heartbeat()
+
   except Exception:
     traceback.print_exc()
 
