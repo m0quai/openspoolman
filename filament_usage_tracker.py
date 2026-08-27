@@ -1,4 +1,5 @@
 import json
+import builtins
 import math
 import os
 import tempfile
@@ -266,6 +267,8 @@ class FilamentUsageTracker:
     self._layer_tracking_start_time = None
     self._pending_usage_mm = {}
     self._mc_remaining_time_minutes = None
+    self._last_logged_gcode_state = None
+    self._status_heartbeat_dots = 0
 
   def set_print_metadata(self, metadata: dict | None) -> None:
     metadata = metadata or {}
@@ -291,7 +294,18 @@ class FilamentUsageTracker:
     if print_obj.get('gcode_state') is not None:
       state = print_obj.get('gcode_state')
       state_label = GCODE_STATE_LABELS.get(state, state)
-      log(f"[filament-tracker] on_message command={command} status={state_label} ({state})")
+      if state != self._last_logged_gcode_state:
+        if self._status_heartbeat_dots:
+          builtins.print()
+        log(f"Filament Tracker: {state_label} ", end="")
+        self._last_logged_gcode_state = state
+        self._status_heartbeat_dots = 0
+      else:
+        builtins.print(".", end="", flush=True)
+        self._status_heartbeat_dots += 1
+        if self._status_heartbeat_dots >= 50:
+          builtins.print()
+          self._status_heartbeat_dots = 0
 
     previous_state = self.gcode_state
     self.gcode_state = print_obj.get("gcode_state", self.gcode_state)
