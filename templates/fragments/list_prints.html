@@ -177,6 +177,15 @@
                                                             {% endif %}
                                                         {% endif %}
                                                     </span>
+                                                    {% set spool_initial_weight = filament['spool'].initial_weight or filament['spool'].filament.weight %}
+                                                    {% if filament['spool'].remaining_weight is not none %}
+                                                    <span class="text-muted small">
+                                                        {{ '%.2f' | format(filament['spool'].remaining_weight|float) }}g remaining
+                                                        {% if spool_initial_weight and (spool_initial_weight|float) > 0 %}
+                                                          ({{ '%.0f' | format((filament['spool'].remaining_weight|float / spool_initial_weight|float) * 100) }}%)
+                                                        {% endif %}
+                                                    </span>
+                                                    {% endif %}
                                                     <span class="text-muted small">
                                                         {{ '%.2f' | format(filament['cost']|float) }} {{currencysymbol}}
                                                     </span>
