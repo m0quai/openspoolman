@@ -124,7 +124,14 @@
                         {% endif %}
                         <div class="card">
                             <div class="card-body">
-                                <div class="text-muted small fw-semibold mb-2">[{{ filament['ams_slot'] }}]</div>
+                                {% set slot_number = filament['ams_slot']|int %}
+                                {% if 0 <= slot_number < 16 %}
+                                  {% set ams_letter = ['A', 'B', 'C', 'D'][slot_number // 4] %}
+                                  {% set tray_number = (slot_number % 4) + 1 %}
+                                  <div class="text-muted small fw-semibold mb-2">[{{ ams_letter }}{{ tray_number }}]</div>
+                                {% else %}
+                                  <div class="text-muted small fw-semibold mb-2">[External]</div>
+                                {% endif %}
                                 {% if filament['spool'] %}
                                     <a href="{{ url_for('spool_info', spool_id=filament['spool'].id) }}" class="nav-link link-body-emphasis">
                                         <div class="filament-info d-flex justify-content-between align-items-center">
