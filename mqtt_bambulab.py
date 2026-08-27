@@ -747,7 +747,12 @@ def on_connect(client, userdata, flags, rc):
 
   topic = f"device/{PRINTER_ID}/report"
   sub_result = client.subscribe(topic)
-  log(f"Subscribed to {topic}; result={sub_result}")
+  subscribe_code = sub_result[0] if isinstance(sub_result, tuple) else sub_result
+  if subscribe_code == mqtt.MQTT_ERR_SUCCESS:
+    subscribe_result = "OK"
+  else:
+    subscribe_result = f"Fehler {subscribe_code}: {mqtt.error_string(subscribe_code)}"
+  log(f"Subscribed to {topic}; Result: {subscribe_result}")
 
   publish(client, GET_VERSION)
   publish(client, PUSH_ALL)
