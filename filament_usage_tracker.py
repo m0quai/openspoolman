@@ -323,7 +323,7 @@ class FilamentUsageTracker:
       if state != self._last_logged_gcode_state:
         if self._status_heartbeat_dots:
           builtins.print()
-        log(f"Filament Tracker: {state_label}")
+        log("Drucker bereit" if state == "IDLE" else f"Filament Tracker: {state_label}")
         self._last_logged_gcode_state = state
         self._status_heartbeat_dots = 0
       else:

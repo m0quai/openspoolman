@@ -802,7 +802,7 @@ def async_subscribe():
   while True:
     try:
       if not reconnect_failure_logged:
-        log("🔄 Trying to connect ...", flush=True)
+        log("Trying to connect ...", flush=True)
       MQTT_CLIENT.connect(PRINTER_IP, 8883, MQTT_KEEPALIVE)
       MQTT_CLIENT.loop_start()
       return
