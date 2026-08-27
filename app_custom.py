@@ -168,8 +168,9 @@ if not _runtime_build_number or _runtime_build_number == "dev":
         _runtime_build_number = ""
 if not _runtime_build_number:
     _runtime_build_number = __build_number__
-# Clear the interactive terminal without adding blank records to the log.
-builtins.print("\033[2J\033[H", end="", flush=True)
+# Clear the interactive terminal and move the cursor down 40 screen rows
+# without adding blank records to the persistent log.
+builtins.print("\033[2J\033[H\033[40B", end="", flush=True)
 _log("=" * 80)
 _log(f"OpenSpoolMan version {__version__} (Build {_runtime_build_number}) starting")
 
