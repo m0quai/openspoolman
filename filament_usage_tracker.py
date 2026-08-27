@@ -13,6 +13,16 @@ from spoolman_client import consumeSpool
 from spoolman_service import fetchSpools, getAMSFromTray, trayUid
 from tools_3mf import download3mfFromCloud, download3mfFromFTP, download3mfFromLocalFilesystem, getMetaDataFrom3mf
 from print_history import update_filament_spool, update_filament_grams_used, get_all_filament_usage_for_print, update_layer_tracking, update_print_image, get_print_image, get_latest_running_print_id
+
+GCODE_STATE_LABELS = {
+    "IDLE": "Drucker bereit",
+    "PREPARE": "Druck wird vorbereitet",
+    "RUNNING": "Druck läuft",
+    "PAUSE": "Druck pausiert",
+    "FINISH": "Druck abgeschlossen",
+    "FAILED": "Druck fehlgeschlagen",
+    "SLICING": "Datei wird verarbeitet",
+}
 from logger import log
 
 
@@ -279,7 +289,9 @@ class FilamentUsageTracker:
     print_obj = message.get("print", {})
     command = print_obj.get("command")
     if print_obj.get('gcode_state') is not None:
-      log(f"[filament-tracker] on_message command={command} gcode_state={print_obj.get('gcode_state')}")
+      state = print_obj.get('gcode_state')
+      state_label = GCODE_STATE_LABELS.get(state, state)
+      log(f"[filament-tracker] on_message command={command} status={state_label} ({state})")
 
     previous_state = self.gcode_state
     self.gcode_state = print_obj.get("gcode_state", self.gcode_state)
