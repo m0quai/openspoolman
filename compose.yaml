@@ -16,3 +16,5 @@ services:
       - --host=0.0.0.0
       - --port=8000
       - app_custom:app
+    environment:
+      - TZ=Europe/Berlin
