@@ -2,6 +2,8 @@ import json
 import builtins
 import math
 import os
+import threading
+import time
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
@@ -269,6 +271,30 @@ class FilamentUsageTracker:
     self._mc_remaining_time_minutes = None
     self._last_logged_gcode_state = None
     self._status_heartbeat_dots = 0
+    self._heartbeat_started_at = None
+    self._heartbeat_thread = None
+
+  def _heartbeat_loop(self) -> None:
+    started = time.monotonic()
+    while True:
+      interval = 15 if time.monotonic() - started < 600 else 60
+      time.sleep(interval)
+      builtins.print(".", end="", flush=True)
+      self._status_heartbeat_dots += 1
+      if self._status_heartbeat_dots >= 50:
+        builtins.print()
+        self._status_heartbeat_dots = 0
+      else:
+        mark_live_line_open()
+
+  def _start_heartbeat(self) -> None:
+    if self._heartbeat_thread and self._heartbeat_thread.is_alive():
+      return
+    self._heartbeat_started_at = time.monotonic()
+    self._heartbeat_thread = threading.Thread(
+      target=self._heartbeat_loop, name="tracker-heartbeat", daemon=True
+    )
+    self._heartbeat_thread.start()
 
   def set_print_metadata(self, metadata: dict | None) -> None:
     metadata = metadata or {}
@@ -292,6 +318,7 @@ class FilamentUsageTracker:
     print_obj = message.get("print", {})
     command = print_obj.get("command")
     if print_obj.get('gcode_state') is not None:
+      self._start_heartbeat()
       state = print_obj.get('gcode_state')
       state_label = GCODE_STATE_LABELS.get(state, state)
       if state != self._last_logged_gcode_state:
@@ -301,13 +328,7 @@ class FilamentUsageTracker:
         self._last_logged_gcode_state = state
         self._status_heartbeat_dots = 0
       else:
-        builtins.print(".", end="", flush=True)
-        self._status_heartbeat_dots += 1
-        if self._status_heartbeat_dots >= 50:
-          builtins.print()
-          self._status_heartbeat_dots = 0
-        else:
-          mark_live_line_open()
+        pass
 
     previous_state = self.gcode_state
     self.gcode_state = print_obj.get("gcode_state", self.gcode_state)
