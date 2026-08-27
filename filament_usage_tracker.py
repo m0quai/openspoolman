@@ -24,7 +24,7 @@ GCODE_STATE_LABELS = {
     "FAILED": "Druck fehlgeschlagen",
     "SLICING": "Datei wird verarbeitet",
 }
-from logger import log
+from logger import log, mark_live_line_open
 
 
 CHECKPOINT_DIR = Path(__file__).resolve().parent / "data" / "checkpoint"
@@ -306,6 +306,8 @@ class FilamentUsageTracker:
         if self._status_heartbeat_dots >= 50:
           builtins.print()
           self._status_heartbeat_dots = 0
+        else:
+          mark_live_line_open()
 
     previous_state = self.gcode_state
     self.gcode_state = print_obj.get("gcode_state", self.gcode_state)

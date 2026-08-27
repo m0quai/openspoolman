@@ -7,6 +7,7 @@ from datetime import datetime
 
 _pending_ams_tray = None
 _pending_ams_uid = None
+_live_line_open = False
 _ZERO_AMS_UID = "00000000000000000000000000000000"
 _APPLICATION_ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -190,6 +191,10 @@ def log_with_timestamp(*args, sep=" ", end="\n", file=None, flush=True) -> None:
     """
     Print a message with a leading timestamp, preserving the standard print API.
     """
+    global _live_line_open
+    if _live_line_open:
+        builtins.print()
+        _live_line_open = False
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # AMS console output is produced as one string per log call. Keep all other
@@ -205,3 +210,9 @@ def log_with_timestamp(*args, sep=" ", end="\n", file=None, flush=True) -> None:
 
 # Alias for brevity where logging-style prints are used
 log = log_with_timestamp
+
+
+def mark_live_line_open() -> None:
+    """Mark that a live progress indicator currently occupies the line."""
+    global _live_line_open
+    _live_line_open = True
