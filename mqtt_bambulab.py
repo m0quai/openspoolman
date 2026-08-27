@@ -739,8 +739,16 @@ def on_message(client, userdata, msg):
 def on_connect(client, userdata, flags, rc):
   global MQTT_CLIENT_CONNECTED
   MQTT_CLIENT_CONNECTED = (rc == 0)
-  meanings = {0: "accepted", 1: "unacceptable protocol version", 2: "identifier rejected", 3: "server unavailable", 4: "bad username/password", 5: "not authorized"}
-  log(f"Connected with result code {rc} ({meanings.get(rc, 'unknown')})")
+  meanings = {
+    0: "Connection accepted",
+    1: "Unacceptable protocol version",
+    2: "Identifier rejected",
+    3: "Server unavailable",
+    4: "Bad username or password",
+    5: "Not authorized",
+  }
+  meaning = meanings.get(rc, mqtt.error_string(rc))
+  log(f"Connection result code {rc}: {meaning}")
   if rc != 0:
     log("MQTT authentication was rejected; no subscribe or publish will be attempted.")
     return
@@ -760,7 +768,12 @@ def on_connect(client, userdata, flags, rc):
 def on_disconnect(client, userdata, rc):
   global MQTT_CLIENT_CONNECTED
   MQTT_CLIENT_CONNECTED = False
-  log("Disconnected with result code " + str(rc))
+  disconnect_meanings = {
+    0: "Normal disconnection",
+    7: "Connection lost",
+  }
+  meaning = disconnect_meanings.get(rc, mqtt.error_string(rc))
+  log(f"Disconnected with result code {rc}: {meaning}")
 
 def async_subscribe():
   global MQTT_CLIENT
