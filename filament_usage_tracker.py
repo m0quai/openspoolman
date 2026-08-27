@@ -279,13 +279,10 @@ class FilamentUsageTracker:
     while True:
       interval = 15 if time.monotonic() - started < 600 else 60
       time.sleep(interval)
-      builtins.print(".", end="", flush=True)
+      log("Heartbeat .")
       self._status_heartbeat_dots += 1
       if self._status_heartbeat_dots >= 50:
-        builtins.print()
         self._status_heartbeat_dots = 0
-      else:
-        mark_live_line_open()
 
   def _start_heartbeat(self) -> None:
     if self._heartbeat_thread and self._heartbeat_thread.is_alive():
@@ -295,6 +292,7 @@ class FilamentUsageTracker:
       target=self._heartbeat_loop, name="tracker-heartbeat", daemon=True
     )
     self._heartbeat_thread.start()
+    log("Filament Tracker: Heartbeat gestartet (15 s, nach 10 min 60 s)")
 
   def set_print_metadata(self, metadata: dict | None) -> None:
     metadata = metadata or {}
