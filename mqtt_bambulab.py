@@ -689,7 +689,8 @@ def on_message(client, userdata, msg):
                 material = filament.get("material") or ""
                 name = filament.get("name") or ""
                 description = " - ".join(value for value in (material, name, vendor) if value)
-                log(f"      - Spoolman Spool #{spool.get('id')}: {description or 'zugeordnet'}")
+                if log_ams:
+                  log(f"      - Spoolman Spool #{spool.get('id')}: {description or 'zugeordnet'}")
                 break
             else:
               for spool in spool_list:
@@ -709,13 +710,16 @@ def on_message(client, userdata, msg):
                 material = filament.get("material") or ""
                 name = filament.get("name") or ""
                 description = " - ".join(value for value in (material, name, vendor) if value)
-                log(f"      - Spoolman Spool #{spool.get('id')}: {description or 'RFID zugeordnet'}")
+                if log_ams:
+                  log(f"      - Spoolman Spool #{spool.get('id')}: {description or 'RFID zugeordnet'}")
                 break
 
             if not found and (not tray_uuid or tray_uuid == zero_uuid):
-              log("      - Keine Spoolman-Spule diesem Tray zugeordnet.")
+              if log_ams:
+                log("      - Keine Spoolman-Spule diesem Tray zugeordnet.")
             elif not found:
-              log("      - Not found. Update spool tag!")
+              if log_ams:
+                log("      - Not found. Update spool tag!")
               tray["unmapped_bambu_tag"] = tray_uuid
               tray["issue"] = True
               # Read-only AMS synchronization:
