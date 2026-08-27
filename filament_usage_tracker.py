@@ -297,7 +297,7 @@ class FilamentUsageTracker:
     )
     self._heartbeat_thread.start()
     started_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log(f"Filament Tracker: Heartbeat gestartet (ab {started_at}; 15 s, nach 10 min 60 s)")
+    log(f"Filament Tracker: Heartbeat gestartet ab {started_at}")
 
   def set_print_metadata(self, metadata: dict | None) -> None:
     metadata = metadata or {}
