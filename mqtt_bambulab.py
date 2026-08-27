@@ -772,19 +772,24 @@ def async_subscribe():
   MQTT_CLIENT.on_disconnect = on_disconnect
   MQTT_CLIENT.on_message = on_message
   reconnect_started_at = time.monotonic()
+  reconnect_failure_logged = False
+  reconnect_backoff_logged = False
   while True:
     try:
-      log("🔄 Trying to connect ...", flush=True)
+      if not reconnect_failure_logged:
+        log("🔄 Trying to connect ...", flush=True)
       MQTT_CLIENT.connect(PRINTER_IP, 8883, MQTT_KEEPALIVE)
       MQTT_CLIENT.loop_start()
       return
     except Exception as exc:
       elapsed = time.monotonic() - reconnect_started_at
       retry_delay = 15 if elapsed < 10 * 60 else 60
-      log(
-        f"⚠️ connection failed: {exc}, new try in {retry_delay} seconds...",
-        flush=True,
-      )
+      if not reconnect_failure_logged:
+        log(f"⚠️ connection failed: {exc}, retrying in 15 seconds...", flush=True)
+        reconnect_failure_logged = True
+      elif retry_delay == 60 and not reconnect_backoff_logged:
+        log("⚠️ MQTT connection still unavailable after 10 minutes; retry interval is now 60 seconds.", flush=True)
+        reconnect_backoff_logged = True
       time.sleep(retry_delay)
 
 def init_mqtt(daemon: bool = False):
