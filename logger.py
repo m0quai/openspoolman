@@ -177,7 +177,7 @@ def _format_ams_console_message(text):
         or re.match(r"^\s*- Not found\. Update spool tag!$", text)
     ):
         output = (
-            f"    - [{_pending_ams_tray}] Keine Spule zugeordnet."
+            f"    - [{_pending_ams_tray}] ---"
             f"{_uid_suffix(_pending_ams_uid)}"
         )
         _pending_ams_tray = None

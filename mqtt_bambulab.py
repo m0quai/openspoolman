@@ -717,7 +717,7 @@ def on_message(client, userdata, msg):
 
             if not found and (not tray_uuid or tray_uuid == zero_uuid):
               if log_ams:
-                log("      - Keine Spule diesem Tray zugeordnet.")
+                log("      - ---")
             elif not found:
               if log_ams:
                 log("      - Not found. Update spool tag!")
