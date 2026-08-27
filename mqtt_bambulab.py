@@ -669,7 +669,7 @@ def on_message(client, userdata, msg):
           if "tray_sub_brands" in tray:
             if log_ams:
               log(
-                  f"    - [{num2letter(ams['id'])}{tray['id']}] {tray['tray_sub_brands']} {tray['tray_color']} ({str(tray['remain']).zfill(3)}%) [[ {tray['tray_uuid']} ]]")
+                  f"    - [{num2letter(ams['id'])}{int(tray['id']) + 1}] {tray['tray_sub_brands']} {tray['tray_color']} ({str(tray['remain']).zfill(3)}%) [[ {tray['tray_uuid']} ]]")
 
             found = False
             tray_uuid = str(tray.get("tray_uuid") or "")
@@ -729,7 +729,7 @@ def on_message(client, userdata, msg):
               pass
           elif log_ams:
             log(
-                f"    - [{num2letter(ams['id'])}{tray['id']}]")
+                f"    - [{num2letter(ams['id'])}{int(tray['id']) + 1}]")
             log("      - No Spool!")
 
   except Exception:
