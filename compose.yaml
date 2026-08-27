@@ -2,6 +2,7 @@ services:
   openspoolman:
     build:
       context: .
+      no_cache: true
       args:
         BUILD_NUMBER: ${BUILD_NUMBER:-dev}
     container_name: openspoolman
