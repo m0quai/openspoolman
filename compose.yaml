@@ -5,6 +5,7 @@ services:
       no_cache: true
       args:
         BUILD_NUMBER: ${BUILD_NUMBER:-dev}
+        BUILD_COMMIT: ${BUILD_COMMIT:-dev}
     container_name: openspoolman
     restart: unless-stopped
     env_file:

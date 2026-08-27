@@ -3,6 +3,8 @@ FROM python:3.12.9-slim-bookworm
 
 ARG BUILD_NUMBER=dev
 ENV BUILD_NUMBER=$BUILD_NUMBER
+ARG BUILD_COMMIT=dev
+ENV BUILD_COMMIT=$BUILD_COMMIT
 ENV TZ=Europe/Berlin
 
 # permissions and nonroot user for tightened security

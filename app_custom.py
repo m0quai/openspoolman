@@ -161,6 +161,7 @@ from logger import log as _log
 
 _build_number_file = Path(__file__).resolve().parent / "build_number"
 _runtime_build_number = os.environ.get("BUILD_NUMBER", "").strip()
+_runtime_build_commit = os.environ.get("BUILD_COMMIT", "").strip() or "dev"
 if not _runtime_build_number or _runtime_build_number == "dev":
     try:
         _runtime_build_number = _build_number_file.read_text(encoding="utf-8").strip()
@@ -170,7 +171,7 @@ if not _runtime_build_number:
     _runtime_build_number = __build_number__
 builtins.print("\n" * 40, end="", flush=True)
 _log("OpenSpoolMan " + "=" * 80)
-_log(f"OpenSpoolMan version {__version__} (Build {_runtime_build_number}) starting")
+_log(f"OpenSpoolMan version {__version__} (Build {_runtime_build_number}, Commit {_runtime_build_commit}) starting")
 
 app.register_blueprint(bambu_cloud_bp)
 app.register_blueprint(ams_nfc_bp)
