@@ -286,7 +286,16 @@ class FilamentUsageTracker:
     self.print_id = incoming_id
 
   def on_message(self, message: dict) -> None:
+    # Reports without a print payload still prove that MQTT is alive. Keep the
+    # compact activity heartbeat moving instead of silently dropping them.
     if "print" not in message:
+      builtins.print(".", end="", flush=True)
+      self._status_heartbeat_dots += 1
+      if self._status_heartbeat_dots >= 50:
+        builtins.print()
+        self._status_heartbeat_dots = 0
+      else:
+        mark_live_line_open()
       return
 
     print_obj = message.get("print", {})
