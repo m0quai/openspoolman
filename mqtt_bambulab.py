@@ -466,7 +466,8 @@ def publish(client, msg):
   result = client.publish(f"device/{PRINTER_ID}/request", wire_payload)
   status = result[0]
   if status == 0:
-    log(f"Sent {message_to_send} to topic device/{PRINTER_ID}/request")
+    if LOG_AMS_MODE == "everything":
+      log(f"Sent {message_to_send} to topic device/{PRINTER_ID}/request")
     return True
   log(f"Failed to send message to topic device/{PRINTER_ID}/request")
   return False
