@@ -665,8 +665,6 @@ def on_message(client, userdata, msg):
       if log_ams:
         LAST_LOGGED_AMS_STATE = ams_log_state
       for ams in LAST_AMS_CONFIG["ams"]:
-        if log_ams:
-          log(f"AMS [{num2letter(ams['id'])}]")
         for tray in ams["tray"]:
           if log_ams and "tray_sub_brands" in tray:
             log(
