@@ -1,6 +1,9 @@
 # Use an official Python runtime as a parent image
 FROM python:3.12.9-slim-bookworm
 
+ARG BUILD_NUMBER=dev
+ENV BUILD_NUMBER=$BUILD_NUMBER
+
 # permissions and nonroot user for tightened security
 RUN adduser --disabled-login nonroot
 RUN mkdir -p /home/app/logs /home/app/data /home/app/static/prints /var/log/flask-app \

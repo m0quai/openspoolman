@@ -174,3 +174,4 @@ secrets/
 /.vs/OpenSpoolMan/v17/fileList.bin
 /AMSHelper/obj/Debug/AMSHelper.nfproj.FileListAbsolute.txt
 /.vs/OpenSpoolMan/v17/.wsuo
+.build-sequence

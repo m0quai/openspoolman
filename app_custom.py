@@ -153,7 +153,8 @@ import tools_3mf as _tools_3mf
 import filament_usage_tracker as _filament_usage_tracker
 from logger import log as _log
 
-_log(f"OpenSpoolMan version {__version__} (Build {__build_number__}) starting")
+_runtime_build_number = os.environ.get("BUILD_NUMBER", __build_number__)
+_log(f"OpenSpoolMan version {__version__} (Build {_runtime_build_number}) starting")
 
 app.register_blueprint(bambu_cloud_bp)
 app.register_blueprint(ams_nfc_bp)

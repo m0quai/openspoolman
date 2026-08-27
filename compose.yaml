@@ -1,6 +1,9 @@
 services:
   openspoolman:
-    build: .
+    build:
+      context: .
+      args:
+        BUILD_NUMBER: ${BUILD_NUMBER:-dev}
     container_name: openspoolman
     restart: unless-stopped
     env_file:
