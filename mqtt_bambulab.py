@@ -771,6 +771,7 @@ def async_subscribe():
   MQTT_CLIENT.on_connect = on_connect
   MQTT_CLIENT.on_disconnect = on_disconnect
   MQTT_CLIENT.on_message = on_message
+  reconnect_started_at = time.monotonic()
   while True:
     try:
       log("🔄 Trying to connect ...", flush=True)
@@ -778,8 +779,13 @@ def async_subscribe():
       MQTT_CLIENT.loop_start()
       return
     except Exception as exc:
-      log(f"⚠️ connection failed: {exc}, new try in 15 seconds...", flush=True)
-      time.sleep(15)
+      elapsed = time.monotonic() - reconnect_started_at
+      retry_delay = 15 if elapsed < 10 * 60 else 60
+      log(
+        f"⚠️ connection failed: {exc}, new try in {retry_delay} seconds...",
+        flush=True,
+      )
+      time.sleep(retry_delay)
 
 def init_mqtt(daemon: bool = False):
   # Start the asynchronous processing in a separate thread
