@@ -691,7 +691,7 @@ def on_message(client, userdata, msg):
                 name = filament.get("name") or ""
                 description = " - ".join(value for value in (material, name, vendor) if value)
                 if log_ams:
-                  log(f"      - Spoolman Spool #{spool.get('id')}: {description or 'zugeordnet'}")
+                  log(f"      - Spool #{spool.get('id')}: {description or 'zugeordnet'}")
                 break
             else:
               for spool in spool_list:
@@ -712,12 +712,12 @@ def on_message(client, userdata, msg):
                 name = filament.get("name") or ""
                 description = " - ".join(value for value in (material, name, vendor) if value)
                 if log_ams:
-                  log(f"      - Spoolman Spool #{spool.get('id')}: {description or 'RFID zugeordnet'}")
+                  log(f"      - Spool #{spool.get('id')}: {description or 'RFID zugeordnet'}")
                 break
 
             if not found and (not tray_uuid or tray_uuid == zero_uuid):
               if log_ams:
-                log("      - Keine Spoolman-Spule diesem Tray zugeordnet.")
+                log("      - Keine Spule diesem Tray zugeordnet.")
             elif not found:
               if log_ams:
                 log("      - Not found. Update spool tag!")

@@ -158,13 +158,13 @@ def _format_ams_console_message(text):
         _pending_ams_uid = uid_match.group(1).strip() if uid_match else None
         return None
 
-    spool_match = re.match(r"^\s*- Spoolman Spool #(\d+):\s*(.*)$", text)
+    spool_match = re.match(r"^\s*- (?:Spoolman )?Spool #(\d+):\s*(.*)$", text)
     if spool_match and _pending_ams_tray:
         spool_id = spool_match.group(1)
         description = spool_match.group(2).strip() or "zugeordnet"
         spool = _find_spoolman_spool(spool_id)
         output = (
-            f"    - [{_pending_ams_tray}] Spoolman Spool #{spool_id}: {description}"
+            f"    - [{_pending_ams_tray}] Spool #{spool_id}: {description}"
             f"{_spoolman_remaining_text(spool)}{_uid_suffix(_pending_ams_uid)}"
         )
         _pending_ams_tray = None
@@ -172,12 +172,12 @@ def _format_ams_console_message(text):
         return output
 
     if _pending_ams_tray and (
-        re.match(r"^\s*- Keine Spoolman-Spule diesem Tray zugeordnet\.$", text)
+        re.match(r"^\s*- Keine (?:Spoolman-)?Spule diesem Tray zugeordnet\.$", text)
         or re.match(r"^\s*- No Spool!$", text)
         or re.match(r"^\s*- Not found\. Update spool tag!$", text)
     ):
         output = (
-            f"    - [{_pending_ams_tray}] Keine Spoolman-Spule zugeordnet."
+            f"    - [{_pending_ams_tray}] Keine Spule zugeordnet."
             f"{_uid_suffix(_pending_ams_uid)}"
         )
         _pending_ams_tray = None
