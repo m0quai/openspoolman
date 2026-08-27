@@ -153,7 +153,15 @@ import tools_3mf as _tools_3mf
 import filament_usage_tracker as _filament_usage_tracker
 from logger import log as _log
 
-_runtime_build_number = os.environ.get("BUILD_NUMBER", __build_number__)
+_build_number_file = Path(__file__).resolve().parent / "build_number"
+_runtime_build_number = os.environ.get("BUILD_NUMBER", "").strip()
+if not _runtime_build_number or _runtime_build_number == "dev":
+    try:
+        _runtime_build_number = _build_number_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        _runtime_build_number = ""
+if not _runtime_build_number:
+    _runtime_build_number = __build_number__
 _log(f"OpenSpoolMan version {__version__} (Build {_runtime_build_number}) starting")
 
 app.register_blueprint(bambu_cloud_bp)

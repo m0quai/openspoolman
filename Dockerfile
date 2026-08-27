@@ -12,6 +12,9 @@ RUN mkdir -p /home/app/logs /home/app/data /home/app/static/prints /var/log/flas
 
 WORKDIR /home/app
 
+RUN if [ "$${BUILD_NUMBER}" = "dev" ]; then BUILD_NUMBER=$(date -u +%Y%m%d.%H%M%S); fi \
+    && printf '%s' "$${BUILD_NUMBER}" > /home/app/build_number
+
 # copy all the files to the container
 COPY --chown=nonroot:nonroot . .
 
