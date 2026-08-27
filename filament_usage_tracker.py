@@ -279,9 +279,10 @@ class FilamentUsageTracker:
     while True:
       interval = 15 if time.monotonic() - started < 600 else 60
       time.sleep(interval)
-      log("Heartbeat .")
+      builtins.print(".", end="", flush=True)
       self._status_heartbeat_dots += 1
       if self._status_heartbeat_dots >= 50:
+        builtins.print()
         self._status_heartbeat_dots = 0
 
   def _start_heartbeat(self) -> None:
