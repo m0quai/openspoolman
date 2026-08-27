@@ -171,6 +171,7 @@ if not _runtime_build_number:
 builtins.print("\n" * 40, end="", flush=True)
 _log("=" * 80)
 _log(f"Version {__version__} (Build {_runtime_build_number}) starting")
+_log("=" * 80)
 
 app.register_blueprint(bambu_cloud_bp)
 app.register_blueprint(ams_nfc_bp)

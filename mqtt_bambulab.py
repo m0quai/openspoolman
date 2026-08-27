@@ -798,7 +798,6 @@ def async_subscribe():
   reconnect_started_at = time.monotonic()
   reconnect_failure_logged = False
   reconnect_backoff_logged = False
-  log("=" * 80)
   while True:
     try:
       if not reconnect_failure_logged:
@@ -810,7 +809,7 @@ def async_subscribe():
       elapsed = time.monotonic() - reconnect_started_at
       retry_delay = 15 if elapsed < 10 * 60 else 60
       if not reconnect_failure_logged:
-        log(f"⚠️ connection failed: {exc}, retrying in 15 seconds...", flush=True)
+        log(f"Connection failed: {exc}, retrying in 15 seconds...", flush=True)
         reconnect_failure_logged = True
       elif retry_delay == 60 and not reconnect_backoff_logged:
         log("⚠️ MQTT connection still unavailable after 10 minutes; retry interval is now 60 seconds.", flush=True)

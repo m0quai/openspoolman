@@ -26,7 +26,7 @@ GCODE_STATE_LABELS = {
     "FAILED": "Druck fehlgeschlagen",
     "SLICING": "Datei wird verarbeitet",
 }
-from logger import log, mark_live_line_open
+from logger import log
 
 
 CHECKPOINT_DIR = Path(__file__).resolve().parent / "data" / "checkpoint"
@@ -273,27 +273,28 @@ class FilamentUsageTracker:
     self._status_heartbeat_dots = 0
     self._heartbeat_started_at = None
     self._heartbeat_thread = None
+    self._heartbeat_start_lock = threading.Lock()
 
   def _heartbeat_loop(self) -> None:
     started = time.monotonic()
     while True:
       interval = 15 if time.monotonic() - started < 600 else 60
       time.sleep(interval)
-      if self._status_heartbeat_dots == 0:
-        log("Heartbeat .")
-      else:
-        builtins.print(".", end="", flush=True)
-        mark_live_line_open()
+      # Docker's log driver only reliably forwards newline-terminated output.
+      # Emit every heartbeat as a complete line so `docker compose logs -f`
+      # cannot appear to stop after the first dot.
+      log("Heartbeat")
       self._status_heartbeat_dots += 1
 
   def _start_heartbeat(self) -> None:
-    if self._heartbeat_thread and self._heartbeat_thread.is_alive():
-      return
-    self._heartbeat_started_at = time.monotonic()
-    self._heartbeat_thread = threading.Thread(
-      target=self._heartbeat_loop, name="tracker-heartbeat", daemon=True
-    )
-    self._heartbeat_thread.start()
+    with self._heartbeat_start_lock:
+      if self._heartbeat_thread and self._heartbeat_thread.is_alive():
+        return
+      self._heartbeat_started_at = time.monotonic()
+      self._heartbeat_thread = threading.Thread(
+        target=self._heartbeat_loop, name="tracker-heartbeat", daemon=True
+      )
+      self._heartbeat_thread.start()
 
   def set_print_metadata(self, metadata: dict | None) -> None:
     metadata = metadata or {}
