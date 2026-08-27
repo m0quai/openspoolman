@@ -167,6 +167,7 @@ if not _runtime_build_number or _runtime_build_number == "dev":
         _runtime_build_number = ""
 if not _runtime_build_number:
     _runtime_build_number = __build_number__
+_log("=" * 80)
 _log(f"OpenSpoolMan version {__version__} (Build {_runtime_build_number}) starting")
 
 app.register_blueprint(bambu_cloud_bp)
