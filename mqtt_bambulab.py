@@ -666,9 +666,10 @@ def on_message(client, userdata, msg):
         LAST_LOGGED_AMS_STATE = ams_log_state
       for ams in LAST_AMS_CONFIG["ams"]:
         for tray in ams["tray"]:
-          if log_ams and "tray_sub_brands" in tray:
-            log(
-                f"    - [{num2letter(ams['id'])}{tray['id']}] {tray['tray_sub_brands']} {tray['tray_color']} ({str(tray['remain']).zfill(3)}%) [[ {tray['tray_uuid']} ]]")
+          if "tray_sub_brands" in tray:
+            if log_ams:
+              log(
+                  f"    - [{num2letter(ams['id'])}{tray['id']}] {tray['tray_sub_brands']} {tray['tray_color']} ({str(tray['remain']).zfill(3)}%) [[ {tray['tray_uuid']} ]]")
 
             found = False
             tray_uuid = str(tray.get("tray_uuid") or "")
@@ -722,7 +723,7 @@ def on_message(client, userdata, msg):
               # merely because this push_status has no/mismatched Bambu RFID UUID.
               # Fill and explicit Clear are the only operations allowed to mutate a tray.
               pass
-          else:
+          elif log_ams:
             log(
                 f"    - [{num2letter(ams['id'])}{tray['id']}]")
             log("      - No Spool!")
