@@ -280,8 +280,7 @@ class FilamentUsageTracker:
       interval = 15 if time.monotonic() - started < 600 else 60
       time.sleep(interval)
       if self._status_heartbeat_dots == 0:
-        log("Heartbeat .", end="")
-        mark_live_line_open()
+        log("Heartbeat .")
       else:
         builtins.print(".", end="", flush=True)
         mark_live_line_open()
