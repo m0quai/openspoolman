@@ -382,6 +382,21 @@ main.container {
     display: none;
 }
 
+.restore-print-button {
+    position: relative;
+}
+
+.restore-print-button::after {
+    content: "";
+    position: absolute;
+    width: 20px;
+    height: 2px;
+    left: 50%;
+    top: 50%;
+    background: currentColor;
+    transform: translate(-50%, -50%) rotate(-45deg);
+}
+
 .spool-color-badge {
     border: #212529 solid 1px;
 }
