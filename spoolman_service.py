@@ -472,7 +472,12 @@ def setActiveTray(spool_id, spool_extra, ams_id, tray_id):
 def fetchSpools(cached=False):
   global SPOOLS
   if not cached or not SPOOLS:
-    SPOOLS = spoolman_client.fetchSpoolList()
+    try:
+      fresh_spools = spoolman_client.fetchSpoolList()
+    except Exception as exc:
+      log(f"Spoolman spool list unavailable: {exc}")
+      return SPOOLS if isinstance(SPOOLS, list) else []
+    SPOOLS = fresh_spools
     
     for spool in SPOOLS:
       initial_weight = 0

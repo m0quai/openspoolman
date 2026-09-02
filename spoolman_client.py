@@ -52,14 +52,20 @@ def getSpoolById(spool_id):
 
 
 def fetchSpoolList():
+  url = f"{SPOOLMAN_API_URL}/spool"
   if SPOOL_SORTING:
-    response = requests.get(f"{SPOOLMAN_API_URL}/spool?sort={SPOOL_SORTING}")
-  else:
-    response = requests.get(f"{SPOOLMAN_API_URL}/spool")
-    
-  #print(response.status_code)
-  #print(response.text)
-  return response.json()
+    url += f"?sort={SPOOL_SORTING}"
+  response = requests.get(url, timeout=10)
+  response.raise_for_status()
+  try:
+    data = response.json()
+  except ValueError as exc:
+    raise RuntimeError(
+      f"Spoolman returned invalid JSON (HTTP {response.status_code})"
+    ) from exc
+  if not isinstance(data, list):
+    raise RuntimeError("Spoolman returned an unexpected spool-list format")
+  return data
 
 def consumeSpool(spool_id, use_weight=None, use_length=None):
   if use_weight is None and use_length is None:
