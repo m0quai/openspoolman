@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="container py-4">
-  <h2>Bambu Lab</h2>
+  <h2>Drucker Verbindung</h2>
+  <fieldset{% if printer_is_busy %} disabled{% endif %}>
 
   <div class="card mb-4"><div class="card-body">
     <h5>Verbindungsmodus</h5>
@@ -55,7 +56,6 @@
         {% endif %}
       </div>
       <div class="col-12">
-        <button class="btn btn-primary" type="submit">LAN-Konfiguration speichern</button>
       </div>
     </form>
   </div></div>
@@ -162,5 +162,6 @@
       {% else %}<span class="text-danger">Nicht verbunden</span>{% endif %}
     </p>
   </div></div>
+  </fieldset>
 </div>
 {% endblock %}

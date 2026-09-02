@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $now = Get-Date
-$buildNumber = $now.ToString("yyyyMMdd.HHmmss")
+$buildNumber = $now.ToString("yyMMdd.HHmm")
 $buildCommit = (git rev-parse --short HEAD).Trim()
 $env:BUILD_NUMBER = $buildNumber
 Write-Host "Building OpenSpoolMan with BUILD_NUMBER=$buildNumber BUILD_COMMIT=$buildCommit"

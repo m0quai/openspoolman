@@ -600,26 +600,6 @@ def extract_materials(spools):
 
   return sorted(materials)
 
-@app.route("/assign_tag")
-def assign_tag():
-  if not mqtt_bambulab.isMqttClientConnected():
-    return render_template('error.html', exception="MQTT is disconnected. Is the printer online?")
-
-  try:
-    spools = sort_spools(mqtt_bambulab.fetchSpools())
-
-    materials = extract_materials(spools)
-    selected_materials = []
-    requested_material = request.args.get("material")
-
-    if requested_material and requested_material in materials:
-      selected_materials.append(requested_material)
-
-    return render_template('assign_tag.html', spools=spools, materials=materials, selected_materials=selected_materials)
-  except Exception as e:
-    traceback.print_exc()
-    return render_template('error.html', exception=str(e))
-
 @app.route("/write_tag")
 def write_tag():
   try:
@@ -706,7 +686,8 @@ def print_history():
           length_value=length_used if use_length else None,
       )
 
-  prints, total_prints = print_history_service.get_prints_with_filament(limit=per_page, offset=offset)
+  show_deleted = request.args.get("show_deleted") == "1"
+  prints, total_prints = print_history_service.get_prints_with_filament(limit=per_page, offset=offset, include_deleted=show_deleted)
   layer_tracking_map = print_history_service.get_layer_tracking_for_prints([print["id"] for print in prints])
 
   spool_list = mqtt_bambulab.fetchSpools()
@@ -738,8 +719,10 @@ def print_history():
         "predicted_end_time": tracking_row.get("predicted_end_time"),
         "actual_end_time": tracking_row.get("actual_end_time"),
       }
+      print["is_running"] = status_key == "RUNNING"
     else:
       print["layer_tracking"] = None
+      print["is_running"] = False
 
     filament_usage_data = json.loads(print["filament_info"])
     filament_usage_sum = sum(
@@ -773,7 +756,21 @@ def print_history():
     page=page,
     total_pages=total_pages,
     per_page=per_page,
+    show_deleted=show_deleted,
+    has_deleted_prints=print_history_service.has_deleted_prints(),
   )
+
+
+@app.post("/print_history/<int:print_id>/delete")
+def delete_print_history_entry(print_id):
+  print_history_service.soft_delete_print(print_id)
+  return redirect(url_for("print_history"))
+
+
+@app.post("/print_history/<int:print_id>/restore")
+def restore_print_history_entry(print_id):
+  print_history_service.restore_print(print_id)
+  return redirect(url_for("print_history", show_deleted=1))
 
 @app.route("/print_select_spool")
 def print_select_spool():

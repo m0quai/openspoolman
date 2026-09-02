@@ -733,11 +733,6 @@ def on_message(client, userdata, msg):
                 f"    - [{num2letter(ams['id'])}{int(tray['id']) + 1}]")
             log("      - No Spool!")
 
-    # Start once after the complete report (including any AMS/spool output)
-    # has been processed, regardless of the report's exact payload shape.
-    if TRACK_LAYER_USAGE:
-      FILAMENT_TRACKER._start_heartbeat()
-
   except Exception:
     traceback.print_exc()
 

@@ -8,8 +8,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>OpenSpoolMan</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
-  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/bootstrap-icons.css') }}" rel="stylesheet">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='logo.png') }}">
   <style>
@@ -51,10 +51,8 @@
       </a>
       
       <ul class="nav col-12 col-lg-auto me-lg-auto mb-2 justify-content-center mb-md-0">
-        <li><a href="{{ url_for('home') }}" class="nav-link px-2 link-body-emphasis">Home</a></li>
-        <li><a href="{{ url_for('assign_tag') }}" class="nav-link px-2 link-body-emphasis">Assign NFC Tag</a></li>
-        <li><a href="{{ url_for('print_history') }}" class="nav-link px-2 link-body-emphasis">Print History</a></li>
-        <li><a href="{{ url_for('bambu_cloud.index') }}" class="nav-link px-2 link-body-emphasis">Printer<span class="mqtt-menu-status-dot {{ 'connected' if mqtt_connected|default(false) else 'disconnected' }}" title="{{ 'MQTT verbunden' if mqtt_connected|default(false) else 'MQTT nicht verbunden' }}"></span></a></li>
+        <li><a href="{{ url_for('print_history') }}" class="nav-link px-2 link-body-emphasis">History</a></li>
+        <li><a href="{{ url_for('bambu_cloud.index') }}" class="nav-link px-2 link-body-emphasis">Printer{% if not mqtt_connected|default(false) %}<span class="mqtt-menu-status-dot disconnected" title="MQTT nicht verbunden"></span>{% endif %}</a></li>
         <li><a href="{{ SPOOLMAN_BASE_URL }}" target="_blank" class="nav-link px-2 link-body-emphasis">SpoolMan</a></li>
       </ul>
     </div>
@@ -154,7 +152,7 @@
   <footer class="d-flex flex-wrap justify-content-between align-items-center py-3 my-4 border-top">
     <ul class="nav col-md-12 justify-content-end list-unstyled d-flex">
       <li class="nav-item d-flex align-items-center me-2">
-        <span class="text-body-secondary">v{{ openspoolman_version }} @m0quai</span>
+        <span class="text-body-secondary">v{{ openspoolman_version }} (Build {{ openspoolman_build_number }}) @m0quai</span>
       </li>
       <li class="ms-3"><a class="link-body-emphasis" href="https://github.com/drndos/openspoolman" target="_blank" rel="noopener noreferrer">
         <i class="bi bi-github"></i>

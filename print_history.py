@@ -104,6 +104,7 @@ def create_database() -> None:
         "predicted_end_time",
         "TEXT",
     )
+    _ensure_column(cursor, "prints", "is_deleted", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(
         cursor,
         "print_layer_tracking",
@@ -225,7 +226,7 @@ def update_filament_grams_used(print_id: int, filament_id: int, grams_used: floa
     conn.close()
 
 
-def get_prints_with_filament(limit: int | None = None, offset: int | None = None):
+def get_prints_with_filament(limit: int | None = None, offset: int | None = None, include_deleted: bool = False):
     """
     Retrieves print jobs along with their associated filament usage, grouped by print job.
 
@@ -235,13 +236,14 @@ def get_prints_with_filament(limit: int | None = None, offset: int | None = None
     conn.row_factory = sqlite3.Row  # Enable column name access
 
     count_cursor = conn.cursor()
-    count_cursor.execute("SELECT COUNT(*) FROM prints")
+    where_clause = "" if include_deleted else " WHERE COALESCE(is_deleted, 0) = 0"
+    count_cursor.execute("SELECT COUNT(*) FROM prints" + where_clause)
     total_count = count_cursor.fetchone()[0]
 
     cursor = conn.cursor()
     query = '''
         SELECT p.id AS id, p.print_date AS print_date, p.file_name AS file_name,
-               p.print_type AS print_type, p.image_file AS image_file,
+               p.print_type AS print_type, p.image_file AS image_file, p.is_deleted AS is_deleted,
        (
            SELECT json_group_array(json_object(
                'spool_id', f.spool_id,
@@ -255,6 +257,7 @@ def get_prints_with_filament(limit: int | None = None, offset: int | None = None
             )) FROM filament_usage f WHERE f.print_id = p.id
         ) AS filament_info
         FROM prints p
+    ''' + where_clause + '''
         ORDER BY p.print_date DESC
     '''
     params: list[int] = []
@@ -269,6 +272,27 @@ def get_prints_with_filament(limit: int | None = None, offset: int | None = None
     prints = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return prints, total_count
+
+
+def soft_delete_print(print_id: int) -> None:
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute("UPDATE prints SET is_deleted = 1 WHERE id = ?", (print_id,))
+    conn.commit()
+    conn.close()
+
+
+def restore_print(print_id: int) -> None:
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute("UPDATE prints SET is_deleted = 0 WHERE id = ?", (print_id,))
+    conn.commit()
+    conn.close()
+
+
+def has_deleted_prints() -> bool:
+    conn = sqlite3.connect(db_config["db_path"])
+    row = conn.execute("SELECT 1 FROM prints WHERE COALESCE(is_deleted, 0) = 1 LIMIT 1").fetchone()
+    conn.close()
+    return row is not None
 
 def get_prints_by_spool(spool_id: int):
     """

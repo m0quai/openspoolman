@@ -78,10 +78,11 @@
       {% if tray_data.spool_material %}
         <!-- Farbname + Badge -->
         <div class="col-12 col-xxl-5 d-flex flex-column align-items-center mb-2 mb-sm-0">
-          <!-- Farbname -->
-          <div class="fw-semibold mb-1 text-center">
-            {{ tray_data.name }}
-          </div>
+          <div class="spool-color-info rounded p-2 text-center" style="border: 1px solid #212529 !important;">
+            <!-- Farbname -->
+            <div class="fw-semibold mb-1 text-center">
+              {{ tray_data.name }}
+            </div>
           {% if tray_data.spool_color is iterable and tray_data.spool_color_orientation %}
             <!-- Multi-Color Badge -->
             {% if tray_data.spool_color_orientation == "coaxial" %}
@@ -96,7 +97,7 @@
           {% else %}
             <!-- Single Color Badge -->
             {% if tray_data.spool_color %}
-              <span class="badge d-inline-block p-2"
+              <span class="badge d-inline-block p-2 spool-color-badge"
                     style="background-color: #{{ tray_data.spool_color }};
                            color: {% if color_is_dark(tray_data.spool_color) %}#FFFFFF{% else %}#000000{% endif %}">
                 #{{ tray_data.spool_color | upper }}
@@ -105,6 +106,7 @@
               <span class="badge d-inline-block p-2 badge-missing-color" title="Color not set"></span>
             {% endif %}
           {% endif %}
+          </div>
         </div>
 
         <!-- Textinfos -->
@@ -143,22 +145,24 @@
     </div>
   </div>
 
+  {% if pick_tray or (not pick_tray and not printer_is_busy) %}
   <div class="card-footer">
     {% if pick_tray %}
       <a class="btn btn-primary"
          href="{{ url_for('tray_load', spool_id=current_spool['id'], tag_id=tag_id, ams=ams_id, tray=tray_id) }}">Assign</a>
     {% endif %}
-    {% if not pick_tray %}
+    {% if not pick_tray and not printer_is_busy %}
       {% if tray_data.spool_material %}
         <form method="post" action="{{ url_for('tray_clear') }}" class="d-inline">
           <input type="hidden" name="ams" value="{{ ams_id }}">
           <input type="hidden" name="tray" value="{{ tray_id }}">
-          <button type="submit" class="btn btn-outline-danger">Clear</button>
+          <button type="submit" class="btn btn-outline-danger"{% if printer_is_busy %} disabled title="Während eines laufenden Drucks deaktiviert"{% endif %}>Clear</button>
         </form>
       {% else %}
-        <a class="btn btn-primary"
-           href="{{ url_for('fill', ams=ams_id, tray=tray_id) }}">Fill</a>
+        <a class="btn btn-primary{% if printer_is_busy %} disabled{% endif %}"
+               href="{{ url_for('fill', ams=ams_id, tray=tray_id) }}"{% if printer_is_busy %} aria-disabled="true" tabindex="-1" title="Während eines laufenden Drucks deaktiviert"{% endif %}>Fill</a>
       {% endif %}
     {% endif %}
   </div>
+  {% endif %}
 </div>

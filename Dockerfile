@@ -16,7 +16,7 @@ RUN mkdir -p /home/app/logs /home/app/data /home/app/static/prints /var/log/flas
 WORKDIR /home/app
 
 RUN if [ "$(printenv BUILD_NUMBER)" = "dev" ]; then \
-        date +%Y%m%d.%H%M%S > /home/app/build_number; \
+        date +%y%m%d.%H%M > /home/app/build_number; \
     else \
         printenv BUILD_NUMBER > /home/app/build_number; \
     fi

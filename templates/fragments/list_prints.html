@@ -3,11 +3,14 @@
     <div class="card mb-3" id="print_{{ print['id'] }}">
         <!-- Print Header -->
         <div class="card-header d-flex justify-content-between align-items-center">
-            <strong>Print ID:</strong> {{ print['id'] }}
+            <strong>Print ID: {{ print['id'] }}</strong>{% if not loop.first %}<span class="ms-2 text-muted">· {{ print['print_date'] }}</span>{% endif %}
+            {% if print.get('is_deleted') %}<form method="post" action="{{ url_for('restore_print_history_entry', print_id=print['id']) }}" class="ms-2"><button type="submit" class="btn btn-sm btn-outline-success">Wiederherstellen</button></form>{% elif not print.get('is_running') %}<form method="post" action="{{ url_for('delete_print_history_entry', print_id=print['id']) }}" class="ms-2"><button type="submit" class="btn btn-sm btn-outline-danger" title="Eintrag aus der History ausblenden"><i class="bi bi-trash"></i><span class="visually-hidden">Eintrag löschen</span></button></form>{% endif %}
+            {% if not loop.first %}<button class="btn btn-sm btn-outline-secondary ms-auto" type="button" data-bs-toggle="collapse" data-bs-target="#print-body-{{ print['id'] }}" aria-expanded="false" aria-controls="print-body-{{ print['id'] }}"><i class="bi bi-chevron-down"></i></button>{% endif %}
         </div>
 
         <!-- Print Body -->
         <div class="card-body print-grid">
+        {% if not loop.first %}<div id="print-body-{{ print['id'] }}" class="collapse">{% endif %}
             <div class = "printinfo">
                 <!-- Print Information -->
                 <div class="card-body">
@@ -97,11 +100,11 @@
                         </div>
                         <div class="text-muted small mt-2">
                           {% if print['layer_tracking']['predicted_end_time'] %}
-                            Expected end: {{ print['layer_tracking']['predicted_end_time'] }}
+                            <span class="expected-end" data-end="{{ print['layer_tracking']['predicted_end_time'] }}"></span>
                           {% endif %}
                           {% if print['layer_tracking']['actual_end_time'] %}
                             {% if print['layer_tracking']['predicted_end_time'] %} · {% endif %}
-                            Finished: {{ print['layer_tracking']['actual_end_time'] }}
+                            Beendet: {{ print['layer_tracking']['actual_end_time'] }}
                           {% endif %}
                         </div>
                       </div>
@@ -137,9 +140,11 @@
                                         <div class="filament-info d-flex justify-content-between align-items-center">
                                             <div class="d-flex align-items-start">
                                                 <div class="slicer-color-stack me-3">
-                                                    <span class="slicer-color-badge"
+                                                    {% set slicer_color = (filament['color'] or '#000000')|lower|replace('#','') %}
+                                                    {% set spool_hex = (filament['spool'].filament.color_hex or '')|lower|replace('#','') %}
+                                                    {% if slicer_color != spool_hex %}<span class="slicer-color-badge"
                                                         style="background-color: {{ filament['color'] or '#000000' }};"
-                                                        title="Original Slicer Color"></span>
+                                                        title="Original Slicer Color"></span>{% endif %}
                                                     {% if "multi_color_hexes" in filament['spool'].filament and filament['spool'].filament.multi_color_hexes is iterable and filament['spool'].filament.multi_color_hexes is not string %}
                                                         {% if filament['spool'].filament.multi_color_direction == "coaxial" %}
                                                             <div class="spool-icon horizontal small">
@@ -203,13 +208,13 @@
                                     </a>
 
                                             <!-- Edit Button rechts -->
-                                            <a href="{{ url_for('print_select_spool', ams_slot=filament['ams_slot'], print_id=print['id'], old_spool_id=filament['spool'].id, change_spool=true )}}" class="btn btn-sm btn-outline-primary ms-3">
+                                            <a href="{{ url_for('print_select_spool', ams_slot=filament['ams_slot'], print_id=print['id'], old_spool_id=filament['spool'].id, change_spool=true )}}" class="btn btn-sm btn-outline-primary ms-3{% if printer_is_busy %} d-none{% endif %}"{% if printer_is_busy %} aria-disabled="true" tabindex="-1" title="Während eines laufenden Drucks deaktiviert"{% endif %}>
                                                 <i class="bi bi-pencil"></i>
                                             </a>
                                         </div>
                                 {% else %}
                                     <div class="spool-info">
-                                        <a href="{{ url_for('print_select_spool', ams_slot=filament['ams_slot'], print_id=print['id']) }}" class="nav-link link-body-emphasis" title="Assign Spool">
+                                        <a href="{{ url_for('print_select_spool', ams_slot=filament['ams_slot'], print_id=print['id']) }}" class="nav-link link-body-emphasis{% if printer_is_busy %} d-none{% endif %}" title="{% if printer_is_busy %}Während eines laufenden Drucks deaktiviert{% else %}Assign Spool{% endif %}"{% if printer_is_busy %} aria-disabled="true" tabindex="-1"{% endif %}>
                                             <div class="filament-info">
                                                 <div class="d-flex align-items-start">
                                                     <div class="slicer-color-stack me-3">
@@ -247,6 +252,7 @@
                     </div>
                 </div>
             </div>
+            {% if not loop.first %}</div>{% endif %}
             <!-- Print Image -->
             <div class="card print-image">
                 <div class="card-body d-flex justify-content-center align-items-center">

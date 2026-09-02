@@ -1,9 +1,6 @@
 import json
-import builtins
 import math
 import os
-import threading
-import time
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
@@ -186,7 +183,6 @@ def evaluate_gcode(gcode: str) -> dict:
   Evaluate the gcode and return the filament usage (in mm) per layer.
   """
   operations = _parse_gcode(gcode)
-  log(f"[filament-tracker] Parsed {len(operations)} gcode operations")
 
   current_layer = 0
   current_extrusion = {}
@@ -197,7 +193,6 @@ def evaluate_gcode(gcode: str) -> dict:
     if operation.operation == "M73":
       next_layer = operation.params.get("L")
       if next_layer is not None:
-        log(f"[filament-tracker] Layer change: {current_layer} -> {next_layer}")
         if current_extrusion:
           layer_filaments[current_layer] = current_extrusion.copy()
           current_extrusion = {}
@@ -207,10 +202,8 @@ def evaluate_gcode(gcode: str) -> dict:
       filament = operation.params.get("S")
       if filament is not None:
         if filament == "255":
-          log("[filament-tracker] Full unload (S255)")
           active_filament = None
           continue
-        log(f"[filament-tracker] Filament change: {active_filament} -> {filament[:-1]}")
         active_filament = int(filament[:-1])
 
     if operation.operation in ("G0", "G1", "G2", "G3"):
@@ -225,6 +218,8 @@ def evaluate_gcode(gcode: str) -> dict:
 
   if current_extrusion:
     layer_filaments[current_layer] = current_extrusion.copy()
+  if layer_filaments:
+    log(f"[filament-tracker] Model layers available: {max(layer_filaments)}")
   return layer_filaments
 
 
@@ -270,32 +265,6 @@ class FilamentUsageTracker:
     self._pending_usage_mm = {}
     self._mc_remaining_time_minutes = None
     self._last_logged_gcode_state = None
-    self._status_heartbeat_dots = 0
-    self._heartbeat_started_at = None
-    self._heartbeat_thread = None
-    self._heartbeat_start_lock = threading.Lock()
-
-  def _heartbeat_loop(self) -> None:
-    started = time.monotonic()
-    while True:
-      interval = 15 if time.monotonic() - started < 600 else 60
-      time.sleep(interval)
-      # Docker's log driver only reliably forwards newline-terminated output.
-      # Emit every heartbeat as a complete line so `docker compose logs -f`
-      # cannot appear to stop after the first dot.
-      log("Heartbeat")
-      self._status_heartbeat_dots += 1
-
-  def _start_heartbeat(self) -> None:
-    with self._heartbeat_start_lock:
-      if self._heartbeat_thread and self._heartbeat_thread.is_alive():
-        return
-      self._heartbeat_started_at = time.monotonic()
-      self._heartbeat_thread = threading.Thread(
-        target=self._heartbeat_loop, name="tracker-heartbeat", daemon=True
-      )
-      self._heartbeat_thread.start()
-
   def set_print_metadata(self, metadata: dict | None) -> None:
     metadata = metadata or {}
     incoming_id = metadata.get("print_id")
@@ -318,15 +287,11 @@ class FilamentUsageTracker:
     print_obj = message.get("print", {})
     command = print_obj.get("command")
     if print_obj.get('gcode_state') is not None:
-      self._start_heartbeat()
       state = print_obj.get('gcode_state')
       state_label = GCODE_STATE_LABELS.get(state, state)
       if state != self._last_logged_gcode_state:
-        if self._status_heartbeat_dots:
-          builtins.print()
         log("Drucker bereit" if state == "IDLE" else f"Filament Tracker: {state_label}")
         self._last_logged_gcode_state = state
-        self._status_heartbeat_dots = 0
       else:
         pass
 
@@ -527,7 +492,6 @@ class FilamentUsageTracker:
     if layer in self.spent_layers:
       return
 
-    log(f"[filament-tracker] Handle layer change -> {layer}")
     self.spent_layers.add(layer)
     last_layer = self.current_layer
 
@@ -606,7 +570,6 @@ class FilamentUsageTracker:
     if self.active_model is None:
       return
 
-    log(f"[filament-tracker] Spending filament for layer {layer}")
     if not TRACK_LAYER_USAGE:
       log("[filament-tracker] Layer usage tracking disabled, skipping filament spend")
       self._update_layer_tracking_progress()
@@ -709,7 +672,9 @@ class FilamentUsageTracker:
     if not self.active_model:
       return None
     try:
-      return max(self.active_model.keys()) + 1
+      # Bambu reports the highest zero-based layer index as total_layer_num.
+      # Keep the Print History value aligned with that printer value.
+      return max(self.active_model.keys())
     except Exception:
       return None
 
@@ -806,7 +771,7 @@ class FilamentUsageTracker:
     if not self.print_id:
       return
 
-    layers_printed = len(self.spent_layers)
+    layers_printed = max(self.spent_layers) if self.spent_layers else 0
     grams_used = sum(self.cumulative_grams_used.values())
 
     payload = {

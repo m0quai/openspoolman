@@ -7,6 +7,7 @@ from pathlib import Path
 # Waitress' startup banner is informational and duplicates the application
 # startup log; retain warnings/errors while keeping normal container logs tidy.
 logging.getLogger("waitress").setLevel(logging.WARNING)
+logging.getLogger("waitress.queue").setLevel(logging.ERROR)
 
 # ---------------------------------------------------------------------------
 # OpenSpoolMan / Spoolman URL split
@@ -450,11 +451,27 @@ def _printer_temperature_status():
     }
 
 
+def _printer_is_busy():
+    state = (getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}).get("gcode_state")
+    return bool(state and str(state).upper() not in {"IDLE", "FINISH", "FAILED", "STOP"})
+
+
 @app.context_processor
 def inject_openspoolman_version():
+    pending_nfc = False
+    try:
+        import json
+        from pathlib import Path
+        pending_file = Path(__file__).resolve().parent / "data" / "nfc_pending.json"
+        pending_nfc = bool(json.loads(pending_file.read_text(encoding="utf-8"))) if pending_file.exists() else False
+    except Exception:
+        pending_nfc = False
     return {
         "openspoolman_version": _load_openspoolman_version(),
+        "openspoolman_build_number": _runtime_build_number,
         "printer_temperatures": _printer_temperature_status(),
+        "printer_is_busy": _printer_is_busy(),
+        "pending_nfc": pending_nfc,
     }
 
 

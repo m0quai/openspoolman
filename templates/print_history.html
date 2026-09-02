@@ -2,14 +2,16 @@
 {% block content %}
 <script>
 function adjustPrintImages() {
+  let referenceHeight = 0;
   document.querySelectorAll('.print-grid').forEach(grid => {
     const printInfo = grid.querySelector('.printinfo');
     const printImageContainer = grid.querySelector('.print-image');
     const image = printImageContainer?.querySelector('img');
     if (printInfo && printImageContainer) {
       const height = printInfo.clientHeight;
-      if (window.innerWidth >= 920) printImageContainer.style.height = height + 'px';
-      else { printImageContainer.style.height = 'auto'; printImageContainer.style.height = (height / 2) + 'px'; }
+      if (height <= 0) printImageContainer.style.height = (referenceHeight || 180) + 'px';
+      else if (window.innerWidth >= 920) { printImageContainer.style.height = height + 'px'; referenceHeight = height; }
+      else { printImageContainer.style.height = 'auto'; printImageContainer.style.height = Math.max(180, height / 2) + 'px'; }
       if (image) { image.style.height = '100%'; image.style.width = 'auto'; image.style.objectFit = 'contain'; }
     }
   });
@@ -34,14 +36,51 @@ function initThumbnailHover() {
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeThumbnailOverlay(); });
 }
 function initPrintHistoryRefresh() {
-  const status = document.getElementById('print-history-refresh-status');
+  const forceButton = document.getElementById('print-history-refresh-now');
+  const forceButtonLabel = document.getElementById('print-history-refresh-label');
+  const intervalSeconds = 15;
+  let remaining = intervalSeconds;
   const updateStatus = () => {
-    if (status) status.textContent = 'Zuletzt aktualisiert: ' + new Date().toLocaleTimeString();
+    if (forceButtonLabel) forceButtonLabel.textContent = 'Jetzt aktualisieren – nächste Aktualisierung in ' + remaining + ' s';
   };
   updateStatus();
   window.setInterval(() => {
-    if (document.visibilityState === 'visible') window.location.reload();
-  }, 15000);
+    if (document.visibilityState !== 'visible') return;
+    remaining -= 1;
+    if (remaining <= 0) { window.location.reload(); return; }
+    updateStatus();
+  }, 1000);
+  forceButton?.addEventListener('click', () => window.location.reload());
+}
+function initHistoryCollapsePersistence() {
+  const key = 'openspoolman-history-open';
+  document.querySelectorAll('.print-history .collapse').forEach(panel => {
+    const id = panel.id;
+    if (localStorage.getItem(key + ':' + id) === '1') panel.classList.add('show');
+    panel.addEventListener('shown.bs.collapse', () => localStorage.setItem(key + ':' + id, '1'));
+    panel.addEventListener('shown.bs.collapse', adjustPrintImages);
+    panel.addEventListener('hidden.bs.collapse', () => {
+      localStorage.removeItem(key + ':' + id);
+      adjustPrintImages();
+    });
+  });
+}
+function formatExpectedEnd() {
+  document.querySelectorAll('.expected-end').forEach(el => {
+    const end = new Date((el.dataset.end || '').replace(' ', 'T'));
+    if (Number.isNaN(end.getTime())) return;
+    const pad = value => String(value).padStart(2, '0');
+    const time = `${pad(end.getHours())}:${pad(end.getMinutes())}:${pad(end.getSeconds())}`;
+    const now = new Date();
+    const sameDay = end.toDateString() === now.toDateString();
+    const date = `${pad(end.getDate())}.${pad(end.getMonth() + 1)}.${end.getFullYear()}`;
+    const remainingSeconds = Math.max(0, Math.round((end - now) / 1000));
+    const hours = Math.floor(remainingSeconds / 3600);
+    const minutes = Math.floor((remainingSeconds % 3600) / 60);
+    const seconds = remainingSeconds % 60;
+    const remaining = hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min ${seconds} s`;
+    el.textContent = `Erwartetes Ende: ${time}${sameDay ? '' : ', ' + date} · Restlaufzeit: ${remaining}`;
+  });
 }
 function closeThumbnailOverlay() {
   const overlay = document.getElementById('image-overlay');
@@ -52,9 +91,16 @@ function closeThumbnailOverlay() {
 }
 window.addEventListener('load', initThumbnailHover);
 window.addEventListener('load', initPrintHistoryRefresh);
+window.addEventListener('load', initHistoryCollapsePersistence);
+window.addEventListener('load', formatExpectedEnd);
 </script>
 <h1 class="mb-4 text-center">Print history</h1>
-<div id="print-history-refresh-status" class="text-center text-body-secondary small mb-3" aria-live="polite"></div>
+<div class="d-flex justify-content-center align-items-center gap-3 mb-3">
+  <button id="print-history-refresh-now" type="button" class="btn btn-sm btn-outline-primary">
+    <i class="bi bi-arrow-clockwise me-1"></i><span id="print-history-refresh-label">Jetzt aktualisieren – nächste Aktualisierung in 15 s</span>
+  </button>
+  {% if has_deleted_prints %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('print_history', show_deleted=0 if show_deleted else 1) }}">{{ 'Aktive anzeigen' if show_deleted else 'Gelöschte anzeigen' }}</a>{% endif %}
+</div>
 {% if prints %}
   {% if total_pages > 1 %}
   <nav aria-label="Print history pagination" class="mb-3"><ul class="pagination justify-content-center">

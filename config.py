@@ -32,15 +32,15 @@ def _env_to_int(name: str, default: int) -> int:
 
 BASE_URL = os.getenv("OPENSPOOLMAN_BASE_URL")  # Where will this app be accessible
 PRINTER_ID = (os.getenv("PRINTER_ID") or "").upper()  # Printer serial number - Run init_bambulab.py
-PRINTER_ACCESS_ONLINE = os.getenv("PRINTER_ACCESS_CODE") or ""  # Existing online/cloud-derived printer access code
+PRINTER_ACCESS_ONLINE = os.getenv("PRINTER_ACCESS_ONLINE") or ""  # Online/cloud printer access code
 PRINTER_ACCESS_LAN = os.getenv("PRINTER_ACCESS_LAN") or ""  # Local LAN/Developer Mode access code
-BAMBU_CONNECTION_MODE = (os.getenv("BAMBU_CONNECTION_MODE") or "lan").strip().lower()
-if BAMBU_CONNECTION_MODE not in ("lan", "online"):
-    BAMBU_CONNECTION_MODE = "lan"
+PRINTER_CONNECTION_MODE = (os.getenv("PRINTER_CONNECTION_MODE") or "LAN").strip().lower()
+if PRINTER_CONNECTION_MODE not in ("lan", "online"):
+    PRINTER_CONNECTION_MODE = "lan"
 
 # Backwards-compatible active access code used by existing printer/FTP code.
 # The selected mode decides which credential is active.
-PRINTER_CODE = PRINTER_ACCESS_LAN if BAMBU_CONNECTION_MODE == "lan" else PRINTER_ACCESS_ONLINE
+PRINTER_CODE = PRINTER_ACCESS_LAN if PRINTER_CONNECTION_MODE == "lan" else PRINTER_ACCESS_ONLINE
 PRINTER_IP = os.getenv("PRINTER_IP")  # Required printer IP address for the connection
 PRINTER_NAME = os.getenv("PRINTER_NAME")  # Printer name - Check wireless on printer
 SPOOLMAN_BASE_URL = os.getenv("SPOOLMAN_BASE_URL")

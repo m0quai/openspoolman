@@ -70,7 +70,7 @@ main.container {
     width: 20px;
     height: 20px;
     border-radius: 4px;
-    border: #44444430 solid 1px;
+    border: #6c757d solid 1px;
     box-sizing: border-box;
     background-color: #000;
 }
@@ -95,6 +95,7 @@ main.container {
     width: 24px;
     height: 24px;
     display: inline-block;
+    border: #6c757d solid 1px;
 }
 
 .tray-color-warning {
@@ -374,4 +375,18 @@ main.container {
 /* Utility class used by the print-history thumbnail overlay. */
 .hidden {
     display: none !important;
+}
+
+/* Bei eingeklappten History-Einträgen bleibt nur der Header sichtbar. */
+.print-grid > .collapse:not(.show) ~ .print-image {
+    display: none;
+}
+
+.spool-color-badge {
+    border: #212529 solid 1px;
+}
+
+.spool-color-info {
+  min-width: 96px;
+  border: 1px solid #212529 !important;
 }

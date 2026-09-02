@@ -16,9 +16,9 @@ Bambu Cloud ist direkt über das Hauptmenü erreichbar.
 
 ## Konfiguration
 
-- `BAMBU_CONNECTION_MODE=lan|online`, Default `lan`
+- `PRINTER_CONNECTION_MODE=LAN|ONLINE`, Default `LAN`
 - `PRINTER_ACCESS_LAN`: lokaler Drucker-Access-Code
-- `PRINTER_ACCESS_CODE`: bestehender Online-/Cloud-Weg
+- `PRINTER_ACCESS_ONLINE`: bestehender Online-/Cloud-Weg
 - `PRINTER_CODE`: rückwärtskompatibler aktiver Wert
 
 Beim Moduswechsel verwenden MQTT und lokaler FTPS-Zugriff denselben aktiven Access-Code.

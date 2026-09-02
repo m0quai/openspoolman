@@ -44,7 +44,7 @@ def _normalize_connection_mode(value):
 
 
 def _active_access_code(mode=None):
-    mode = _normalize_connection_mode(mode or app_config.BAMBU_CONNECTION_MODE)
+    mode = _normalize_connection_mode(mode or app_config.PRINTER_CONNECTION_MODE)
     if mode == "lan":
         return app_config.PRINTER_ACCESS_LAN or ""
     return app_config.PRINTER_ACCESS_ONLINE or ""
@@ -58,8 +58,8 @@ def _apply_runtime_connection(mode, printer_id=None, printer_ip=None, printer_na
     printer_name = (printer_name if printer_name is not None else app_config.PRINTER_NAME) or ""
     access_code = _active_access_code(mode)
 
-    os.environ["BAMBU_CONNECTION_MODE"] = mode
-    app_config.BAMBU_CONNECTION_MODE = mode
+    os.environ["PRINTER_CONNECTION_MODE"] = mode
+    app_config.PRINTER_CONNECTION_MODE = mode
     app_config.PRINTER_ID = printer_id.upper()
     app_config.PRINTER_IP = printer_ip
     app_config.PRINTER_NAME = printer_name
@@ -85,9 +85,9 @@ def _apply_printer(device, printer_ip):
         raise RuntimeError("Bitte die lokale IP-Adresse des Druckers eintragen.")
 
     values = {
-        "BAMBU_CONNECTION_MODE": "online",
+        "PRINTER_CONNECTION_MODE": "online",
         "PRINTER_ID": dev_id,
-        "PRINTER_ACCESS_CODE": access_code,
+        "PRINTER_ACCESS_ONLINE": access_code,
         "PRINTER_IP": printer_ip,
         "PRINTER_NAME": name,
     }
@@ -95,7 +95,7 @@ def _apply_printer(device, printer_ip):
 
     for key, value in values.items():
         os.environ[key] = value
-    app_config.BAMBU_CONNECTION_MODE = "online"
+    app_config.PRINTER_CONNECTION_MODE = "online"
     app_config.PRINTER_ID = dev_id
     app_config.PRINTER_ACCESS_ONLINE = access_code
     app_config.PRINTER_CODE = access_code
@@ -106,7 +106,7 @@ def _apply_printer(device, printer_ip):
 
 def _page(**extra):
     cloud_ok, cloud_state = bambu_auth.validate()
-    mode = _normalize_connection_mode(app_config.BAMBU_CONNECTION_MODE)
+    mode = _normalize_connection_mode(app_config.PRINTER_CONNECTION_MODE)
     config = {
         "connection_mode": mode,
         "printer_name": app_config.PRINTER_NAME,
@@ -137,7 +137,7 @@ def _page(**extra):
 
 @bp.route("/", methods=["GET"])
 def index():
-    mode = _normalize_connection_mode(app_config.BAMBU_CONNECTION_MODE)
+    mode = _normalize_connection_mode(app_config.PRINTER_CONNECTION_MODE)
     if mode == "online":
         cloud_ok, _ = bambu_auth.validate()
         if cloud_ok:
@@ -151,9 +151,9 @@ def index():
 @bp.route("/connection-mode", methods=["POST"])
 def connection_mode():
     mode = _normalize_connection_mode(request.form.get("connection_mode"))
-    _write_config_env({"BAMBU_CONNECTION_MODE": mode})
-    os.environ["BAMBU_CONNECTION_MODE"] = mode
-    app_config.BAMBU_CONNECTION_MODE = mode
+    _write_config_env({"PRINTER_CONNECTION_MODE": mode})
+    os.environ["PRINTER_CONNECTION_MODE"] = mode
+    app_config.PRINTER_CONNECTION_MODE = mode
 
     access_code = _active_access_code(mode)
     if not app_config.PRINTER_ID or not app_config.PRINTER_IP or not access_code:
@@ -198,7 +198,7 @@ def save_lan():
         return redirect(url_for("bambu_cloud.index"))
 
     values = {
-        "BAMBU_CONNECTION_MODE": "lan",
+        "PRINTER_CONNECTION_MODE": "lan",
         "PRINTER_ID": printer_id,
         "PRINTER_IP": printer_ip,
         "PRINTER_NAME": printer_name,
@@ -208,7 +208,7 @@ def save_lan():
     for key, value in values.items():
         os.environ[key] = value
 
-    app_config.BAMBU_CONNECTION_MODE = "lan"
+    app_config.PRINTER_CONNECTION_MODE = "lan"
     app_config.PRINTER_ID = printer_id
     app_config.PRINTER_IP = printer_ip
     app_config.PRINTER_NAME = printer_name

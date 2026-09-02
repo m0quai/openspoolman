@@ -10,7 +10,7 @@ Lokales MQTT verwendet `PRINTER_ACCESS_LAN`. Bestätigte LAN-Kommandos wie `push
 
 ## Online
 
-Online verwendet `PRINTER_ACCESS_CODE`; vorhandene Signierungslogik bleibt aktiv, sofern ein gültiges Zertifikat vorhanden ist. RSA-SHA256/X.509 bleibt damit für den Online-/Cloud-Kontext relevant.
+Online verwendet `PRINTER_ACCESS_ONLINE`; vorhandene Signierungslogik bleibt aktiv, sofern ein gültiges Zertifikat vorhanden ist. RSA-SHA256/X.509 bleibt damit für den Online-/Cloud-Kontext relevant.
 
 ## Sicherheit/UI
 
