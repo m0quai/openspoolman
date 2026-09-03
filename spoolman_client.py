@@ -50,6 +50,16 @@ def getSpoolById(spool_id):
   #print(response.text)
   return response.json()
 
+def patchFilamentExtra(filament_id, old_extra, new_values):
+  """Persist Bambu profile identifiers on the filament record."""
+  extra = dict(old_extra or {})
+  extra.update({key: json.dumps(str(value), ensure_ascii=False) for key, value in new_values.items() if value})
+  response = requests.patch(f"{SPOOLMAN_API_URL}/filament/{filament_id}", json={"extra": extra})
+  if response.status_code >= 400:
+    raise RuntimeError(f"Spoolman-Filamentupdate fehlgeschlagen ({response.status_code}): {response.text}")
+  response.raise_for_status()
+  return response.json()
+
 
 def fetchSpoolList():
   url = f"{SPOOLMAN_API_URL}/spool"

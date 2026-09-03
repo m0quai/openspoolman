@@ -56,11 +56,18 @@ function initHistoryCollapsePersistence() {
   const key = 'openspoolman-history-open';
   document.querySelectorAll('.print-history .collapse').forEach(panel => {
     const id = panel.id;
-    if (localStorage.getItem(key + ':' + id) === '1') panel.classList.add('show');
-    panel.addEventListener('shown.bs.collapse', () => localStorage.setItem(key + ':' + id, '1'));
+    const toggle = document.querySelector(`[data-bs-target="#${id}"]`);
+    const setIcon = open => {
+      const icon = toggle?.querySelector('.bi');
+      if (icon) icon.className = `bi bi-chevron-${open ? 'up' : 'down'}`;
+      if (toggle) toggle.setAttribute('aria-expanded', String(open));
+    };
+    if (localStorage.getItem(key + ':' + id) === '1') { panel.classList.add('show'); setIcon(true); }
+    panel.addEventListener('shown.bs.collapse', () => { localStorage.setItem(key + ':' + id, '1'); setIcon(true); });
     panel.addEventListener('shown.bs.collapse', adjustPrintImages);
     panel.addEventListener('hidden.bs.collapse', () => {
       localStorage.removeItem(key + ':' + id);
+      setIcon(false);
       adjustPrintImages();
     });
   });
@@ -70,16 +77,24 @@ function formatExpectedEnd() {
     const end = new Date((el.dataset.end || '').replace(' ', 'T'));
     if (Number.isNaN(end.getTime())) return;
     const pad = value => String(value).padStart(2, '0');
-    const time = `${pad(end.getHours())}:${pad(end.getMinutes())}:${pad(end.getSeconds())}`;
+    const time = `${pad(end.getHours())}:${pad(end.getMinutes())}`;
     const now = new Date();
     const sameDay = end.toDateString() === now.toDateString();
     const date = `${pad(end.getDate())}.${pad(end.getMonth() + 1)}.${end.getFullYear()}`;
     const remainingSeconds = Math.max(0, Math.round((end - now) / 1000));
     const hours = Math.floor(remainingSeconds / 3600);
     const minutes = Math.floor((remainingSeconds % 3600) / 60);
-    const seconds = remainingSeconds % 60;
-    const remaining = hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min ${seconds} s`;
+    const remaining = hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
     el.textContent = `Erwartetes Ende: ${time}${sameDay ? '' : ', ' + date} · Restlaufzeit: ${remaining}`;
+  });
+}
+function formatPrintDurations() {
+  document.querySelectorAll('.print-duration').forEach(el => {
+    const start = new Date((el.dataset.start || '').replace(' ', 'T'));
+    const end = new Date((el.dataset.end || '').replace(' ', 'T'));
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+    const minutes = Math.max(0, Math.round((end - start) / 60000));
+    el.textContent = `Druckdauer: ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
   });
 }
 function closeThumbnailOverlay() {
@@ -93,6 +108,7 @@ window.addEventListener('load', initThumbnailHover);
 window.addEventListener('load', initPrintHistoryRefresh);
 window.addEventListener('load', initHistoryCollapsePersistence);
 window.addEventListener('load', formatExpectedEnd);
+window.addEventListener('load', formatPrintDurations);
 </script>
 <h1 class="mb-4 text-center">Print history</h1>
 <div class="d-flex justify-content-center align-items-center gap-3 mb-3">

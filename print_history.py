@@ -163,6 +163,20 @@ def get_latest_running_print_id() -> int | None:
     conn.close()
     return int(row[0]) if row else None
 
+
+def cancel_stale_running_prints(actual_end_time: str) -> int:
+    """Mark interrupted legacy runs as canceled without touching filament usage."""
+    conn = sqlite3.connect(db_config["db_path"])
+    cursor = conn.execute(
+        "UPDATE print_layer_tracking SET status = 'ABORTED', actual_end_time = ? "
+        "WHERE status = 'RUNNING' AND predicted_end_time IS NOT NULL AND predicted_end_time < ?",
+        (actual_end_time, actual_end_time),
+    )
+    conn.commit()
+    changed = cursor.rowcount
+    conn.close()
+    return changed
+
 def insert_filament_usage(
     print_id: int,
     filament_type: str,

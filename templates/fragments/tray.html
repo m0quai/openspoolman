@@ -1,4 +1,5 @@
 <div class="card tray-card">
+  {% set physically_empty = ams_id|int != EXTERNAL_SPOOL_AMS_ID and tray_data.get('ams_empty', False) %}
   <!-- Tray ID -->
   <div class="card-header d-flex justify-content-between align-items-center">
     <div class="d-flex align-items-center flex-wrap gap-2">
@@ -11,7 +12,7 @@
         {% else %}
           External Spool
         {% endif %}
-        {% if tray_data.spool_material %}
+        {% if tray_data.spool_material and not physically_empty %}
           - {{ tray_data.spool_material }}{% if tray_data.spool_sub_brand %} {{ tray_data.spool_sub_brand }}{% endif %}
         {% elif tray_data.tray_type %}
           - {{ tray_data.tray_type }}{% if tray_data.tray_sub_brand %} {{ tray_data.tray_sub_brand }}{% endif %}
@@ -57,7 +58,9 @@
       </div>
     {% endif %}
     <!-- Typ & Hersteller -->
-    {% if tray_data.spool_material %}
+    {% if physically_empty %}
+      <div class="small text-muted text-center mb-2 tray-empty">Fach leer</div>
+    {% elif tray_data.spool_material %}
       <div class="small text-muted text-center mb-2">
           {% if tray_data.spool_id %}#{{ tray_data.spool_id }} {% endif %}
           {{ tray_data.spool_material }}{% if tray_data.spool_sub_brand %} - {{ tray_data.spool_sub_brand }}{% endif %}
@@ -70,12 +73,18 @@
       </div>
     {% else %}
       <div class="small text-muted text-center mb-2 tray-empty">
-          Empty
+          {% if tray_data.get('ams_loading', False) %}
+            Filament wird zugeordnet …
+          {% elif physically_empty %}
+            Keine Spule – Fach leer
+          {% else %}
+            Spule nicht zugeordnet
+          {% endif %}
       </div>
     {% endif %}
 
     <div class="row align-items-center text-center text-sm-start">
-      {% if tray_data.spool_material %}
+      {% if tray_data.spool_material and not physically_empty %}
         <!-- Farbname + Badge -->
         <div class="col-12 col-xxl-5 d-flex flex-column align-items-center mb-2 mb-sm-0">
           <div class="spool-color-info rounded p-2 text-center" style="border: 1px solid #212529 !important;">
@@ -145,7 +154,7 @@
     </div>
   </div>
 
-  {% if pick_tray or (not pick_tray and not printer_is_busy) %}
+  {% if pick_tray or (not pick_tray and not printer_is_busy and (tray_data.spool_material or not physically_empty)) %}
   <div class="card-footer">
     {% if pick_tray %}
       <a class="btn btn-primary"
@@ -158,7 +167,7 @@
           <input type="hidden" name="tray" value="{{ tray_id }}">
           <button type="submit" class="btn btn-outline-danger"{% if printer_is_busy %} disabled title="Während eines laufenden Drucks deaktiviert"{% endif %}>Clear</button>
         </form>
-      {% else %}
+      {% elif not physically_empty %}
         <a class="btn btn-primary{% if printer_is_busy %} disabled{% endif %}"
                href="{{ url_for('fill', ams=ams_id, tray=tray_id) }}"{% if printer_is_busy %} aria-disabled="true" tabindex="-1" title="Während eines laufenden Drucks deaktiviert"{% endif %}>Fill</a>
       {% endif %}

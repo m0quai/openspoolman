@@ -3,6 +3,7 @@ import os
 import logging
 import builtins
 from pathlib import Path
+from datetime import datetime
 
 # Waitress' startup banner is informational and duplicates the application
 # startup log; retain warnings/errors while keeping normal container logs tidy.
@@ -126,6 +127,31 @@ def _readonly_augment_tray(spool_list, tray_data, ams_id, tray_id):
     _openspoolman_app_module.augmentTrayDataWithSpoolMan(
         spool_list, tray_data, ams_id, tray_id
     )
+    if int(ams_id) == EXTERNAL_SPOOL_AMS_ID:
+        tray_data["ams_material_missing"] = False
+        tray_data["ams_material_missing_message"] = ""
+        tray_data["issue"] = False
+        tray_data["mismatch"] = False
+        tray_data["mismatch_detected"] = False
+    # Keep External Spool actionable; only mark genuinely empty AMS trays.
+    tray_data["ams_empty"] = False
+    tray_data["ams_loading"] = False
+    if ams_id is None:
+        return
+    for ams in (mqtt_bambulab.LAST_AMS_CONFIG.get("ams", []) or []):
+        if str(ams.get("id")) != str(ams_id):
+            continue
+        for tray in ams.get("tray", []) or []:
+            if str(tray.get("id")) != str(tray_id):
+                continue
+            tray_uuid = str(tray.get("tray_uuid") or "").strip()
+            tray_data["ams_empty"] = (
+                not tray_uuid
+                and not str(tray.get("tray_type") or "").strip()
+                and not str(tray.get("tray_sub_brands") or "").strip()
+            )
+            tray_data["ams_loading"] = (str(ams_id), str(tray_id)) in mqtt_bambulab.PENDING_AMS_STATUS_CONFIRMATIONS
+            return
 
 _openspoolman_app_module._augment_tray = _readonly_augment_tray
 
@@ -155,9 +181,12 @@ from bambu_auth_routes import bp as bambu_cloud_bp
 from nfc_routes import bp as ams_nfc_bp
 from flask import jsonify, redirect, request, url_for, render_template, send_from_directory
 import mqtt_bambulab
+import print_history as print_history_service
+from config import EXTERNAL_SPOOL_AMS_ID, PRINTER_ID
 from __version__ import __build_number__, __version__
 import tools_3mf as _tools_3mf
 import filament_usage_tracker as _filament_usage_tracker
+
 from logger import log as _log
 
 _build_number_file = Path(__file__).resolve().parent / "build_number"
@@ -472,7 +501,17 @@ def inject_openspoolman_version():
         "printer_temperatures": _printer_temperature_status(),
         "printer_is_busy": _printer_is_busy(),
         "pending_nfc": pending_nfc,
+        "active_print_id": print_history_service.get_latest_running_print_id(),
     }
+
+
+@app.before_request
+def reconcile_stale_print_history_statuses():
+    state = str((getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}).get("gcode_state") or "").upper()
+    if state not in {"IDLE", "FINISH", "FAILED", "STOP"}:
+        return None
+    print_history_service.cancel_stale_running_prints(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    return None
 
 
 @app.get("/ams/state-generation")
@@ -585,9 +624,6 @@ def _set_active_spool_bambu_compatible(ams_id, tray_id, spool_data):
     if raw_filament_id.isdigit():
         extra["filament_id"] = ""
 
-    if vendor not in {"BAMBU", "BAMBU LAB"}:
-        extra["setting_id"] = ""
-
     return _original_set_active_spool(ams_id, tray_id, normalized)
 
 _openspoolman_app_module.setActiveSpool = _set_active_spool_bambu_compatible
@@ -601,11 +637,47 @@ def _publish_without_empty_setting_id(client, message):
         if (
             isinstance(print_data, dict)
             and print_data.get("command") == "ams_filament_setting"
-            and not print_data.get("setting_id")
         ):
             import copy
             message = copy.deepcopy(message)
-            message["print"].pop("setting_id", None)
+            ams_id = message["print"].get("ams_id")
+            tray_id = message["print"].get("tray_id")
+            # Only enrich actual fill/profile commands. Clear commands also use
+            # this MQTT command but must remain empty.
+            is_fill = bool(
+                str(message["print"].get("tray_type") or "").strip()
+                or str(message["print"].get("tray_info_idx") or "").strip()
+            )
+            if ams_id is not None and tray_id is not None and is_fill:
+                if not message["print"].get("setting_id"):
+                    message["print"].pop("setting_id", None)
+                try:
+                    import json
+                    from spoolman_service import fetchSpools
+                    active_tray = json.dumps(f"{PRINTER_ID}_{ams_id}_{tray_id}")
+                    spool = next(
+                        (item for item in fetchSpools(True)
+                         if item.get("extra", {}).get("active_tray") == active_tray),
+                        None,
+                    )
+                    vendor = ((spool or {}).get("filament") or {}).get("vendor") or {}
+                    vendor_name = str(vendor.get("name") or "").strip()
+                    if vendor_name:
+                        message["print"]["tray_sub_brands"] = vendor_name
+                    filament = ((spool or {}).get("filament") or {})
+                    if not str(message["print"].get("tray_color") or "").strip():
+                        color_hex = str(filament.get("color_hex") or "").strip().lstrip("#")
+                        if len(color_hex) == 6:
+                            message["print"]["tray_color"] = color_hex.upper() + "FF"
+                    extra = ((spool or {}).get("filament") or {}).get("extra") or {}
+                    setting_id = str(extra.get("setting_id") or "").strip().strip('"')
+                    filament_id = str(extra.get("filament_id") or "").strip().strip('"')
+                    if setting_id:
+                        message["print"]["setting_id"] = setting_id
+                    if filament_id:
+                        message["print"]["tray_info_idx"] = filament_id
+                except Exception:
+                    pass
     return _original_mqtt_publish(client, message)
 
 mqtt_bambulab.publish = _publish_without_empty_setting_id
