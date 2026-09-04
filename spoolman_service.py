@@ -204,7 +204,12 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
   has_tray_type_key = "tray_type" in tray_data
   tray_type_raw = tray_data.get("tray_type") if has_tray_type_key else None
   tray_type_clean = (tray_type_raw or "").strip()
-  tray_type_unselected = has_tray_type_key and tray_type_clean == ""
+  tray_info_idx_clean = str(tray_data.get("tray_info_idx") or "").strip()
+  # Some P1S firmware/Developer-Mode push_status messages keep tray_type empty for
+  # generic third-party filament even after ams_filament_setting succeeded, while
+  # tray_info_idx is retained (for example GFU99).  A non-empty profile id is
+  # therefore sufficient evidence that an AMS material has been configured.
+  tray_type_unselected = has_tray_type_key and tray_type_clean == "" and tray_info_idx_clean == ""
 
   # If the tray_type field is missing entirely, treat it as "no tray info" and drop stale data.
   if not has_tray_type_key:
@@ -214,6 +219,7 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
       "spool_material",
       "spool_sub_brand",
       "remaining_weight",
+      "spool_weight",
       "last_used",
       "spool_color",
       "spool_color_orientation",
@@ -235,7 +241,15 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
       tray_data["spool_material"] = spool["filament"].get("material", "")
       tray_data["spool_sub_brand"] = (spool["filament"].get("extra", {}).get("type") or "").replace('"', '').strip()
       tray_data["remaining_weight"] = spool["remaining_weight"]
+      tray_data["spool_weight"] = spool["filament"].get("weight")
 
+      # P1S LAN/Developer Mode can acknowledge ams_filament_setting successfully
+      # and retain tray_info_idx while reporting an empty tray_type afterwards.
+      # In that case use the explicitly assigned Spoolman material as the display
+      # and comparison type. This does not write anything back to the printer.
+      if not tray_type_clean and tray_info_idx_clean:
+        tray_data["tray_type"] = tray_data["spool_material"]
+        tray_type_clean = (tray_data["tray_type"] or "").strip()
 
       if "last_used" in spool:
         try:
@@ -244,7 +258,7 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
             dt = datetime.strptime(spool["last_used"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=ZoneInfo("UTC"))
 
         local_time = dt.astimezone()
-        tray_data["last_used"] = local_time.strftime("%d.%m.%Y %H:%M:%S")
+        tray_data["last_used"] = local_time.strftime("%d.%m.%Y %H:%M")
       else:
           tray_data["last_used"] = "-"
 
@@ -264,6 +278,12 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
       # Extract tray sub-brand: remove main type and "Basic", keep the remaining variant (e.g., "CF").
       tray_sub_brands_raw = (tray_data.get("tray_sub_brands") or "").replace('"', '').strip()
       tray_sub_full_cmp = _clean_basic(tray_sub_brands_raw.lower())
+      # Bambu uses "Generic" to mean that no specific subtype/brand is
+      # selected. It must not mismatch a concrete Spoolman variant such as
+      # TPU 95A or PLA+.
+      tray_sub_is_generic = tray_sub_full_cmp in {"generic", "unknown"}
+      if tray_sub_is_generic:
+        tray_sub_full_cmp = ""
       tray_sub_norm = tray_sub_brands_raw.lower().replace("basic", "").strip()
       if tray_material_main and tray_sub_norm.startswith(tray_material_main):
         tray_sub_norm = tray_sub_norm[len(tray_material_main):].strip()
@@ -313,6 +333,17 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
       # 2) tray_sub_brands present: spool_material == tray_sub_brands
       # 3) tray_sub_brands present: spool_material + spool_type == tray_sub_brands
       base_match = bool(not tray_sub_full_cmp and tray_material_norm_cmp and spool_material_full_norm_cmp == tray_material_norm_cmp)
+
+      # Bambu can report third-party PLA+ profiles as generic "PLA" in AMS/MQTT.
+      # Treat PLA <-> PLA+ as compatible for mismatch detection only. The
+      # Spoolman material remains unchanged as PLA+.
+      pla_family_compatible = (
+        not tray_sub_full_cmp
+        and {tray_material_norm_cmp, spool_material_full_norm_cmp} == {"pla", "pla+"}
+      )
+      if pla_family_compatible:
+        base_match = True
+
       sub_match = False
       if tray_sub_full_cmp:
         if tray_sub_full_cmp == spool_material_full_norm_cmp and not spool_type_norm_cmp:
@@ -449,7 +480,12 @@ def setActiveTray(spool_id, spool_extra, ams_id, tray_id):
 def fetchSpools(cached=False):
   global SPOOLS
   if not cached or not SPOOLS:
-    SPOOLS = spoolman_client.fetchSpoolList()
+    try:
+      fresh_spools = spoolman_client.fetchSpoolList()
+    except Exception as exc:
+      log(f"Spoolman spool list unavailable: {exc}")
+      return SPOOLS if isinstance(SPOOLS, list) else []
+    SPOOLS = fresh_spools
     
     for spool in SPOOLS:
       initial_weight = 0

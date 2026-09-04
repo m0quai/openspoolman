@@ -104,6 +104,7 @@ def create_database() -> None:
         "predicted_end_time",
         "TEXT",
     )
+    _ensure_column(cursor, "prints", "is_deleted", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(
         cursor,
         "print_layer_tracking",
@@ -130,9 +131,51 @@ def insert_print(file_name: str, print_type: str, image_file: str = None, print_
         VALUES (?, ?, ?, ?)
     ''', (print_date, file_name, print_type, image_file))
     print_id = cursor.lastrowid
+    if print_id is None:
+        conn.rollback()
+        conn.close()
+        raise RuntimeError("Print-History konnte keine Print-ID erzeugen")
     conn.commit()
     conn.close()
     return print_id
+
+def update_print_image(print_id: int, image_file: str) -> None:
+    if print_id is None or not image_file:
+        return
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute("UPDATE prints SET image_file = ? WHERE id = ?", (image_file, print_id))
+    conn.commit()
+    conn.close()
+
+def get_print_image(print_id: int) -> str | None:
+    if print_id is None:
+        return None
+    conn = sqlite3.connect(db_config["db_path"])
+    row = conn.execute("SELECT image_file FROM prints WHERE id = ?", (print_id,)).fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
+
+def get_latest_running_print_id() -> int | None:
+    conn = sqlite3.connect(db_config["db_path"])
+    row = conn.execute(
+        "SELECT print_id FROM print_layer_tracking WHERE status = 'RUNNING' ORDER BY print_id DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    return int(row[0]) if row else None
+
+
+def cancel_stale_running_prints(actual_end_time: str) -> int:
+    """Mark interrupted legacy runs as canceled without touching filament usage."""
+    conn = sqlite3.connect(db_config["db_path"])
+    cursor = conn.execute(
+        "UPDATE print_layer_tracking SET status = 'ABORTED', actual_end_time = ? "
+        "WHERE status = 'RUNNING' AND predicted_end_time IS NOT NULL AND predicted_end_time < ?",
+        (actual_end_time, actual_end_time),
+    )
+    conn.commit()
+    changed = cursor.rowcount
+    conn.close()
+    return changed
 
 def insert_filament_usage(
     print_id: int,
@@ -147,6 +190,9 @@ def insert_filament_usage(
     """
     Inserts a new filament usage entry for a specific print job.
     """
+    if print_id is None:
+        raise ValueError("Filamentverbrauch benötigt eine gültige Print-ID")
+
     conn = sqlite3.connect(db_config["db_path"])
     cursor = conn.cursor()
     cursor.execute('''
@@ -194,7 +240,7 @@ def update_filament_grams_used(print_id: int, filament_id: int, grams_used: floa
     conn.close()
 
 
-def get_prints_with_filament(limit: int | None = None, offset: int | None = None):
+def get_prints_with_filament(limit: int | None = None, offset: int | None = None, include_deleted: bool = False):
     """
     Retrieves print jobs along with their associated filament usage, grouped by print job.
 
@@ -204,13 +250,14 @@ def get_prints_with_filament(limit: int | None = None, offset: int | None = None
     conn.row_factory = sqlite3.Row  # Enable column name access
 
     count_cursor = conn.cursor()
-    count_cursor.execute("SELECT COUNT(*) FROM prints")
+    where_clause = "" if include_deleted else " WHERE COALESCE(is_deleted, 0) = 0"
+    count_cursor.execute("SELECT COUNT(*) FROM prints" + where_clause)
     total_count = count_cursor.fetchone()[0]
 
     cursor = conn.cursor()
     query = '''
         SELECT p.id AS id, p.print_date AS print_date, p.file_name AS file_name,
-               p.print_type AS print_type, p.image_file AS image_file,
+               p.print_type AS print_type, p.image_file AS image_file, p.is_deleted AS is_deleted,
        (
            SELECT json_group_array(json_object(
                'spool_id', f.spool_id,
@@ -224,6 +271,7 @@ def get_prints_with_filament(limit: int | None = None, offset: int | None = None
             )) FROM filament_usage f WHERE f.print_id = p.id
         ) AS filament_info
         FROM prints p
+    ''' + where_clause + '''
         ORDER BY p.print_date DESC
     '''
     params: list[int] = []
@@ -238,6 +286,27 @@ def get_prints_with_filament(limit: int | None = None, offset: int | None = None
     prints = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return prints, total_count
+
+
+def soft_delete_print(print_id: int) -> None:
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute("UPDATE prints SET is_deleted = 1 WHERE id = ?", (print_id,))
+    conn.commit()
+    conn.close()
+
+
+def restore_print(print_id: int) -> None:
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute("UPDATE prints SET is_deleted = 0 WHERE id = ?", (print_id,))
+    conn.commit()
+    conn.close()
+
+
+def has_deleted_prints() -> bool:
+    conn = sqlite3.connect(db_config["db_path"])
+    row = conn.execute("SELECT 1 FROM prints WHERE COALESCE(is_deleted, 0) = 1 LIMIT 1").fetchone()
+    conn.close()
+    return row is not None
 
 def get_prints_by_spool(spool_id: int):
     """

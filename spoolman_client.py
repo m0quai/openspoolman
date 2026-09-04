@@ -1,9 +1,9 @@
 import requests
 from config import SPOOLMAN_API_URL, SPOOL_SORTING
 import json
-from logger import append_to_rotating_file, log
+from logger import application_log_file, append_to_rotating_file
 
-SPOOLMAN_LOG_FILE = "/home/app/logs/spoolman.log"
+SPOOLMAN_LOG_FILE = application_log_file("spoolman.log")
 
 
 def _log_spoolman_change(action, spool_id=None, payload=None, status=None):
@@ -50,16 +50,41 @@ def getSpoolById(spool_id):
   #print(response.text)
   return response.json()
 
+def patchFilamentExtra(filament_id, old_extra, new_values):
+  """Persist Bambu profile identifiers on the filament record."""
+  extra = dict(old_extra or {})
+  extra.pop("pa_filament_id", None)
+  for key, value in new_values.items():
+    if value is None or value == "":
+      continue
+    # Spoolman's Integer extra fields reject JSON strings such as '"884"'.
+    # All Bambu IDs remain strings; only the PA calibration index is numeric.
+    if key == "cali_idx":
+      extra[key] = json.dumps(int(value))
+    else:
+      extra[key] = json.dumps(str(value), ensure_ascii=False)
+  response = requests.patch(f"{SPOOLMAN_API_URL}/filament/{filament_id}", json={"extra": extra})
+  if response.status_code >= 400:
+    raise RuntimeError(f"Spoolman-Filamentupdate fehlgeschlagen ({response.status_code}): {response.text}")
+  response.raise_for_status()
+  return response.json()
+
 
 def fetchSpoolList():
+  url = f"{SPOOLMAN_API_URL}/spool"
   if SPOOL_SORTING:
-    response = requests.get(f"{SPOOLMAN_API_URL}/spool?sort={SPOOL_SORTING}")
-  else:
-    response = requests.get(f"{SPOOLMAN_API_URL}/spool")
-    
-  #print(response.status_code)
-  #print(response.text)
-  return response.json()
+    url += f"?sort={SPOOL_SORTING}"
+  response = requests.get(url, timeout=10)
+  response.raise_for_status()
+  try:
+    data = response.json()
+  except ValueError as exc:
+    raise RuntimeError(
+      f"Spoolman returned invalid JSON (HTTP {response.status_code})"
+    ) from exc
+  if not isinstance(data, list):
+    raise RuntimeError("Spoolman returned an unexpected spool-list format")
+  return data
 
 def consumeSpool(spool_id, use_weight=None, use_length=None):
   if use_weight is None and use_length is None:
@@ -70,8 +95,6 @@ def consumeSpool(spool_id, use_weight=None, use_length=None):
     payload["use_weight"] = use_weight
   if use_length is not None:
     payload["use_length"] = use_length
-
-  log(f'Consuming {payload} from spool {spool_id}')
 
   response = requests.put(f"{SPOOLMAN_API_URL}/spool/{spool_id}/use", json=payload)
   _log_spoolman_change(

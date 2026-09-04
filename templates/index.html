@@ -3,18 +3,9 @@
 {% from 'fragments/ams_metrics.html' import humidity_display %}
 
 {% block content %}
-<!-- AMS and External Spool Row -->
 <div class="row">
-  <!-- External Spool -->
-  <div class="{% if ams_data|length > 1 %}col-12{% else %}col-lg-6{% endif %} mb-4 text-center">
-    {% with tray_data=vt_tray_data, ams_id=EXTERNAL_SPOOL_AMS_ID, pick_tray=False, tray_id=EXTERNAL_SPOOL_ID %}
-      {% include 'fragments/tray.html' %}
-    {% endwith %}
-  </div>
-
-  <!-- AMS Cards -->
   {% for ams in ams_data %}
-  <div class="col-lg-6 mb-4 text-center ams-card">
+  <div class="col-lg-7 mb-4 text-center ams-card">
     <div class="card shadow-sm">
       <div class="card-header d-flex justify-content-between align-items-center">
         {% set ams_key = ams.id %}
@@ -36,5 +27,125 @@
     </div>
   </div>
   {% endfor %}
+
+  <div class="{% if ams_data|length > 1 %}col-12{% else %}col-lg-5{% endif %} mb-4 text-center">
+    <div class="card shadow-sm printer-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">{% if PRINTER_NAME %}{{ PRINTER_NAME }}{% elif PRINTER_MODEL %}{{ PRINTER_MODEL.get('devicename') or PRINTER_MODEL.get('model') or 'Printer' }}{% else %}Printer{% endif %}</h5>
+        <div class="d-flex align-items-center gap-3">
+          <div class="text-muted small">
+          Hotend: <span id="printer-hotend" class="fw-semibold">{% if printer_temperatures.hotend is not none %}{{ printer_temperatures.hotend|round|int }}{% else %}-{% endif %}</span>°C
+          <span id="printer-hotend-target-wrapper"{% if printer_temperatures.hotend_target is none %} class="d-none"{% endif %}> / <span id="printer-hotend-target">{% if printer_temperatures.hotend_target is not none %}{{ printer_temperatures.hotend_target|round|int }}{% endif %}</span>°C</span>
+          &nbsp; Bed: <span id="printer-bed" class="fw-semibold">{% if printer_temperatures.bed is not none %}{{ printer_temperatures.bed|round|int }}{% else %}-{% endif %}</span>°C
+          <span id="printer-bed-target-wrapper"{% if printer_temperatures.bed_target is none %} class="d-none"{% endif %}> / <span id="printer-bed-target">{% if printer_temperatures.bed_target is not none %}{{ printer_temperatures.bed_target|round|int }}{% endif %}</span>°C</span>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        {% with tray_data=vt_tray_data, ams_id=EXTERNAL_SPOOL_AMS_ID, pick_tray=False, tray_id=EXTERNAL_SPOOL_ID %}
+          {% include 'fragments/tray.html' %}
+        {% endwith %}
+      </div>
+      {% if (not printer_is_busy) or pending_nfc %}
+      <div class="card-footer text-center">
+        {% if pending_nfc %}
+        <a href="{{ url_for('ams_nfc.pending_tags') }}" class="btn btn-sm btn-outline-secondary rounded-pill px-2 py-1 me-2">
+          <i class="bi bi-tags me-1"></i> NFC-Tags
+        </a>
+        {% endif %}
+        <form method="post" action="{{ url_for('refresh_ams') }}" class="d-inline">
+          <button type="submit" class="btn btn-sm btn-primary rounded-pill px-2 py-1"{% if printer_is_busy or ams_operation_pending %} disabled title="AMS-Aktionen sind momentan deaktiviert"{% endif %}>
+            <i class="bi bi-arrow-clockwise me-1"></i> AMS aktualisieren
+          </button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+  </div>
 </div>
+
+<script>
+(() => {
+  let generation = null;
+  let reloading = false;
+
+  // success_message is intentionally a one-shot UI message.  Tray/AMS updates
+  // trigger automatic page reloads; leaving the query parameter in the URL
+  // would show the same old success banner again after every background update.
+  try {
+    const currentUrl = new URL(window.location.href);
+    if (currentUrl.searchParams.has("success_message")) {
+      currentUrl.searchParams.delete("success_message");
+      window.history.replaceState({}, document.title, currentUrl.pathname + currentUrl.search + currentUrl.hash);
+    }
+  } catch (_) {
+    // URL cleanup is cosmetic; never interfere with the AMS page if unavailable.
+  }
+
+  function setTemperature(valueId, wrapperId, targetId, value, target) {
+    const valueElement = document.getElementById(valueId);
+    const wrapperElement = document.getElementById(wrapperId);
+    const targetElement = document.getElementById(targetId);
+
+    if (valueElement) {
+      valueElement.textContent = value === null || value === undefined ? '-' : Math.round(Number(value));
+    }
+
+    if (!wrapperElement || !targetElement) {
+      return;
+    }
+
+    if (target === null || target === undefined) {
+      wrapperElement.classList.add('d-none');
+      targetElement.textContent = '';
+      return;
+    }
+
+    targetElement.textContent = Math.round(Number(target));
+    wrapperElement.classList.remove('d-none');
+  }
+
+  async function checkAmsState() {
+    if (reloading || document.hidden) {
+      return;
+    }
+
+    try {
+      const response = await fetch("{{ url_for('ams_state_generation') }}", {
+        cache: "no-store",
+        headers: { "Accept": "application/json" }
+      });
+      if (!response.ok) {
+        return;
+      }
+
+      const state = await response.json();
+      setTemperature('printer-hotend', 'printer-hotend-target-wrapper', 'printer-hotend-target', state.hotend, state.hotend_target);
+      setTemperature('printer-bed', 'printer-bed-target-wrapper', 'printer-bed-target', state.bed, state.bed_target);
+
+      if (typeof state.generation !== "number") {
+        return;
+      }
+
+      if (generation === null) {
+        generation = state.generation;
+        return;
+      }
+
+      if (state.generation > generation) {
+        reloading = true;
+        window.location.reload();
+        return;
+      }
+
+      generation = state.generation;
+    } catch (_) {
+      // A temporary network error must not disturb the Home page.
+    }
+  }
+
+  checkAmsState();
+  window.setInterval(checkAmsState, 1000);
+})();
+</script>
 {% endblock %}

@@ -1,125 +1,146 @@
 {% extends 'base.html' %}
-
-
 {% block content %}
 <script>
-    function adjustPrintImages() {
-        document.querySelectorAll('.print-grid').forEach(grid => {
-            const printInfo = grid.querySelector('.printinfo');
-            const printImageContainer = grid.querySelector('.print-image');
-            const image = printImageContainer?.querySelector('img');
-
-            if (printInfo && printImageContainer) {
-                const height = printInfo.clientHeight;
-                if (window.innerWidth >= 920) {
-                    
-                    printImageContainer.style.height = height + "px";
-                } else {
-                    printImageContainer.style.height = "auto";
-                    printImageContainer.style.height = (height / 2) + "px";
-                }
-
-                if (image) {
-                    image.style.height = "100%";
-                    image.style.width = "auto";
-                    image.style.objectFit = "contain";
-                }
-            }
-        });
+function adjustPrintImages() {
+  let referenceHeight = 0;
+  document.querySelectorAll('.print-grid').forEach(grid => {
+    const printInfo = grid.querySelector('.printinfo');
+    const printImageContainer = grid.querySelector('.print-image');
+    const image = printImageContainer?.querySelector('img');
+    if (printInfo && printImageContainer) {
+      const height = printInfo.clientHeight;
+      if (height <= 0) printImageContainer.style.height = (referenceHeight || 180) + 'px';
+      else if (window.innerWidth >= 920) { printImageContainer.style.height = height + 'px'; referenceHeight = height; }
+      else { printImageContainer.style.height = 'auto'; printImageContainer.style.height = Math.max(180, height / 2) + 'px'; }
+      if (image) { image.style.height = '100%'; image.style.width = 'auto'; image.style.objectFit = 'contain'; }
     }
-
-    setTimeout(() => {
-        adjustPrintImages();
-    }, 10);
-
-    window.addEventListener("resize", adjustPrintImages);
-
-    function initThumbnailHover() {
-        const thumbnails = document.querySelectorAll('.thumbnail');
-        const overlay = document.getElementById('image-overlay');
-        const overlayImage = overlay.querySelector('.overlay-image');
-        const backdrop = overlay.querySelector('.overlay-backdrop');
-
-        thumbnails.forEach(thumbnail => {
-            thumbnail.addEventListener('click', () => {
-                const relativeSrc = thumbnail.getAttribute('src');
-                if (!relativeSrc) return;
-
-                const host = window.location.origin;
-                const fullSrc = host + "/" + relativeSrc.replace(/^\/+/, "");
-
-                overlay.classList.remove('hidden');
-                overlayImage.src = fullSrc;
-                document.body.classList.add('modal-open');
-            });
-        });
-
-        backdrop.addEventListener('click', () => {
-            closeThumbnailOverlay()
-        });
-
-        overlayImage.addEventListener('click', () => {
-            closeThumbnailOverlay()
-        });
-
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                closeThumbnailOverlay()
-            }
-        });
-    }
-
-    function closeThumbnailOverlay() {
-        const overlay = document.getElementById('image-overlay');
-        const overlayImage = overlay.querySelector('.overlay-image');
-        overlay.classList.add('hidden');
-        overlayImage.src = '';
-        document.body.classList.remove('modal-open');
-    }
-
-    window.addEventListener("load", initThumbnailHover);
-    
+  });
+}
+setTimeout(adjustPrintImages, 10);
+window.addEventListener('resize', adjustPrintImages);
+function initThumbnailHover() {
+  const thumbnails = document.querySelectorAll('.thumbnail');
+  const overlay = document.getElementById('image-overlay');
+  if (!overlay) return;
+  const overlayImage = overlay.querySelector('.overlay-image');
+  const backdrop = overlay.querySelector('.overlay-backdrop');
+  thumbnails.forEach(thumbnail => thumbnail.addEventListener('click', () => {
+    const relativeSrc = thumbnail.getAttribute('src');
+    if (!relativeSrc) return;
+    overlay.classList.remove('hidden');
+    overlayImage.src = window.location.origin + '/' + relativeSrc.replace(/^\/+/, '');
+    document.body.classList.add('modal-open');
+  }));
+  backdrop.addEventListener('click', closeThumbnailOverlay);
+  overlayImage.addEventListener('click', closeThumbnailOverlay);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeThumbnailOverlay(); });
+}
+function initPrintHistoryRefresh() {
+  const forceButton = document.getElementById('print-history-refresh-now');
+  const forceButtonLabel = document.getElementById('print-history-refresh-label');
+  const hasActivePrint = {{ 'true' if active_print_id else 'false' }};
+  if (!hasActivePrint) {
+    if (forceButtonLabel) forceButtonLabel.textContent = 'Jetzt aktualisieren';
+    forceButton?.addEventListener('click', () => window.location.reload());
+    return;
+  }
+  const intervalSeconds = 15;
+  let remaining = intervalSeconds;
+  const updateStatus = () => {
+    if (forceButtonLabel) forceButtonLabel.textContent = 'Jetzt aktualisieren – nächste Aktualisierung in ' + remaining + ' s';
+  };
+  updateStatus();
+  window.setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    remaining -= 1;
+    if (remaining <= 0) { window.location.reload(); return; }
+    updateStatus();
+  }, 1000);
+  forceButton?.addEventListener('click', () => window.location.reload());
+}
+function initHistoryCollapsePersistence() {
+  const key = 'openspoolman-history-open';
+  document.querySelectorAll('.print-history .collapse').forEach(panel => {
+    const id = panel.id;
+    const toggle = document.querySelector(`[data-bs-target="#${id}"]`);
+    const setIcon = open => {
+      const icon = toggle?.querySelector('.bi');
+      if (icon) icon.className = `bi bi-chevron-${open ? 'up' : 'down'}`;
+      if (toggle) toggle.setAttribute('aria-expanded', String(open));
+    };
+    if (localStorage.getItem(key + ':' + id) === '1') { panel.classList.add('show'); setIcon(true); }
+    panel.addEventListener('shown.bs.collapse', () => { localStorage.setItem(key + ':' + id, '1'); setIcon(true); });
+    panel.addEventListener('shown.bs.collapse', adjustPrintImages);
+    panel.addEventListener('hidden.bs.collapse', () => {
+      localStorage.removeItem(key + ':' + id);
+      setIcon(false);
+      adjustPrintImages();
+    });
+  });
+}
+function formatExpectedEnd() {
+  document.querySelectorAll('.expected-end').forEach(el => {
+    const end = new Date((el.dataset.end || '').replace(' ', 'T'));
+    if (Number.isNaN(end.getTime())) return;
+    const pad = value => String(value).padStart(2, '0');
+    const time = `${pad(end.getHours())}:${pad(end.getMinutes())}`;
+    const now = new Date();
+    const sameDay = end.toDateString() === now.toDateString();
+    const date = `${pad(end.getDate())}.${pad(end.getMonth() + 1)}.${end.getFullYear()}`;
+    const remainingSeconds = Math.max(0, Math.round((end - now) / 1000));
+    const hours = Math.floor(remainingSeconds / 3600);
+    const minutes = Math.floor((remainingSeconds % 3600) / 60);
+    const remaining = hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
+    el.textContent = `Erwartetes Ende: ${time}${sameDay ? '' : ', ' + date} · Restlaufzeit: ${remaining}`;
+  });
+}
+function formatPrintDurations() {
+  document.querySelectorAll('.print-duration').forEach(el => {
+    const start = new Date((el.dataset.start || '').replace(' ', 'T'));
+    const end = new Date((el.dataset.end || '').replace(' ', 'T'));
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+    const minutes = Math.max(0, Math.round((end - start) / 60000));
+    el.textContent = `Druckdauer: ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+  });
+}
+function closeThumbnailOverlay() {
+  const overlay = document.getElementById('image-overlay');
+  if (!overlay) return;
+  overlay.classList.add('hidden');
+  overlay.querySelector('.overlay-image').src = '';
+  document.body.classList.remove('modal-open');
+}
+window.addEventListener('load', initThumbnailHover);
+window.addEventListener('load', initPrintHistoryRefresh);
+window.addEventListener('load', initHistoryCollapsePersistence);
+window.addEventListener('load', formatExpectedEnd);
+window.addEventListener('load', formatPrintDurations);
 </script>
-
-<!-- Page Title -->
 <h1 class="mb-4 text-center">Print history</h1>
-{% if total_pages > 1 %}
-<nav aria-label="Print history pagination" class="mb-3">
-    <ul class="pagination justify-content-center">
-        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('print_history', page=page-1) }}" aria-label="Previous">Previous</a>
-        </li>
-        <li class="page-item disabled">
-            <span class="page-link">Page {{ page }} of {{ total_pages }}</span>
-        </li>
-        <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('print_history', page=page+1) }}" aria-label="Next">Next</a>
-        </li>
-    </ul>
-</nav>
-{% endif %}
-{% with action_assign=True %}{% include 'fragments/list_prints.html' %}{% endwith %}
-
-{% if total_pages > 1 %}
-<nav aria-label="Print history pagination" class="mt-3">
-    <ul class="pagination justify-content-center">
-        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('print_history', page=page-1) }}" aria-label="Previous">Previous</a>
-        </li>
-        <li class="page-item disabled">
-            <span class="page-link">Page {{ page }} of {{ total_pages }}</span>
-        </li>
-        <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('print_history', page=page+1) }}" aria-label="Next">Next</a>
-        </li>
-    </ul>
-</nav>
-{% endif %}
-
-<div id="image-overlay" class="image-overlay hidden">
-    <div class="overlay-backdrop"></div>
-    <div class="overlay-content bg-body p-3 rounded">
-        <img src="" class="overlay-image" style="width: 100%; height: 100%;"/>
-    </div>
+<div class="d-flex justify-content-center align-items-center gap-3 mb-3">
+  <button id="print-history-refresh-now" type="button" class="btn btn-sm btn-primary rounded-pill px-2 py-1">
+    <i class="bi bi-arrow-clockwise me-1"></i><span id="print-history-refresh-label">Jetzt aktualisieren{% if active_print_id %} – nächste Aktualisierung in 15 s{% endif %}</span>
+  </button>
+  {% if has_deleted_prints %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('print_history', show_deleted=0 if show_deleted else 1) }}">{{ 'Aktive anzeigen' if show_deleted else 'Gelöschte anzeigen' }}</a>{% endif %}
 </div>
+{% if prints %}
+  {% if total_pages > 1 %}
+  <nav aria-label="Print history pagination" class="mb-3"><ul class="pagination justify-content-center">
+    <li class="page-item {% if page <= 1 %}disabled{% endif %}"><a class="page-link" href="{{ url_for('print_history', page=page-1) }}">Previous</a></li>
+    <li class="page-item disabled"><span class="page-link">Page {{ page }} of {{ total_pages }}</span></li>
+    <li class="page-item {% if page >= total_pages %}disabled{% endif %}"><a class="page-link" href="{{ url_for('print_history', page=page+1) }}">Next</a></li>
+  </ul></nav>
+  {% endif %}
+  {% with action_assign=True %}{% include 'fragments/list_prints.html' %}{% endwith %}
+  {% if total_pages > 1 %}
+  <nav aria-label="Print history pagination" class="mt-3"><ul class="pagination justify-content-center">
+    <li class="page-item {% if page <= 1 %}disabled{% endif %}"><a class="page-link" href="{{ url_for('print_history', page=page-1) }}">Previous</a></li>
+    <li class="page-item disabled"><span class="page-link">Page {{ page }} of {{ total_pages }}</span></li>
+    <li class="page-item {% if page >= total_pages %}disabled{% endif %}"><a class="page-link" href="{{ url_for('print_history', page=page+1) }}">Next</a></li>
+  </ul></nav>
+  {% endif %}
+  <div id="image-overlay" class="image-overlay hidden"><div class="overlay-backdrop"></div><div class="overlay-content bg-body p-3 rounded"><img class="overlay-image" style="width:100%;height:100%;"/></div></div>
+{% else %}
+  <div class="text-center text-body-secondary py-5"><p class="mb-0 fs-5">Keine Historie vorhanden.</p></div>
+{% endif %}
 {% endblock %}

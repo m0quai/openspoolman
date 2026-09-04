@@ -23,16 +23,10 @@ import mqtt_bambulab
 import print_history as print_history_service
 import spoolman_client
 import spoolman_service
-import test_data
 from spoolman_service import augmentTrayDataWithSpoolMan, trayUid, normalize_color_hex
 from logger import log
 
-_TEST_PATCH_CONTEXT = None
-if test_data.TEST_MODE_FLAG:
-  _TEST_PATCH_CONTEXT = test_data.activate_test_data_patches()
-
-USE_TEST_DATA = test_data.test_data_active()
-READ_ONLY_MODE = (not USE_TEST_DATA) and os.getenv("OPENSPOOLMAN_LIVE_READONLY") == "1"
+READ_ONLY_MODE = os.getenv("OPENSPOOLMAN_LIVE_READONLY") == "1"
 
 LAYER_TRACKING_STATUS_DISPLAY = {
     "RUNNING": ("Printing", "warning"),
@@ -41,8 +35,7 @@ LAYER_TRACKING_STATUS_DISPLAY = {
     "FAILED": ("Failed", "danger"),
 }
 
-if not USE_TEST_DATA:
-  mqtt_bambulab.init_mqtt()
+mqtt_bambulab.init_mqtt()
 
 app = Flask(__name__)
 
@@ -184,7 +177,13 @@ def fill():
     spool_data = spoolman_client.getSpoolById(spool_id)
     mqtt_bambulab.setActiveTray(spool_id, spool_data["extra"], ams_id, tray_id)
     setActiveSpool(ams_id, tray_id, spool_data)
-    return redirect(url_for('home', success_message=f"Updated Spool ID {spool_id} to AMS {ams_id}, Tray {tray_id}."))
+    return redirect(url_for(
+      'home',
+      success_message=(
+        f"Spool ID {spool_id} assigned in OpenSpoolMan to AMS {ams_id}, Tray {tray_id}. "
+        "AMS material update sent to printer; verify the tray status below."
+      )
+    ))
   else:
     spools = mqtt_bambulab.fetchSpools()
 
@@ -361,6 +360,33 @@ def spoolman_compatible_spool_info(spool_id):
   return redirect(url_for('spool_info', **query_params))
 
 
+@app.post("/tray_clear")
+def tray_clear():
+  """Remove only the OpenSpoolMan/Spoolman assignment for a tray.
+
+  This deliberately does not send AMS_FILAMENT_SETTING to the printer, so the
+  material/color configured in Bambu remains untouched.
+  """
+  ams_id = request.form.get("ams")
+  tray_id = request.form.get("tray")
+
+  if ams_id is None or tray_id is None:
+    return render_template('error.html', exception="Missing AMS ID or Tray ID.")
+
+  if READ_ONLY_MODE:
+    return render_template('error.html', exception="Live read-only mode: clearing tray assignments is disabled.")
+
+  try:
+    spoolman_service.clear_active_spool_for_tray(ams_id, tray_id)
+    return redirect(url_for(
+      'home',
+      success_message=f"Tray assignment cleared for AMS {ams_id}, Tray {int(tray_id) + 1}."
+    ))
+  except Exception as e:
+    traceback.print_exc()
+    return render_template('error.html', exception=str(e))
+
+
 @app.route("/tray_load")
 def tray_load():
   if not mqtt_bambulab.isMqttClientConnected():
@@ -388,14 +414,54 @@ def tray_load():
     traceback.print_exc()
     return render_template('error.html', exception=str(e))
 
+def _resolve_bambu_profile_ids(spool_data):
+  """Resolve Bambu filament/profile IDs for AMS writes.
+
+  Preference:
+  1. Valid IDs already stored in Spoolman extra fields.
+  2. Known Bambu profile mapping derived from the printer/profile data.
+
+  Legacy numeric placeholders such as "12345" are deliberately ignored.
+  """
+  filament = spool_data.get("filament", {}) or {}
+  extra = filament.get("extra", {}) or {}
+  vendor = ((filament.get("vendor") or {}).get("name") or "").strip().upper()
+  material = str(filament.get("material") or "").strip().upper().replace(" ", "")
+
+  def clean(value):
+    value = str(value or "").strip().strip('"')
+    if not value or value.isdigit():
+      return ""
+    return value
+
+  filament_id = clean(extra.get("filament_id"))
+  setting_id = clean(extra.get("setting_id"))
+
+  if filament_id and setting_id:
+    return filament_id, setting_id, "spoolman"
+
+  # Bambu profile observed for SUNLU PLA+ 2.0 in the printer/profile data.
+  # Bambu accepts the base tray_type PLA; these IDs retain the concrete PLA+ profile.
+  known_profiles = {
+    ("SUNLU", "PLA+"): ("GFL99", "GFSL99"),
+  }
+
+  resolved = known_profiles.get((vendor, material))
+  if resolved:
+    return resolved[0], resolved[1], "bambu-profile-map"
+
+  return filament_id, setting_id, "unresolved"
+
+
 def setActiveSpool(ams_id, tray_id, spool_data):
-  if USE_TEST_DATA or READ_ONLY_MODE:
+  if READ_ONLY_MODE:
     return None
 
   if not mqtt_bambulab.isMqttClientConnected():
     return render_template('error.html', exception="MQTT is disconnected. Is the printer online?")
   
-  ams_message = AMS_FILAMENT_SETTING
+  import copy
+  ams_message = copy.deepcopy(AMS_FILAMENT_SETTING)
   ams_message["print"]["sequence_id"] = 0
   ams_message["print"]["ams_id"] = int(ams_id)
   ams_message["print"]["tray_id"] = int(tray_id)
@@ -415,7 +481,14 @@ def setActiveSpool(ams_id, tray_id, spool_data):
     ams_message["print"]["nozzle_temp_min"] = int(nozzle_temperature_range_obj["filament_min_temp"])
     ams_message["print"]["nozzle_temp_max"] = int(nozzle_temperature_range_obj["filament_max_temp"])
 
-  ams_message["print"]["tray_type"] = spool_data["filament"]["material"]
+  # Bambu rejects PLA+ as tray_type on affected AMS/firmware versions.
+  # Keep PLA+ in Spoolman, but write Bambu's accepted base material "PLA".
+  # The concrete PLA+ profile remains identified by filament_id/setting_id below.
+  spool_material = str(spool_data["filament"]["material"] or "").strip()
+  if spool_material.upper().replace(" ", "") == "PLA+":
+    ams_message["print"]["tray_type"] = "PLA"
+  else:
+    ams_message["print"]["tray_type"] = spool_material
 
   filament_brand_code = {}
   filament_brand_code["brand_code"] = spool_data["filament"]["extra"].get("filament_id", "").strip('"')
@@ -426,14 +499,44 @@ def setActiveSpool(ams_id, tray_id, spool_data):
                                                       spool_data["filament"]["vendor"]["name"],
                                                       spool_data["filament"]["extra"].get("type", ""))
     
-  ams_message["print"]["tray_info_idx"] = filament_brand_code["brand_code"]
+  # Bambu expects the real filament/profile identifiers when available.
+  # Spoolman custom fields may contain them with JSON-style quotes, hence strip().
+  filament_id, setting_id, profile_source = _resolve_bambu_profile_ids(spool_data)
+
+  material_key = str(spool_data["filament"].get("material") or "").strip().upper().replace(" ", "")
+  if material_key == "PLA+":
+    if not filament_id or not setting_id:
+      raise ValueError(
+        "No usable Bambu PLA+ profile could be resolved for this filament: "
+        f"vendor={spool_data['filament'].get('vendor', {}).get('name')!r}, "
+        f"material={spool_data['filament'].get('material')!r}."
+      )
+    ams_message["print"]["tray_info_idx"] = filament_id
+    ams_message["print"]["setting_id"] = setting_id
+  else:
+    raw_filament_id = str(spool_data["filament"].get("extra", {}).get("filament_id", "")).strip().strip('"')
+    raw_setting_id = str(spool_data["filament"].get("extra", {}).get("setting_id", "")).strip().strip('"')
+    ams_message["print"]["tray_info_idx"] = raw_filament_id or filament_brand_code["brand_code"]
+    ams_message["print"]["setting_id"] = raw_setting_id
+    profile_source = "legacy-generic"
 
   # TODO: test sub_brand_code
   # ams_message["print"]["tray_sub_brands"] = filament_brand_code["sub_brand_code"]
   ams_message["print"]["tray_sub_brands"] = ""
 
+  print(
+    "[OpenSpoolMan] AMS Fill v2: "
+    f"ams={ams_id} tray={tray_id} "
+    f"tray_type={ams_message['print'].get('tray_type')!r} "
+    f"tray_info_idx={ams_message['print'].get('tray_info_idx')!r} "
+    f"setting_id={ams_message['print'].get('setting_id')!r} "
+    f"profile_source={profile_source!r}"
+  )
   log(ams_message)
-  mqtt_bambulab.publish(mqtt_bambulab.getMqttClient(), ams_message)
+  publish_result = mqtt_bambulab.publish(mqtt_bambulab.getMqttClient(), ams_message)
+  if publish_result is False:
+    raise RuntimeError("MQTT publish of ams_filament_setting failed.")
+  return ams_message
 
 @app.route("/")
 def home():
@@ -496,26 +599,6 @@ def extract_materials(spools):
       materials.add(material)
 
   return sorted(materials)
-
-@app.route("/assign_tag")
-def assign_tag():
-  if not mqtt_bambulab.isMqttClientConnected():
-    return render_template('error.html', exception="MQTT is disconnected. Is the printer online?")
-
-  try:
-    spools = sort_spools(mqtt_bambulab.fetchSpools())
-
-    materials = extract_materials(spools)
-    selected_materials = []
-    requested_material = request.args.get("material")
-
-    if requested_material and requested_material in materials:
-      selected_materials.append(requested_material)
-
-    return render_template('assign_tag.html', spools=spools, materials=materials, selected_materials=selected_materials)
-  except Exception as e:
-    traceback.print_exc()
-    return render_template('error.html', exception=str(e))
 
 @app.route("/write_tag")
 def write_tag():
@@ -603,7 +686,8 @@ def print_history():
           length_value=length_used if use_length else None,
       )
 
-  prints, total_prints = print_history_service.get_prints_with_filament(limit=per_page, offset=offset)
+  show_deleted = request.args.get("show_deleted") == "1"
+  prints, total_prints = print_history_service.get_prints_with_filament(limit=per_page, offset=offset, include_deleted=show_deleted)
   layer_tracking_map = print_history_service.get_layer_tracking_for_prints([print["id"] for print in prints])
 
   spool_list = mqtt_bambulab.fetchSpools()
@@ -635,8 +719,10 @@ def print_history():
         "predicted_end_time": tracking_row.get("predicted_end_time"),
         "actual_end_time": tracking_row.get("actual_end_time"),
       }
+      print["is_running"] = status_key == "RUNNING"
     else:
       print["layer_tracking"] = None
+      print["is_running"] = False
 
     filament_usage_data = json.loads(print["filament_info"])
     filament_usage_sum = sum(
@@ -670,7 +756,21 @@ def print_history():
     page=page,
     total_pages=total_pages,
     per_page=per_page,
+    show_deleted=show_deleted,
+    has_deleted_prints=print_history_service.has_deleted_prints(),
   )
+
+
+@app.post("/print_history/<int:print_id>/delete")
+def delete_print_history_entry(print_id):
+  print_history_service.soft_delete_print(print_id)
+  return redirect(url_for("print_history"))
+
+
+@app.post("/print_history/<int:print_id>/restore")
+def restore_print_history_entry(print_id):
+  print_history_service.restore_print(print_id)
+  return redirect(url_for("print_history", show_deleted=1))
 
 @app.route("/print_select_spool")
 def print_select_spool():

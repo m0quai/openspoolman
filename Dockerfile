@@ -1,19 +1,36 @@
 # Use an official Python runtime as a parent image
 FROM python:3.12.9-slim-bookworm
 
+ARG BUILD_NUMBER=dev
+ENV BUILD_NUMBER=$BUILD_NUMBER
+ARG BUILD_COMMIT=dev
+ENV BUILD_COMMIT=$BUILD_COMMIT
+ENV TZ=Europe/Berlin
+
 # permissions and nonroot user for tightened security
 RUN adduser --disabled-login nonroot
-RUN mkdir /home/app/ && chown -R nonroot:nonroot /home/app
-RUN mkdir /home/app/logs/ && chown -R nonroot:nonroot /home/app/logs
-RUN mkdir /home/app/data/ && chown -R nonroot:nonroot /home/app/data
-RUN mkdir -p /home/app/static/prints && chown -R nonroot:nonroot /home/app/static/prints
-RUN mkdir -p /var/log/flask-app && touch /var/log/flask-app/flask-app.err.log && touch /var/log/flask-app/flask-app.out.log
-RUN chown -R nonroot:nonroot /var/log/flask-app
+RUN mkdir -p /home/app/logs /home/app/data /home/app/static/prints /var/log/flask-app \
+    && touch /var/log/flask-app/flask-app.err.log /var/log/flask-app/flask-app.out.log \
+    && chown -R nonroot:nonroot /home/app /var/log/flask-app
+
 WORKDIR /home/app
-USER nonroot
+
+RUN if [ "$(printenv BUILD_NUMBER)" = "dev" ]; then \
+        date +%y%m%d.%H%M > /home/app/build_number; \
+    else \
+        printenv BUILD_NUMBER > /home/app/build_number; \
+    fi
 
 # copy all the files to the container
 COPY --chown=nonroot:nonroot . .
+
+# COPY preserves source modes. Ensure the runtime thumbnail directory is
+# writable after the application tree has been copied into the image.
+RUN mkdir -p /home/app/static/prints \
+    && chown -R nonroot:nonroot /home/app/static/prints \
+    && chmod -R u+rwX /home/app/static/prints
+
+USER nonroot
 
 # venv
 ENV VIRTUAL_ENV=/home/app/venv
@@ -21,10 +38,10 @@ ENV VIRTUAL_ENV=/home/app/venv
 # python setup
 RUN python -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
-RUN export FLASK_APP=src/app.py
+ENV FLASK_APP=app_custom
 RUN pip install --no-cache-dir -r requirements.txt
 
 # define the port number the container should expose
 EXPOSE 8000
 
-CMD ["gunicorn", "-w", "1", "--threads", "4", "-b", "0.0.0.0:8000", "app:app"]
+CMD ["waitress-serve", "--host=0.0.0.0", "--port=8000", "app_custom:app"]
