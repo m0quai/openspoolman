@@ -152,3 +152,15 @@ secrets/
 *.user
 .venv/
 /.github/copilot-instructions.md
+/AMSHelper/bin/Debug
+/AMSHelper/obj/Debug
+/.vs/OpenSpoolMan/v17/.suo
+/.vs/OpenSpoolMan/v17/.wsuo
+/.vs/OpenSpoolMan/v17/DocumentLayout.backup.json
+/.vs/OpenSpoolMan/v17/DocumentLayout.json
+/.vs/OpenSpoolMan/v17/fileList.bin
+/.vs/OpenSpoolMan/FileContentIndex/0af4a62a-875b-4276-8fff-04bc2cb4c5bd.vsidx
+/.vs/OpenSpoolMan/FileContentIndex/22c864da-8006-4e10-bfc0-2b10b072b70d.vsidx
+/.vs/OpenSpoolMan/FileContentIndex/7ebb0566-09a9-4f4a-b4d5-b017183183e4.vsidx
+/.vs/OpenSpoolMan/FileContentIndex/d145a53a-54df-4845-a5b2-f16d9b950af0.vsidx
+/.vs/OpenSpoolMan/FileContentIndex/f05c583d-df3a-4018-9d3b-fd8070e270a4.vsidx
