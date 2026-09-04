@@ -25,11 +25,6 @@ Der I²C-Einzelreader ist der aktuelle funktionierende Entwicklungs- und Testpfa
 
 Die Zielarchitektur ist **SPI**: gemeinsamer SPI-Bus, vier PN532, eigener Chip-Select je AMS-Slot. Die frühere TCA9548A-/Vierfach-I²C-Planung ist verworfen.
 
-## Nächste fachliche Schritte
+## To-do
 
-1. Bestehenden I²C-Einzelreaderpfad stabil halten.
-2. NDEF-URL-Lesen/-Schreiben für NTAG215 abschließen.
-3. SPI-Pinbelegung festlegen.
-4. PN532-SPI-Pfad zunächst mit einem Reader testen.
-5. Auf vier Reader mit gemeinsamem SPI-Bus und vier CS-Leitungen erweitern.
-6. UID + AMS-Slot bzw. „Tray leer“ an OpenSpoolMan übertragen.
+Die übergreifende Aufgabenliste steht in [docs/TODO.md](../TODO.md), Kapitel „AMSHelper“.

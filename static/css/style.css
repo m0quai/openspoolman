@@ -33,6 +33,14 @@ main.container {
 
 #spool-list .spool-actions {
     flex-shrink: 0;
+    width: 165px;
+    min-width: 165px;
+    justify-content: space-between;
+}
+
+.print-filament-row .filament-info {
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 #spool-list .spool-action-link {
@@ -291,6 +299,8 @@ main.container {
 
     #spool-list .spool-actions {
         align-items: stretch;
+        width: 100%;
+        min-width: 0;
     }
 
     #spool-list .spool-action-link {

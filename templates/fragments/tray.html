@@ -19,7 +19,7 @@
         {% endif %}
       </div>
     </div>
-    {% if tray_data.tray_color %}
+    {% if tray_data.tray_color and tray_data.spool_id and not physically_empty %}
       {% if tray_data.color_mismatch %}
         {% set color_popover_attrs = 'role="button" tabindex="0" data-bs-toggle="popover" data-bs-container="body" data-bs-trigger="manual" data-bs-placement="bottom" data-bs-content="' ~ tray_data.color_mismatch_message ~ '"' %}
       {% else %}
@@ -75,6 +75,8 @@
       <div class="small text-muted text-center mb-2 tray-empty">
           {% if tray_data.get('ams_loading', False) %}
             Filament wird zugeordnet …
+          {% elif ams_id|int == EXTERNAL_SPOOL_AMS_ID %}
+            Keine Spule
           {% elif physically_empty %}
             Keine Spule – Fach leer
           {% else %}
@@ -86,8 +88,8 @@
     <div class="row align-items-center text-center text-sm-start">
       {% if tray_data.spool_material and not physically_empty %}
         <!-- Farbname + Badge -->
-        <div class="col-12 col-xxl-5 d-flex flex-column align-items-center mb-2 mb-sm-0">
-          <div class="spool-color-info rounded p-2 text-center" style="border: 1px solid #212529 !important;">
+        <div class="col-12 d-flex flex-column align-items-center mb-2">
+          <a class="spool-color-info rounded p-2 text-center text-decoration-none d-block" href="{{ spoolman_public_url }}/spool/show/{{ tray_data.spool_id }}" target="_blank" rel="noopener" style="border: 1px solid #212529 !important;">
             <!-- Farbname -->
             <div class="fw-semibold mb-1 text-center">
               {{ tray_data.name }}
@@ -115,25 +117,37 @@
               <span class="badge d-inline-block p-2 badge-missing-color" title="Color not set"></span>
             {% endif %}
           {% endif %}
-          </div>
+          </a>
         </div>
 
         <!-- Textinfos -->
-        <div class="col-12 col-xxl-7">
+        <div class="col-12 text-center">
           <!-- Last used -->
-          <div class="mt-2 d-flex flex-column flex-sm-row">
-            <div class="me-sm-1">Last used:</div>
-            <div class="fw-bold">{{ tray_data.last_used }}</div>
-          </div>
+          {% if tray_data.last_used and tray_data.last_used != '-' %}
+            <div class="mt-2 d-flex flex-column flex-sm-row justify-content-center">
+              <div class="me-sm-1">Last used:</div>
+              <div class="fw-bold">{{ tray_data.last_used }}</div>
+            </div>
+          {% endif %}
           <!-- Remaining -->
-          <div class="mt-2 d-flex flex-column flex-sm-row">
-            <div class="me-sm-1">Remaining:</div>
-            {% if AUTO_SPEND and tray_data.matched %}
-              <div class="fw-bold">{{ tray_data.remaining_weight|round(1) }}g</div>
-            {% else %}
+          {% if AUTO_SPEND and tray_data.matched %}
+            {% set remaining_weight = tray_data.get('remaining_weight') %}
+            {% set spool_weight = tray_data.get('spool_weight') %}
+            {% set is_full = remaining_weight is not none and spool_weight is not none and (remaining_weight|float >= spool_weight|float - 0.1) %}
+            <div class="mt-2 d-flex flex-column flex-sm-row justify-content-center">
+              {% if is_full %}
+                <div class="fw-bold">Full</div>
+              {% else %}
+                <div class="me-sm-1">Remaining:</div>
+                <div class="fw-bold">{{ remaining_weight|round(1) }}g</div>
+              {% endif %}
+            </div>
+          {% else %}
+            <div class="mt-2 d-flex flex-column flex-sm-row justify-content-center">
+              <div class="me-sm-1">Remaining:</div>
               <div class="fw-bold">{{ tray_data.remain }}%</div>
-            {% endif %}
-          </div>
+            </div>
+          {% endif %}
         </div>
       {% elif tray_data.unmapped_bambu_tag %}
         {% set ams_model = AMS_MODELS_BY_ID.get(ams_id) %}
@@ -146,7 +160,7 @@
             </div>
           {% endif %}
           <div class="d-flex justify-content-center align-items-center" style="min-height: 120px;">
-            <a class="btn btn-warning"
+            <a class="btn btn-sm btn-warning rounded-pill px-2 py-1"
                href="{{ url_for('assign_bambu_spool', ams=ams_id, tray=tray_id, tag=tray_data.unmapped_bambu_tag) }}">Link to Spoolman</a>
           </div>
         </div>
@@ -154,22 +168,23 @@
     </div>
   </div>
 
-  {% if pick_tray or (not pick_tray and not printer_is_busy and (tray_data.spool_material or not physically_empty)) %}
-  <div class="card-footer">
-    {% if pick_tray %}
-      <a class="btn btn-primary"
+  {% set tray_actions_locked = printer_is_busy or ams_operation_pending or tray_data.get('ams_loading', False) %}
+  {% if (pick_tray and not physically_empty) or (not pick_tray and not tray_actions_locked and (tray_data.spool_material or not physically_empty)) %}
+  <div class="card-footer text-center">
+    {% if pick_tray and not physically_empty %}
+      <a class="btn btn-sm btn-primary rounded-pill px-2 py-1"
          href="{{ url_for('tray_load', spool_id=current_spool['id'], tag_id=tag_id, ams=ams_id, tray=tray_id) }}">Assign</a>
     {% endif %}
-    {% if not pick_tray and not printer_is_busy %}
+    {% if not pick_tray and not tray_actions_locked %}
       {% if tray_data.spool_material %}
         <form method="post" action="{{ url_for('tray_clear') }}" class="d-inline">
           <input type="hidden" name="ams" value="{{ ams_id }}">
           <input type="hidden" name="tray" value="{{ tray_id }}">
-          <button type="submit" class="btn btn-outline-danger"{% if printer_is_busy %} disabled title="Während eines laufenden Drucks deaktiviert"{% endif %}>Clear</button>
+        <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill px-2 py-1"{% if tray_actions_locked %} disabled title="Während ein AMS-Fach aktualisiert wird, deaktiviert"{% endif %}><i class="bi bi-trash3"></i> Clear</button>
         </form>
       {% elif not physically_empty %}
-        <a class="btn btn-primary{% if printer_is_busy %} disabled{% endif %}"
-               href="{{ url_for('fill', ams=ams_id, tray=tray_id) }}"{% if printer_is_busy %} aria-disabled="true" tabindex="-1" title="Während eines laufenden Drucks deaktiviert"{% endif %}>Fill</a>
+        <a class="btn btn-sm btn-primary rounded-pill px-2 py-1{% if tray_actions_locked %} disabled{% endif %}"
+               href="{{ url_for('fill', ams=ams_id, tray=tray_id) }}"{% if tray_actions_locked %} aria-disabled="true" tabindex="-1" title="Während ein AMS-Fach aktualisiert wird, deaktiviert"{% endif %}><i class="bi bi-plus-circle"></i> Fill</a>
       {% endif %}
     {% endif %}
   </div>

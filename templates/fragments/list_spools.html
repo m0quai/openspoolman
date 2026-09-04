@@ -94,11 +94,19 @@
     {% endif %}
 
     {% if action_fill %}
-    <a href="{{ url_for('fill', spool_id=spool.id, ams=ams_id, tray=tray_id) }}" class="spool-action-link">
-      <span class="badge bg-primary rounded-pill">
-        <i class="bi bi-plus-circle"></i> Fill
+    {% set active_tray = spool.extra.get('active_tray') if spool.extra else none %}
+    {% set spool_in_use = active_tray and active_tray not in ['', '""'] %}
+    {% if spool_in_use %}
+      <span class="badge bg-secondary rounded-pill" aria-disabled="true" title="Spule ist bereits einem Fach zugeordnet">
+        <i class="bi bi-lock-fill"></i> In use
       </span>
-    </a>
+    {% else %}
+      <a href="{{ url_for('fill', spool_id=spool.id, ams=ams_id, tray=tray_id) }}" class="spool-action-link">
+        <span class="badge bg-primary rounded-pill">
+          <i class="bi bi-plus-circle"></i> Fill
+        </span>
+      </a>
+    {% endif %}
     {% endif %}
 
     {% if action_assign %}

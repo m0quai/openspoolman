@@ -219,6 +219,7 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
       "spool_material",
       "spool_sub_brand",
       "remaining_weight",
+      "spool_weight",
       "last_used",
       "spool_color",
       "spool_color_orientation",
@@ -240,6 +241,7 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
       tray_data["spool_material"] = spool["filament"].get("material", "")
       tray_data["spool_sub_brand"] = (spool["filament"].get("extra", {}).get("type") or "").replace('"', '').strip()
       tray_data["remaining_weight"] = spool["remaining_weight"]
+      tray_data["spool_weight"] = spool["filament"].get("weight")
 
       # P1S LAN/Developer Mode can acknowledge ams_filament_setting successfully
       # and retain tray_info_idx while reporting an empty tray_type afterwards.
@@ -256,7 +258,7 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
             dt = datetime.strptime(spool["last_used"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=ZoneInfo("UTC"))
 
         local_time = dt.astimezone()
-        tray_data["last_used"] = local_time.strftime("%d.%m.%Y %H:%M:%S")
+        tray_data["last_used"] = local_time.strftime("%d.%m.%Y %H:%M")
       else:
           tray_data["last_used"] = "-"
 
@@ -276,6 +278,12 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
       # Extract tray sub-brand: remove main type and "Basic", keep the remaining variant (e.g., "CF").
       tray_sub_brands_raw = (tray_data.get("tray_sub_brands") or "").replace('"', '').strip()
       tray_sub_full_cmp = _clean_basic(tray_sub_brands_raw.lower())
+      # Bambu uses "Generic" to mean that no specific subtype/brand is
+      # selected. It must not mismatch a concrete Spoolman variant such as
+      # TPU 95A or PLA+.
+      tray_sub_is_generic = tray_sub_full_cmp in {"generic", "unknown"}
+      if tray_sub_is_generic:
+        tray_sub_full_cmp = ""
       tray_sub_norm = tray_sub_brands_raw.lower().replace("basic", "").strip()
       if tray_material_main and tray_sub_norm.startswith(tray_material_main):
         tray_sub_norm = tray_sub_norm[len(tray_material_main):].strip()

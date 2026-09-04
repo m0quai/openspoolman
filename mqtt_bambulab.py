@@ -36,18 +36,24 @@ MQTT_KEEPALIVE = 60
 LAST_AMS_CONFIG = {}  # Global variable storing last AMS configuration
 LAST_AMS_CONFIG_GENERATION = 0  # Incremented whenever fresh AMS data arrives from MQTT
 LAST_LOGGED_AMS_STATE = None
+FORCE_AMS_STATUS_LOG = False
 # Last successfully acknowledged AMS material settings for non-RFID/third-party trays.
 # P1/P1S can acknowledge ams_filament_setting with success and then emit sparse
 # push_status tray objects whose material fields are empty. Keep the confirmed
 # values locally so the UI does not immediately fall back to "No AMS material selected".
 LAST_CONFIRMED_AMS_FILAMENT_SETTINGS = {}
 PENDING_AMS_FILAMENT_SETTINGS = {}
+FORCE_CLEAR_AMS_TRAYS = set()
+PROFILE_RESPONSE_SAMPLES = {}
+PENDING_PA_PROFILE_COMMANDS = {}
 PENDING_AMS_STATUS_CONFIRMATIONS = {}
 PENDING_EXTERNAL_OPERATION = None
 AMS_STATUS_SAMPLES = {}
 AMS_STATUS_CONFIRMATION_TIMEOUT = 10
 AMS_STATUS_QUERY_ATTEMPTS = 10
 AMS_STATUS_QUERY_INTERVAL = 2
+ACTIVE_SPOOL_LOOKUP_ATTEMPTS = 5
+ACTIVE_SPOOL_LOOKUP_INTERVAL = 0.4
 
 PRINTER_STATE = {}
 PRINTER_STATE_LAST = {}
@@ -457,11 +463,25 @@ def publish(client, msg):
 
   print_command = message_to_send.get("print") if isinstance(message_to_send, dict) else None
   if isinstance(print_command, dict) and print_command.get("command") == "ams_filament_setting":
-    log(f"Senden an AMS: {json.dumps(print_command, ensure_ascii=False, sort_keys=True)}")
+    # Start a fresh profile processing sequence for this explicit Fill.
+    # The printer normally answers ams_filament_setting only once, so waiting
+    # for several identical responses would leave the PA profile untouched.
+    if any(str(print_command.get(field) or "").strip() for field in ("tray_type", "tray_info_idx", "setting_id")):
+      sample_key = _ams_tray_key(print_command.get("ams_id"), print_command.get("tray_id"))
+      PROFILE_RESPONSE_SAMPLES.pop(sample_key, None)
+    target = "EX" if str(print_command.get("tray_id")) in {"254", "255"} else f"{num2letter(print_command.get('ams_id'))}{int(print_command.get('tray_id', 0)) + 1}"
+    log("PROFIL OUT " + f"[{target}]: {print_command.get('tray_type') or '<leer>'} | {print_command.get('tray_sub_brands') or '<leer>'} | {print_command.get('tray_color') or '<leer>'} | {print_command.get('tray_info_idx') or '<leer>'} | {print_command.get('setting_id') or '<leer>'}")
+    clear_key = _ams_tray_key(print_command.get("ams_id"), print_command.get("tray_id"))
+    clear_command = clear_key in FORCE_CLEAR_AMS_TRAYS or not any(
+      str(print_command.get(field) or "").strip()
+      for field in ("tray_type", "tray_sub_brands", "setting_id", "tray_info_idx")
+    )
+    FORCE_CLEAR_AMS_TRAYS.discard(clear_key)
     PENDING_AMS_FILAMENT_SETTINGS[str(print_command["sequence_id"])] = {
         "ams_id": print_command.get("ams_id"),
         "tray_id": print_command.get("tray_id"),
-        "operation": "clear" if not any(str(print_command.get(field) or "").strip() for field in ("tray_type", "tray_sub_brands", "setting_id", "tray_info_idx")) else "fill",
+        "operation": "clear" if clear_command else "fill",
+        "message": message_to_send,
     }
 
   try:
@@ -471,7 +491,6 @@ def publish(client, msg):
       and bambu_mqtt_signing.certificate_is_valid()
     ):
       wire_payload = bambu_mqtt_signing.sign_message_json(message_to_send)
-      log("MQTT print command signed using RSA-SHA256.")
     else:
       wire_payload = json.dumps(message_to_send, ensure_ascii=False, separators=(",", ":"))
   except Exception as exc:
@@ -493,10 +512,127 @@ def publish(client, msg):
 def _ams_tray_key(ams_id, tray_id):
   return (str(ams_id), str(tray_id))
 
+def is_ams_tray_operation_pending(ams_id, tray_id):
+  """Return whether a tray is still changing and must reject new actions."""
+  key = _ams_tray_key(ams_id, tray_id)
+  aliases = {key}
+  if str(ams_id) == str(EXTERNAL_SPOOL_AMS_ID):
+    aliases.update({_ams_tray_key(EXTERNAL_SPOOL_AMS_ID, EXTERNAL_SPOOL_ID), _ams_tray_key(EXTERNAL_SPOOL_AMS_ID, 255)})
+  if any(alias in PENDING_AMS_STATUS_CONFIRMATIONS or alias in PENDING_PA_PROFILE_COMMANDS for alias in aliases):
+    return True
+  if any(
+      _ams_tray_key(pending.get("ams_id"), pending.get("tray_id")) == key
+      for pending in PENDING_AMS_FILAMENT_SETTINGS.values()
+  ):
+    return True
+  if str(ams_id) == str(EXTERNAL_SPOOL_AMS_ID) and PENDING_EXTERNAL_OPERATION:
+    return True
+  return False
+
+def is_any_ams_operation_pending():
+  """Return whether any tray is waiting for a stable AMS result."""
+  return bool(
+    PENDING_AMS_FILAMENT_SETTINGS
+    or PENDING_AMS_STATUS_CONFIRMATIONS
+    or PENDING_PA_PROFILE_COMMANDS
+    or PENDING_EXTERNAL_OPERATION
+  )
+
+def _find_active_spool_for_tray(ams_id, tray_id):
+  """Find the current Spoolman assignment after an AMS write.
+
+  Spoolman persists the active-tray tag before the printer answers, but the
+  MQTT response can arrive before the subsequent API read sees that write.
+  Retry a few times instead of dropping the profile update permanently.
+  """
+  lookup_tray_id = EXTERNAL_SPOOL_ID if str(ams_id) == str(EXTERNAL_SPOOL_AMS_ID) and str(tray_id) == "255" else tray_id
+  active_key = json.dumps(f"{PRINTER_ID}_{ams_id}_{lookup_tray_id}")
+  for attempt in range(ACTIVE_SPOOL_LOOKUP_ATTEMPTS):
+    try:
+      spool = next(
+        (item for item in fetchSpools(False)
+         if item.get("extra", {}).get("active_tray") == active_key),
+        None,
+      )
+      if spool:
+        return spool
+    except Exception:
+      pass
+    if attempt + 1 < ACTIVE_SPOOL_LOOKUP_ATTEMPTS:
+      time.sleep(ACTIVE_SPOOL_LOOKUP_INTERVAL)
+  return None
+
+def _send_pa_profile_selection(client, ams_id, tray_id, cali_idx, filament_id="", persist=True):
+  """Serialize PA-profile commands so one tray cannot receive duplicates."""
+  pa_tray_id = 255 if str(ams_id) == str(EXTERNAL_SPOOL_AMS_ID) and str(tray_id) == str(EXTERNAL_SPOOL_ID) else tray_id
+  key = _ams_tray_key(ams_id, pa_tray_id)
+  if key in PENDING_PA_PROFILE_COMMANDS:
+    return False
+
+  command = {
+    "print": {
+      "command": "extrusion_cali_sel",
+      "ams_id": ams_id,
+      "tray_id": pa_tray_id,
+      "slot_id": pa_tray_id,
+      "cali_idx": int(cali_idx),
+      "filament_id": str(filament_id or ""),
+      "nozzle_diameter": "0.4",
+      "sequence_id": str(_next_mqtt_sequence_id()),
+    }
+  }
+  if not publish(client, command):
+    return False
+  PENDING_PA_PROFILE_COMMANDS[key] = {
+    "cali_idx": int(cali_idx),
+    "filament_id": str(filament_id or ""),
+    "persist": bool(persist),
+  }
+  log(
+    f"PA PROFIL OUT: Fach={ams_id}/{pa_tray_id}; "
+    f"cali_idx={int(cali_idx)}; filament_id={filament_id or '<leer>'}"
+  )
+  return True
+
+def _extra_text(value):
+  """Return a Spoolman extra value without JSON quote wrappers."""
+  try:
+    parsed = json.loads(value) if isinstance(value, str) else value
+    return str(parsed).strip() if parsed is not None else ""
+  except (TypeError, ValueError):
+    return str(value or "").strip()
+
+def _persist_confirmed_pa_profile(ams_id, tray_id, cali_idx, reported_filament_id):
+  """Save a confirmed Bambu PA index only for the matching active filament."""
+  try:
+    index = int(cali_idx)
+  except (TypeError, ValueError):
+    return False
+  spool = _find_active_spool_for_tray(ams_id, tray_id)
+  if not spool or not spool.get("filament", {}).get("id"):
+    return False
+
+  extras = spool.get("filament", {}).get("extra") or {}
+  expected_filament_id = _extra_text(extras.get("filament_id"))
+  actual_filament_id = str(reported_filament_id or "").strip()
+  if expected_filament_id and actual_filament_id and expected_filament_id != actual_filament_id:
+    log(
+      f"PA PROFIL nicht gespeichert: Filament-ID passt nicht "
+      f"({actual_filament_id} != {expected_filament_id})"
+    )
+    return False
+
+  import spoolman_client
+  spoolman_client.patchFilamentExtra(
+    spool["filament"]["id"],
+    extras,
+    {"cali_idx": index},
+  )
+  return True
+
 def _repeat_ams_status_query(label, confirmation_key, attempt=1):
   if attempt > AMS_STATUS_QUERY_ATTEMPTS or not MQTT_CLIENT or confirmation_key not in PENDING_AMS_STATUS_CONFIRMATIONS:
     return
-  log(f"AMS Fachstatusabfrage {label}: Versuch {attempt}/{AMS_STATUS_QUERY_ATTEMPTS}")
   publish(MQTT_CLIENT, PUSH_ALL)
   if attempt < AMS_STATUS_QUERY_ATTEMPTS:
     timer = threading.Timer(AMS_STATUS_QUERY_INTERVAL, _repeat_ams_status_query, args=(label, confirmation_key, attempt + 1))
@@ -601,7 +737,12 @@ def clear_ams_tray_assignment(ams_id, tray_id):
   ams_message["print"]["tray_info_idx"] = ""
   ams_message["print"]["tray_sub_brands"] = ""
 
+  # Mark this exact request as Clear before publishing.  Color is deliberately
+  # not used for classification because a genuine white spool can also report
+  # FFFFFFFF.
+  FORCE_CLEAR_AMS_TRAYS.add(_ams_tray_key(ams_id, tray_id))
   if not publish(MQTT_CLIENT, ams_message):
+    FORCE_CLEAR_AMS_TRAYS.discard(_ams_tray_key(ams_id, tray_id))
     return False
 
   key = _ams_tray_key(ams_id, tray_id)
@@ -628,10 +769,69 @@ def clear_ams_tray_assignment(ams_id, tray_id):
 
 # Inspired by https://github.com/Donkie/Spoolman/issues/217#issuecomment-2303022970
 def on_message(client, userdata, msg):
-  global LAST_AMS_CONFIG, LAST_AMS_CONFIG_GENERATION, LAST_LOGGED_AMS_STATE, PRINTER_STATE, PRINTER_STATE_LAST, PENDING_PRINT_METADATA, PRINTER_MODEL, PENDING_EXTERNAL_OPERATION
+  global LAST_AMS_CONFIG, LAST_AMS_CONFIG_GENERATION, LAST_LOGGED_AMS_STATE, FORCE_AMS_STATUS_LOG, PRINTER_STATE, PRINTER_STATE_LAST, PENDING_PRINT_METADATA, PRINTER_MODEL, PENDING_EXTERNAL_OPERATION, PENDING_PA_PROFILE_COMMANDS
   
   try:
     data = json.loads(msg.payload.decode())
+
+    print_data = data.get("print", {}) if isinstance(data, dict) else {}
+    if print_data.get("command") == "extrusion_cali_sel":
+      pa_key = _ams_tray_key(print_data.get("ams_id"), print_data.get("tray_id"))
+      pending_pa = PENDING_PA_PROFILE_COMMANDS.pop(pa_key, None)
+      log(
+        "PA PROFIL IN: "
+        f"result={print_data.get('result') or '<leer>'}; "
+        f"Fach={print_data.get('ams_id', '<leer>')}/{print_data.get('tray_id', '<leer>')}; "
+        f"cali_idx={print_data.get('cali_idx', '<leer>')}; "
+        f"filament_id={print_data.get('filament_id') or '<leer>'}"
+      )
+      returned_idx = print_data.get("cali_idx")
+      requested_idx = (pending_pa or {}).get("cali_idx")
+      returned_matches_request = (
+        pending_pa is not None
+        and returned_idx is not None
+        and (
+          (requested_idx == -1 and str(returned_idx).strip() == "-1")
+          or (requested_idx != -1 and str(returned_idx).strip() == str(requested_idx))
+        )
+      )
+      if pending_pa and print_data.get("result") == "success" and returned_matches_request and pending_pa.get("persist", True):
+        # The printer's successful response is authoritative.  Persist the
+        # accepted index so the next assignment does not resend a rejected or
+        # stale value from Spoolman.
+        try:
+          _persist_confirmed_pa_profile(
+            print_data.get("ams_id"),
+            print_data.get("tray_id"),
+            returned_idx,
+            print_data.get("filament_id"),
+          )
+        except Exception as pa_store_error:
+          log(f"PA PROFIL Speicherung fehlgeschlagen: {pa_store_error}")
+      elif pending_pa and print_data.get("result") == "success" and not returned_matches_request:
+        # A late status packet can arrive after a rejected command.  It is not
+        # an acknowledgement for the currently pending request and must not
+        # overwrite Spoolman's PA index.
+        log(
+          f"PA PROFIL IN ignoriert: erwartet={requested_idx}; "
+          f"empfangen={returned_idx}"
+        )
+      elif pending_pa and print_data.get("result") == "fail" and pending_pa.get("cali_idx") != -1 and not str(print_data.get("ams_id")) == str(EXTERNAL_SPOOL_AMS_ID):
+        # Never leave Bambu displaying the previously selected profile after a
+        # rejected index.  Reset that tray to the printer default once.
+        _send_pa_profile_selection(client, print_data.get("ams_id"), print_data.get("tray_id"), -1, persist=False)
+      elif not pending_pa and print_data.get("result") == "success":
+        # Bambu emits this after a manual PA-profile selection in its UI.  A
+        # matching active filament makes that response safe to synchronize.
+        try:
+          _persist_confirmed_pa_profile(
+            print_data.get("ams_id"),
+            print_data.get("tray_id"),
+            returned_idx,
+            print_data.get("filament_id"),
+          )
+        except Exception as pa_store_error:
+          log(f"PA PROFIL Speicherung fehlgeschlagen: {pa_store_error}")
 
     # A successful Fill ACK must be followed by a physical AMS status.  If
     # the printer never reports that tray, do not leave the assignment pending.
@@ -649,7 +849,8 @@ def on_message(client, userdata, msg):
     try:
       print_reply = data.get("print", {}) if isinstance(data, dict) else {}
       if print_reply.get("command") == "ams_filament_setting":
-        log(f"Filamentinfo von AMS: {json.dumps(print_reply, ensure_ascii=False, sort_keys=True)}")
+        target = "EX" if str(print_reply.get("tray_id")) in {"254", "255"} else f"{num2letter(print_reply.get('ams_id'))}{int(print_reply.get('tray_id', 0)) + 1}"
+        log("PROFIL IN  " + f"[{target}]: {print_reply.get('result') or '<leer>'} | {print_reply.get('tray_type') or '<leer>'} | {print_reply.get('tray_sub_brands') or '<leer>'} | {print_reply.get('tray_color') or '<leer>'} | {print_reply.get('tray_info_idx') or '<leer>'} | {print_reply.get('setting_id') or '<leer>'}")
         sequence_id = str(print_reply.get("sequence_id") or "")
         pending = PENDING_AMS_FILAMENT_SETTINGS.pop(sequence_id, None)
         result = print_reply.get("result")
@@ -659,39 +860,68 @@ def on_message(client, userdata, msg):
         operation = (pending or {}).get("operation", "fill")
         if operation == "fill" and print_reply.get("tray_info_idx") and print_reply.get("setting_id") and ams_id is not None and tray_id is not None:
           try:
-            active_key = json.dumps(f"{PRINTER_ID}_{ams_id}_{tray_id}")
-            spool = next((item for item in fetchSpools(True) if item.get("extra", {}).get("active_tray") == active_key), None)
-            log(f"Bambu-Profilprüfung: Fach {ams_id}/{tray_id}; Pending={'ja' if pending else 'nein'}; Spool={(spool or {}).get('id', '<keiner>')}")
-            if spool and spool.get("filament", {}).get("id"):
+            spool = _find_active_spool_for_tray(ams_id, tray_id)
+            sample_key = (str(ams_id), str(tray_id))
+            sample = (str(print_reply.get("tray_info_idx") or ""), str(print_reply.get("setting_id") or ""))
+            if PROFILE_RESPONSE_SAMPLES.get(sample_key) == sample:
+              # Duplicate profile reply for the same tray: the corresponding
+              # PA command is already pending or was confirmed.
+              pass
+            elif spool and spool.get("filament", {}).get("id"):
+              PROFILE_RESPONSE_SAMPLES[sample_key] = sample
               import spoolman_client
               spoolman_client.patchFilamentExtra(
                 spool["filament"]["id"],
                 spool["filament"].get("extra") or {},
                 {"filament_id": print_reply["tray_info_idx"], "setting_id": print_reply["setting_id"]},
               )
-              log(f"Bambu-Profil gespeichert für Spool #{spool.get('id')}")
-            else:
-              log("Bambu-Profil nicht gespeichert: keine aktive Spool-Zuordnung gefunden")
+              extras = spool.get("filament", {}).get("extra", {}) or {}
+              def _extra_value(value):
+                try:
+                  parsed = json.loads(value) if isinstance(value, str) else value
+                  return parsed if not isinstance(parsed, str) else parsed
+                except (TypeError, ValueError):
+                  return value
+              extras = {key: _extra_value(value) for key, value in extras.items()}
+              cali_idx = extras.get("cali_idx")
+              if cali_idx is not None and str(cali_idx).strip() != "":
+                # extrusion_cali_sel identifies the material by Bambu's
+                # filament/tray-info ID, not by the AMS setting ID.
+                pa_filament_id = str(extras.get("filament_id") or print_reply["tray_info_idx"])
+                _send_pa_profile_selection(client, ams_id, tray_id, int(cali_idx), pa_filament_id)
+              else:
+                # No stored PA profile means Bambu must be reset explicitly;
+                # otherwise its UI keeps the last selected profile active.
+                default_filament_id = str(
+                  print_reply.get("tray_info_idx")
+                  or ""
+                )
+                _send_pa_profile_selection(client, ams_id, tray_id, -1, default_filament_id, persist=True)
           except Exception as profile_error:
             log(f"Bambu-Profil konnte nicht gespeichert werden: {profile_error}")
+        elif operation == "clear" and result == "success" and ams_id is not None and tray_id is not None:
+          PROFILE_RESPONSE_SAMPLES.pop(_ams_tray_key(ams_id, tray_id), None)
+          _send_pa_profile_selection(client, ams_id, tray_id, -1, persist=False)
         is_external = str(ams_id) in {"-1", "255"} or str(tray_id) == "255"
         tray_label = "[EX]" if is_external else (f"[{num2letter(ams_id)}{int(tray_id) + 1}]" if ams_id is not None and tray_id is not None else "[unbekanntes Fach]")
         if result == "success" and reason == "success":
           if is_external:
-            log(f"AMS {'Clear' if operation == 'clear' else 'Fill'} ACK für [EX]: Befehl angenommen")
-            # EX status arrives asynchronously in vt_tray; keep the operation
-            # pending so a subsequent empty UUID can remove the assignment.
-            PENDING_EXTERNAL_OPERATION = operation
+            # A successful EX profile response is already the stable result
+            # for this operation.  Do not leave the EX card locked while
+            # waiting for a vt_tray packet that may not be emitted.
+            PENDING_EXTERNAL_OPERATION = None if operation == "fill" else operation
             external_tray = LAST_AMS_CONFIG.get("vt_tray") or {}
             if operation == "clear" and not any(str(external_tray.get(field) or "").strip() for field in ("tray_type", "tray_sub_brands", "tray_info_idx", "setting_id")):
               clear_active_spool_for_tray(EXTERNAL_SPOOL_AMS_ID, EXTERNAL_SPOOL_ID)
               PENDING_EXTERNAL_OPERATION = None
-              log("AMS Clear bestätigt für [EX]: External Spool geleert")
+            if operation == "fill":
+              # EX does not reliably emit a follow-up vt_tray packet.  Push
+              # the complete status so the UI reflects the assignment.
+              publish(client, PUSH_ALL)
             return
           if operation == "fill":
             _remember_confirmed_ams_filament_setting(print_reply)
           PENDING_AMS_STATUS_CONFIRMATIONS[_ams_tray_key(ams_id, tray_id)] = (tray_label, time.monotonic(), operation)
-          log(f"AMS {'Clear' if operation == 'clear' else 'Fill'} ACK für {tray_label}: Befehl angenommen; fordere Fachstatus an")
           _repeat_ams_status_query(tray_label, _ams_tray_key(ams_id, tray_id))
         else:
           log(f"AMS Fill fehlgeschlagen für {tray_label}: result={result!r}, reason={reason!r}")
@@ -737,7 +967,13 @@ def on_message(client, userdata, msg):
         clear_active_spool_for_tray(EXTERNAL_SPOOL_AMS_ID, EXTERNAL_SPOOL_ID)
         PENDING_EXTERNAL_OPERATION = None
         external_assigned = None
-        log("AMS Clear bestätigt für [EX]: External Spool geleert")
+      elif PENDING_EXTERNAL_OPERATION == "clear" and not external_empty:
+        # The clear command was acknowledged, but the stable EX status still
+        # contains material. Unlock the tray and keep its assignment intact.
+        PENDING_EXTERNAL_OPERATION = None
+      elif PENDING_EXTERNAL_OPERATION == "fill" and not external_empty:
+        # A stable, populated EX status completes the fill operation.
+        PENDING_EXTERNAL_OPERATION = None
       external_decision = "FACH_LEER" if external_empty else ("ZUGEORDNET" if external_assigned else "NICHT_ZUGEORDNET")
 
     # Save ams spool data
@@ -759,23 +995,39 @@ def on_message(client, userdata, msg):
         for ams in LAST_AMS_CONFIG["ams"]
       ]
       log_ams = LOG_AMS_MODE != "none" and (
-        LOG_AMS_MODE == "everything" or ams_log_state != LAST_LOGGED_AMS_STATE
+        FORCE_AMS_STATUS_LOG or LOG_AMS_MODE == "everything" or ams_log_state != LAST_LOGGED_AMS_STATE
       )
+      FORCE_AMS_STATUS_LOG = False
       if log_ams:
         LAST_LOGGED_AMS_STATE = ams_log_state
       for ams in LAST_AMS_CONFIG["ams"]:
         for tray in ams["tray"]:
-          tray["ams_empty"] = (
-            not str(tray.get("tray_uuid") or "").strip()
-            and not str(tray.get("tray_type") or "").strip()
-            and not str(tray.get("tray_sub_brands") or "").strip()
-          )
           raw_uuid = str(tray.get("tray_uuid") or "")
+          # A reported all-zero UUID still means a physical spool is present
+          # (typically a non-RFID/third-party spool). Only an actually missing
+          # UUID is evidence that the tray is physically empty.
+          uuid_empty = not raw_uuid.strip()
           raw_type = str(tray.get("tray_type") or "")
           raw_brand = str(tray.get("tray_sub_brands") or "")
           raw_color = str(tray.get("tray_color") or "")
+          profile_idx = str(tray.get("tray_info_idx") or "").strip()
+          setting_idx = str(tray.get("setting_id") or "").strip()
+          has_non_default_color = raw_color.strip().upper() not in {"", "FFFFFFFF"}
+          tray["ams_empty"] = (
+            uuid_empty
+            and not raw_type.strip()
+            and not raw_brand.strip()
+            and not profile_idx
+            and not setting_idx
+            and not has_non_default_color
+          )
           active_tray_key = json.dumps(f"{PRINTER_ID}_{ams['id']}_{tray['id']}")
           assigned_spool = next((spool for spool in spool_list if spool.get("extra", {}).get("active_tray") == active_tray_key), None)
+          # Bambu's explicit "no spool" state (empty fields, often zero UUID)
+          # is authoritative even without an OSM Clear button action.
+          if tray["ams_empty"] and assigned_spool:
+            clear_active_spool_for_tray(ams["id"], tray.get("id"))
+            assigned_spool = None
           loading_status = str(tray.get("tray_status") or tray.get("status") or "").lower()
           is_loading = loading_status in {"loading", "unloading", "changing", "load", "unload"}
           raw_decision = "LADEVORGANG" if is_loading else ("FACH_LEER" if tray["ams_empty"] else ("ZUGEORDNET" if assigned_spool else ("NICHT_ZUGEORDNET" if raw_uuid or raw_type or raw_brand or raw_color else "UNBEKANNT")))
@@ -786,7 +1038,6 @@ def on_message(client, userdata, msg):
             if operation == "clear" and not str(tray.get("tray_type") or "").strip() and not str(tray.get("tray_sub_brands") or "").strip():
               PENDING_AMS_STATUS_CONFIRMATIONS.pop(confirmation_key, None)
               AMS_STATUS_SAMPLES.pop(confirmation_key, None)
-              log(f"AMS Clear bestätigt für {pending_label}: Fach geleert")
               clear_active_spool_for_tray(ams["id"], tray.get("id"))
               continue
             sample = tuple(str(tray.get(field) or "") for field in ("tray_type", "tray_sub_brands", "tray_color", "tray_info_idx", "setting_id", "remain"))
@@ -814,28 +1065,15 @@ def on_message(client, userdata, msg):
             tray["ams_empty"] = tray_is_empty
             if tray_is_empty:
               PENDING_AMS_STATUS_CONFIRMATIONS.pop(confirmation_key)
-              log(f"AMS {'Clear' if operation == 'clear' else 'Fill'} {'bestätigt' if operation == 'clear' else 'fehlgeschlagen'} für {pending_label}: Fach {'geleert' if operation == 'clear' else 'weiterhin leer'}")
+              if operation != "clear":
+                log(f"AMS Fill fehlgeschlagen für {pending_label}: Fach weiterhin leer")
               clear_active_spool_for_tray(ams["id"], tray.get("id"))
             elif tray.get("tray_type") or tray.get("tray_sub_brands") or tray.get("tray_color"):
               PENDING_AMS_STATUS_CONFIRMATIONS.pop(confirmation_key)
               if operation == "clear":
                 log(f"AMS Clear fehlgeschlagen für {pending_label}: Fach weiterhin belegt")
-              else:
-                log(f"AMS Fill bestätigt für {pending_label}: Fach belegt")
           if "tray_sub_brands" in tray:
             if log_ams:
-              profile_fields = {
-                key: tray.get(key)
-                for key in (
-                  "tray_type", "tray_sub_brands", "tray_info_idx", "setting_id",
-                  "tray_uuid", "remain", "tray_color", "tray_status", "status",
-                )
-                if key in tray
-              }
-              log(
-                f"    - [{num2letter(ams['id'])}{int(tray['id']) + 1}] Profilfelder: "
-                f"{json.dumps(profile_fields, ensure_ascii=False, sort_keys=True)}"
-              )
               log(
                   f"    - [{num2letter(ams['id'])}{int(tray['id']) + 1}] {tray.get('tray_sub_brands', '')} {tray.get('tray_color', '')} ({str(tray.get('remain', '---')).zfill(3)}%) [[ {tray.get('tray_uuid', '')} ]]")
 
@@ -884,10 +1122,10 @@ def on_message(client, userdata, msg):
 
             if not found and (not tray_uuid or tray_uuid == zero_uuid):
               if log_ams:
-                log("      - ---")
+                log("      - Fach leer" if tray.get("ams_empty") else "      - Keine Spule")
             elif not found:
               if log_ams:
-                log("      - Not found. Update spool tag!")
+                log("      - Keine Spule")
               tray["unmapped_bambu_tag"] = tray_uuid
               tray["issue"] = True
 
@@ -902,7 +1140,7 @@ def on_message(client, userdata, msg):
             if log_ams:
               log(
                   f"    - [{num2letter(ams['id'])}{int(tray['id']) + 1}]")
-              log("      - No Spool!")
+              log("      - Fach leer" if tray.get("ams_empty") else "      - Keine Spule")
 
       # Keep the external spool in the normal status output, after A1-A4.
       external_active_tray = json.dumps(f"{PRINTER_ID}_{EXTERNAL_SPOOL_AMS_ID}_{EXTERNAL_SPOOL_ID}")
@@ -919,7 +1157,7 @@ def on_message(client, userdata, msg):
           description = " - ".join(value for value in (material, name, vendor) if value)
           log(f"    - [EX] Spool #{external_assigned.get('id')}: {description or 'zugeordnet'}")
         else:
-          log("    - [EX] ---")
+          log("    - [EX] Keine Spule")
 
   except Exception:
     traceback.print_exc()

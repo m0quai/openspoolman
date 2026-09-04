@@ -38,6 +38,12 @@ function initThumbnailHover() {
 function initPrintHistoryRefresh() {
   const forceButton = document.getElementById('print-history-refresh-now');
   const forceButtonLabel = document.getElementById('print-history-refresh-label');
+  const hasActivePrint = {{ 'true' if active_print_id else 'false' }};
+  if (!hasActivePrint) {
+    if (forceButtonLabel) forceButtonLabel.textContent = 'Jetzt aktualisieren';
+    forceButton?.addEventListener('click', () => window.location.reload());
+    return;
+  }
   const intervalSeconds = 15;
   let remaining = intervalSeconds;
   const updateStatus = () => {
@@ -112,8 +118,8 @@ window.addEventListener('load', formatPrintDurations);
 </script>
 <h1 class="mb-4 text-center">Print history</h1>
 <div class="d-flex justify-content-center align-items-center gap-3 mb-3">
-  <button id="print-history-refresh-now" type="button" class="btn btn-sm btn-outline-primary">
-    <i class="bi bi-arrow-clockwise me-1"></i><span id="print-history-refresh-label">Jetzt aktualisieren – nächste Aktualisierung in 15 s</span>
+  <button id="print-history-refresh-now" type="button" class="btn btn-sm btn-primary rounded-pill px-2 py-1">
+    <i class="bi bi-arrow-clockwise me-1"></i><span id="print-history-refresh-label">Jetzt aktualisieren{% if active_print_id %} – nächste Aktualisierung in 15 s{% endif %}</span>
   </button>
   {% if has_deleted_prints %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('print_history', show_deleted=0 if show_deleted else 1) }}">{{ 'Aktive anzeigen' if show_deleted else 'Gelöschte anzeigen' }}</a>{% endif %}
 </div>

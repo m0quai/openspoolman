@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="initial-scale=0.8, shrink-to-fit=yes, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="OpenSpoolMan">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>OpenSpoolMan</title>
@@ -43,16 +44,13 @@
     <div class="d-flex flex-wrap align-items-center justify-content-center justify-content-lg-start">
       <a href="{{ url_for('home') }}" class="d-flex align-items-center mb-2 mb-lg-0 link-body-emphasis text-decoration-none">
         <img width="40" height="40" alt="OpenSpoolMan Logo" src="{{ url_for('static', filename='logo.png') }}"/>
-        {% if PRINTER_NAME %}
-        <h5 style="margin: 0px 5px 5px 5px;">{{ PRINTER_NAME}}</h5>
-        {% else %}
-        <h5 style="margin: 0px 5px 5px 5px;">{{ PRINTER_MODEL["model"]}} - {{PRINTER_MODEL["devicename"]}}</h5>
-        {% endif %}
       </a>
       
       <ul class="nav col-12 col-lg-auto me-lg-auto mb-2 justify-content-center mb-md-0">
+        <li><a href="{{ url_for('home') }}" class="nav-link px-2 link-body-emphasis">Home</a></li>
         <li><a href="{{ url_for('print_history') }}" class="nav-link px-2 link-body-emphasis">History</a></li>
-        <li><a href="{{ url_for('bambu_cloud.index') }}" class="nav-link px-2 link-body-emphasis">Printer{% if not mqtt_connected|default(false) %}<span class="mqtt-menu-status-dot disconnected" title="MQTT nicht verbunden"></span>{% endif %}</a></li>
+        <li><a href="{{ url_for('bambu_cloud.index') }}" class="nav-link px-2 link-body-emphasis">Settings{% if not mqtt_connected|default(false) %}<span class="mqtt-menu-status-dot disconnected" title="MQTT nicht verbunden"></span>{% endif %}</a></li>
+        <li><a href="{{ url_for('livecam') }}" class="nav-link px-2 link-body-emphasis">LiveCam</a></li>
         <li><a href="{{ SPOOLMAN_BASE_URL }}" target="_blank" class="nav-link px-2 link-body-emphasis">SpoolMan</a></li>
       </ul>
     </div>
@@ -154,7 +152,7 @@
       <li class="nav-item d-flex align-items-center me-2">
         <span class="text-body-secondary">v{{ openspoolman_version }} (Build {{ openspoolman_build_number }}) @m0quai</span>
       </li>
-      <li class="ms-3"><a class="link-body-emphasis" href="https://github.com/drndos/openspoolman" target="_blank" rel="noopener noreferrer">
+      <li class="ms-3"><a class="link-body-emphasis" href="https://github.com/m0quai/openspoolman" target="_blank" rel="noopener noreferrer">
         <i class="bi bi-github"></i>
       </a></li>
     </ul>

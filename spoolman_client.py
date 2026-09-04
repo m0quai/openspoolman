@@ -53,7 +53,16 @@ def getSpoolById(spool_id):
 def patchFilamentExtra(filament_id, old_extra, new_values):
   """Persist Bambu profile identifiers on the filament record."""
   extra = dict(old_extra or {})
-  extra.update({key: json.dumps(str(value), ensure_ascii=False) for key, value in new_values.items() if value})
+  extra.pop("pa_filament_id", None)
+  for key, value in new_values.items():
+    if value is None or value == "":
+      continue
+    # Spoolman's Integer extra fields reject JSON strings such as '"884"'.
+    # All Bambu IDs remain strings; only the PA calibration index is numeric.
+    if key == "cali_idx":
+      extra[key] = json.dumps(int(value))
+    else:
+      extra[key] = json.dumps(str(value), ensure_ascii=False)
   response = requests.patch(f"{SPOOLMAN_API_URL}/filament/{filament_id}", json={"extra": extra})
   if response.status_code >= 400:
     raise RuntimeError(f"Spoolman-Filamentupdate fehlgeschlagen ({response.status_code}): {response.text}")

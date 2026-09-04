@@ -3,47 +3,9 @@
 {% from 'fragments/ams_metrics.html' import humidity_display %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-  <div class="d-flex align-items-center gap-3 text-muted small">
-    <span>
-      Hotend:
-      <span id="printer-hotend" class="fw-semibold">
-        {% if printer_temperatures.hotend is not none %}{{ printer_temperatures.hotend|round|int }}{% else %}-{% endif %}
-      </span>°C
-      <span id="printer-hotend-target-wrapper"{% if printer_temperatures.hotend_target is none %} class="d-none"{% endif %}>
-        / <span id="printer-hotend-target">{% if printer_temperatures.hotend_target is not none %}{{ printer_temperatures.hotend_target|round|int }}{% endif %}</span>°C
-      </span>
-    </span>
-    <span>
-      Bed:
-      <span id="printer-bed" class="fw-semibold">
-        {% if printer_temperatures.bed is not none %}{{ printer_temperatures.bed|round|int }}{% else %}-{% endif %}
-      </span>°C
-      <span id="printer-bed-target-wrapper"{% if printer_temperatures.bed_target is none %} class="d-none"{% endif %}>
-        / <span id="printer-bed-target">{% if printer_temperatures.bed_target is not none %}{{ printer_temperatures.bed_target|round|int }}{% endif %}</span>°C
-      </span>
-    </span>
-  </div>
-
-  {% if (not printer_is_busy) or pending_nfc %}<div class="d-flex gap-2">
-    {% if pending_nfc %}
-    <a href="{{ url_for('ams_nfc.pending_tags') }}" class="btn btn-outline-secondary">
-      <i class="bi bi-tags me-1"></i> NFC-Tags
-    </a>
-    {% endif %}
-    {% if not printer_is_busy %}
-    <form method="post" action="{{ url_for('refresh_ams') }}">
-      <button type="submit" class="btn btn-outline-primary"{% if printer_is_busy %} disabled title="Während eines laufenden Drucks deaktiviert"{% endif %}>
-        <i class="bi bi-arrow-clockwise me-1"></i> AMS aktualisieren
-      </button>
-    </form>
-    {% endif %}
-  </div>{% endif %}
-</div>
-
 <div class="row">
   {% for ams in ams_data %}
-  <div class="col-lg-8 mb-4 text-center ams-card">
+  <div class="col-lg-7 mb-4 text-center ams-card">
     <div class="card shadow-sm">
       <div class="card-header d-flex justify-content-between align-items-center">
         {% set ams_key = ams.id %}
@@ -66,10 +28,39 @@
   </div>
   {% endfor %}
 
-  <div class="{% if ams_data|length > 1 %}col-12{% else %}col-lg-4{% endif %} mb-4 text-center">
-    {% with tray_data=vt_tray_data, ams_id=EXTERNAL_SPOOL_AMS_ID, pick_tray=False, tray_id=EXTERNAL_SPOOL_ID %}
-      {% include 'fragments/tray.html' %}
-    {% endwith %}
+  <div class="{% if ams_data|length > 1 %}col-12{% else %}col-lg-5{% endif %} mb-4 text-center">
+    <div class="card shadow-sm printer-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">{% if PRINTER_NAME %}{{ PRINTER_NAME }}{% elif PRINTER_MODEL %}{{ PRINTER_MODEL.get('devicename') or PRINTER_MODEL.get('model') or 'Printer' }}{% else %}Printer{% endif %}</h5>
+        <div class="d-flex align-items-center gap-3">
+          <div class="text-muted small">
+          Hotend: <span id="printer-hotend" class="fw-semibold">{% if printer_temperatures.hotend is not none %}{{ printer_temperatures.hotend|round|int }}{% else %}-{% endif %}</span>°C
+          <span id="printer-hotend-target-wrapper"{% if printer_temperatures.hotend_target is none %} class="d-none"{% endif %}> / <span id="printer-hotend-target">{% if printer_temperatures.hotend_target is not none %}{{ printer_temperatures.hotend_target|round|int }}{% endif %}</span>°C</span>
+          &nbsp; Bed: <span id="printer-bed" class="fw-semibold">{% if printer_temperatures.bed is not none %}{{ printer_temperatures.bed|round|int }}{% else %}-{% endif %}</span>°C
+          <span id="printer-bed-target-wrapper"{% if printer_temperatures.bed_target is none %} class="d-none"{% endif %}> / <span id="printer-bed-target">{% if printer_temperatures.bed_target is not none %}{{ printer_temperatures.bed_target|round|int }}{% endif %}</span>°C</span>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        {% with tray_data=vt_tray_data, ams_id=EXTERNAL_SPOOL_AMS_ID, pick_tray=False, tray_id=EXTERNAL_SPOOL_ID %}
+          {% include 'fragments/tray.html' %}
+        {% endwith %}
+      </div>
+      {% if (not printer_is_busy) or pending_nfc %}
+      <div class="card-footer text-center">
+        {% if pending_nfc %}
+        <a href="{{ url_for('ams_nfc.pending_tags') }}" class="btn btn-sm btn-outline-secondary rounded-pill px-2 py-1 me-2">
+          <i class="bi bi-tags me-1"></i> NFC-Tags
+        </a>
+        {% endif %}
+        <form method="post" action="{{ url_for('refresh_ams') }}" class="d-inline">
+          <button type="submit" class="btn btn-sm btn-primary rounded-pill px-2 py-1"{% if printer_is_busy or ams_operation_pending %} disabled title="AMS-Aktionen sind momentan deaktiviert"{% endif %}>
+            <i class="bi bi-arrow-clockwise me-1"></i> AMS aktualisieren
+          </button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
   </div>
 </div>
 

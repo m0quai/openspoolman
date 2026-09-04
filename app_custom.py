@@ -122,11 +122,29 @@ _openspoolman_config.SPOOLMAN_RUNTIME_BASE_URL = _SPOOLMAN_RUNTIME_BASE_URL
 _openspoolman_config.SPOOLMAN_API_URL = f"{_SPOOLMAN_RUNTIME_BASE_URL}/api/v1"
 _openspoolman_app_module.SPOOLMAN_BASE_URL = _SPOOLMAN_PUBLIC_BASE_URL
 
+# Upstream only recognizes the base material PLA.  Keep the concrete PLA+
+# material in Spoolman while using a safe PLA range when no per-filament
+# nozzle-temperature extra field has been maintained.
+_original_generate_filament_temperatures = _openspoolman_app_module.generate_filament_temperatures
+
+def _generate_filament_temperatures_with_pla_plus(filament_type, filament_brand):
+    normalized = str(filament_type or "").strip().upper().replace(" ", "")
+    if normalized.startswith("PLA+"):
+        return {"filament_min_temp": 190, "filament_max_temp": 240}
+    return _original_generate_filament_temperatures(filament_type, filament_brand)
+
+_openspoolman_app_module.generate_filament_temperatures = _generate_filament_temperatures_with_pla_plus
+
 
 def _readonly_augment_tray(spool_list, tray_data, ams_id, tray_id):
     _openspoolman_app_module.augmentTrayDataWithSpoolMan(
         spool_list, tray_data, ams_id, tray_id
     )
+    # The upstream warning is based on transient/incomplete AMS material
+    # packets and is not actionable in the tray card.  The stable tray state
+    # and spool assignment are the source of truth shown below.
+    tray_data["ams_material_missing"] = False
+    tray_data["ams_material_missing_message"] = ""
     if int(ams_id) == EXTERNAL_SPOOL_AMS_ID:
         tray_data["ams_material_missing"] = False
         tray_data["ams_material_missing_message"] = ""
@@ -135,7 +153,10 @@ def _readonly_augment_tray(spool_list, tray_data, ams_id, tray_id):
         tray_data["mismatch_detected"] = False
     # Keep External Spool actionable; only mark genuinely empty AMS trays.
     tray_data["ams_empty"] = False
-    tray_data["ams_loading"] = False
+    tray_data["ams_loading"] = mqtt_bambulab.is_ams_tray_operation_pending(ams_id, tray_id)
+    if tray_data["ams_loading"]:
+        tray_data["ams_material_missing"] = False
+        tray_data["ams_material_missing_message"] = ""
     if ams_id is None:
         return
     for ams in (mqtt_bambulab.LAST_AMS_CONFIG.get("ams", []) or []):
@@ -145,12 +166,24 @@ def _readonly_augment_tray(spool_list, tray_data, ams_id, tray_id):
             if str(tray.get("id")) != str(tray_id):
                 continue
             tray_uuid = str(tray.get("tray_uuid") or "").strip()
+            uuid_empty = not tray_uuid
+            tray_color = str(tray.get("tray_color") or "").strip().upper()
             tray_data["ams_empty"] = (
-                not tray_uuid
+                uuid_empty
                 and not str(tray.get("tray_type") or "").strip()
                 and not str(tray.get("tray_sub_brands") or "").strip()
+                and not str(tray.get("tray_info_idx") or "").strip()
+                and not str(tray.get("setting_id") or "").strip()
+                and tray_color in {"", "FFFFFFFF"}
             )
-            tray_data["ams_loading"] = (str(ams_id), str(tray_id)) in mqtt_bambulab.PENDING_AMS_STATUS_CONFIRMATIONS
+            tray_status = str(tray.get("tray_status") or tray.get("status") or "").lower()
+            tray_data["ams_loading"] = (
+                mqtt_bambulab.is_ams_tray_operation_pending(ams_id, tray_id)
+                or tray_status in {"loading", "unloading", "changing", "load", "unload"}
+            )
+            if tray_data["ams_loading"]:
+                tray_data["ams_material_missing"] = False
+                tray_data["ams_material_missing_message"] = ""
             return
 
 _openspoolman_app_module._augment_tray = _readonly_augment_tray
@@ -223,6 +256,27 @@ def print_image(filename):
 # `remain == -1` means unknown, and an all-zero tray UUID is not a real UID.
 _original_mqtt_log = mqtt_bambulab.log
 
+def _ams_console_empty_status(ams_letter, tray_number):
+    """Describe an unassigned tray without the ambiguous '---' marker."""
+    try:
+        ams_id = ord(ams_letter) - ord("A")
+        tray_id = int(tray_number) - 1
+    except (TypeError, ValueError):
+        return "Fach leer"
+
+    for ams in (getattr(mqtt_bambulab, "LAST_AMS_CONFIG", {}) or {}).get("ams", []):
+        if str(ams.get("id")) != str(ams_id):
+            continue
+        for tray in ams.get("tray", []) or []:
+            if str(tray.get("id")) != str(tray_id):
+                continue
+            has_material = any(
+                str(tray.get(field) or "").strip()
+                for field in ("tray_type", "tray_sub_brands", "tray_info_idx", "setting_id")
+            ) or str(tray.get("tray_color") or "").strip().upper() not in {"", "FFFFFFFF"}
+            return "Keine Spule" if has_material else "Fach leer"
+    return "Fach leer"
+
 
 def _format_ams_console_log(*args, **kwargs):
     import re
@@ -261,6 +315,11 @@ def _format_ams_console_log(*args, **kwargs):
     if text.lstrip().startswith("- [A"):
         text = re.sub(r"\s+\(-0?1%\)", "", text)
         text = re.sub(r"\s+\[\[\s*0{32}\s*\]\]", "", text)
+        empty_match = re.match(r"^(\s*- \[([A-Z])(\d+)\])\s+---\s*$", text)
+        if empty_match:
+            text = f"{empty_match.group(1)} {_ams_console_empty_status(empty_match.group(2), empty_match.group(3))}"
+    elif re.match(r"^\s*- \[EX\]\s+---\s*$", text):
+        text = "    - [EX] Keine Spule"
 
     return _original_mqtt_log(text, *args[1:], **kwargs)
 
@@ -500,8 +559,10 @@ def inject_openspoolman_version():
         "openspoolman_build_number": _runtime_build_number,
         "printer_temperatures": _printer_temperature_status(),
         "printer_is_busy": _printer_is_busy(),
+        "ams_operation_pending": mqtt_bambulab.is_any_ams_operation_pending(),
         "pending_nfc": pending_nfc,
         "active_print_id": print_history_service.get_latest_running_print_id(),
+        "spoolman_public_url": _SPOOLMAN_PUBLIC_BASE_URL,
     }
 
 
@@ -511,6 +572,10 @@ def reconcile_stale_print_history_statuses():
     if state not in {"IDLE", "FINISH", "FAILED", "STOP"}:
         return None
     print_history_service.cancel_stale_running_prints(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+@app.route("/livecam")
+def livecam():
+    return render_template("livecam.html", livecam_url=os.getenv("LIVE_CAM_URL", ""))
     return None
 
 
@@ -546,17 +611,18 @@ def refresh_ams():
             "home",
             success_message="AMS-Abfrage konnte nicht gesendet werden."
         ))
+    mqtt_bambulab.FORCE_AMS_STATUS_LOG = True
+    # PUSH_ALL is deliberately read-only.  Do not call setActiveSpool here:
+    # that sends ams_filament_setting and changes the printer state.
+    _log("AMS-AKTUALISIERUNG: Statusabfrage gesendet")
 
     deadline = time.monotonic() + 3.0
     while time.monotonic() < deadline:
         time.sleep(0.10)
         if getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0) > before_generation:
-            return redirect(url_for("home", success_message="AMS wurde aktualisiert."))
+            return redirect(url_for("home"))
 
-    return redirect(url_for(
-        "home",
-        success_message="AMS-Abfrage wurde gesendet, aber innerhalb von 3 Sekunden kam keine neue AMS-Antwort."
-    ))
+    return redirect(url_for("home"))
 
 
 def _custom_tray_clear():
@@ -575,6 +641,12 @@ def _custom_tray_clear():
             exception="Live read-only mode: clearing tray assignments is disabled.",
         )
 
+    if mqtt_bambulab.is_any_ams_operation_pending():
+        return render_template(
+            "error.html",
+            exception="Das Fach wird noch aktualisiert. Clear ist erst nach stabilem Fachstatus möglich.",
+        )
+
     try:
         if not mqtt_bambulab.isMqttClientConnected():
             return render_template(
@@ -589,6 +661,7 @@ def _custom_tray_clear():
             )
 
         spoolman_service.clear_active_spool_for_tray(ams_id, tray_id)
+        spoolman_service.SPOOLS = []
         return redirect(
             url_for(
                 "home",
@@ -605,7 +678,64 @@ def _custom_tray_clear():
 app.view_functions["tray_clear"] = _custom_tray_clear
 
 
+@app.before_request
+def _block_mutating_tray_actions_while_pending():
+    """Reject direct assignment URLs until the preceding tray operation is stable."""
+    if request.endpoint == "refresh_ams" and _printer_is_busy():
+        return render_template("error.html", exception="AMS-Aktionen sind während eines Drucks deaktiviert.")
+    if request.endpoint not in {"fill", "tray_load", "assign_bambu_spool"}:
+        return None
+
+    ams_id = request.args.get("ams")
+    tray_id = request.args.get("tray")
+    spool_id = request.args.get("spool_id")
+    if not ams_id or tray_id is None or not spool_id:
+        return None
+    if _printer_is_busy():
+        return render_template("error.html", exception="AMS-Aktionen sind während eines Drucks deaktiviert.")
+    if request.endpoint == "fill":
+        import spoolman_client
+        try:
+            selected_spool = spoolman_client.getSpoolById(spool_id)
+            active_tray = (selected_spool.get("extra") or {}).get("active_tray")
+            if active_tray and str(active_tray) not in {"", '""'}:
+                return render_template(
+                    "error.html",
+                    exception="Diese Spule ist bereits einem Fach zugeordnet und kann nicht doppelt verwendet werden.",
+                )
+        except Exception:
+            pass
+    if mqtt_bambulab.is_any_ams_operation_pending():
+        return render_template(
+            "error.html",
+            exception="Das Fach wird noch aktualisiert. Eine neue Zuordnung ist erst nach stabilem Fachstatus möglich.",
+        )
+    return None
+
+
 _original_set_active_spool = _openspoolman_app_module.setActiveSpool
+_original_builtin_print = builtins.print
+_original_upstream_log = getattr(_openspoolman_app_module, "log", None)
+
+def _quiet_upstream_log(*args, **kwargs):
+    """Suppress the verbose raw AMS command dump from upstream app.py."""
+    if args and isinstance(args[0], dict):
+        print_data = args[0].get("print")
+        if isinstance(print_data, dict) and print_data.get("command") == "ams_filament_setting":
+            return None
+    if _original_upstream_log is not None:
+        return _original_upstream_log(*args, **kwargs)
+    return None
+
+if _original_upstream_log is not None:
+    _openspoolman_app_module.log = _quiet_upstream_log
+
+def _quiet_upstream_ams_print(*args, **kwargs):
+    """Suppress legacy AMS detail dumps emitted by upstream app.py."""
+    text = " ".join(str(arg) for arg in args).lstrip()
+    if text.startswith("[OpenSpoolMan] AMS Fill v2:") or text.startswith("{'print':"):
+        return None
+    return _original_builtin_print(*args, **kwargs)
 
 def _set_active_spool_bambu_compatible(ams_id, tray_id, spool_data):
     import copy
@@ -614,17 +744,21 @@ def _set_active_spool_bambu_compatible(ams_id, tray_id, spool_data):
     filament = normalized.get("filament", {}) or {}
     extra = filament.setdefault("extra", {})
     vendor = ((filament.get("vendor") or {}).get("name") or "").strip().upper()
-    material = str(filament.get("material") or "").strip()
-    material_key = material.upper().replace(" ", "")
-
-    if material_key == "PLA+":
-        filament["material"] = "PLA"
-
     raw_filament_id = str(extra.get("filament_id", "") or "").strip().strip('"')
     if raw_filament_id.isdigit():
         extra["filament_id"] = ""
 
-    return _original_set_active_spool(ams_id, tray_id, normalized)
+    builtins.print = _quiet_upstream_ams_print
+    try:
+        result = _original_set_active_spool(ams_id, tray_id, normalized)
+    finally:
+        builtins.print = _original_builtin_print
+    # The assignment endpoint updates Spoolman, but the service-level spool
+    # cache may still contain the previous active_tray value.  Invalidate it
+    # so the next home render immediately reflects the confirmed assignment.
+    import spoolman_service
+    spoolman_service.SPOOLS = []
+    return result
 
 _openspoolman_app_module.setActiveSpool = _set_active_spool_bambu_compatible
 

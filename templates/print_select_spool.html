@@ -1,17 +1,25 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<!-- Page Title -->
-
 {% if change_spool %}
-<h1 class="mb-4 text-center">Change spool</h1>
+<div class="d-flex align-items-center gap-3 mb-4">
+  <a class="badge bg-primary rounded-pill text-decoration-none px-3 py-1 align-self-center d-inline-flex align-items-center" href="{{ url_for('print_history', print_id=print_id, ams_slot=ams_slot, _anchor='print_' + print_id) }}">
+    <i class="bi bi-chevron-left"></i> Back
+  </a>
+  <h1 class="mb-0">Change spool</h1>
+</div>
 <div class="text-center mb-4">
   <a href="{{ url_for('print_history', print_id=print_id, ams_slot=ams_slot, spool_id='-1',old_spool_id=old_spool_id, _anchor='print_' + print_id) }}" class="btn btn-danger">
     <i class="bi bi-x-circle me-2"></i>Remove Assignment
   </a>
 </div>
 {% else %}
-<h1 class="mb-4 text-center">Assign spool to print</h1>
+<div class="d-flex align-items-center gap-3 mb-4">
+  <a class="badge bg-primary rounded-pill text-decoration-none px-3 py-1 align-self-center d-inline-flex align-items-center" href="{{ url_for('print_history', print_id=print_id, ams_slot=ams_slot, _anchor='print_' + print_id) }}">
+    <i class="bi bi-chevron-left"></i> Back
+  </a>
+  <h1 class="mb-0">Assign spool to print</h1>
+</div>
 {% endif %}
 {% with action_assign_print=True, materials=materials, selected_materials=selected_materials %}{% include 'fragments/list_spools.html' %}{% endwith %}
 {% endblock %}

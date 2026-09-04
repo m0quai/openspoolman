@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h1 class="mb-4 text-center">LiveCam</h1>
+<div class="card shadow-sm mx-auto" style="max-width: 960px;">
+  <div class="card-header">Livebild</div>
+  <div class="card-body text-center">
+    <div class="border rounded bg-body-secondary d-flex align-items-center justify-content-center" style="min-height: 420px;">
+      <img id="livecam-image" src="" alt="Livebild" class="img-fluid d-none" style="max-height: 70vh;" data-stream-url="{{ livecam_url }}">
+      <span id="livecam-placeholder" class="text-muted">Livebild gestoppt</span>
+    </div>
+    <button id="livecam-toggle" type="button" class="btn btn-sm btn-primary rounded-pill px-3 py-2 mt-3">
+      <i class="bi bi-play-fill me-1"></i> Start
+    </button>
+  </div>
+</div>
+<script>
+(() => {
+  const image = document.getElementById('livecam-image');
+  const placeholder = document.getElementById('livecam-placeholder');
+  const button = document.getElementById('livecam-toggle');
+  if (!image || !placeholder || !button) return;
+  let running = false;
+  button.addEventListener('click', () => {
+    running = !running;
+    if (running) {
+      const streamUrl = image.dataset.streamUrl || '';
+      if (streamUrl) image.src = streamUrl;
+      image.classList.toggle('d-none', !streamUrl);
+      placeholder.classList.toggle('d-none', !!streamUrl);
+      button.innerHTML = '<i class="bi bi-stop-fill me-1"></i> Stop';
+    } else {
+      image.removeAttribute('src');
+      image.classList.add('d-none');
+      placeholder.classList.remove('d-none');
+      button.innerHTML = '<i class="bi bi-play-fill me-1"></i> Start';
+    }
+  });
+})();
+</script>
+{% endblock %}

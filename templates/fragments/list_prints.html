@@ -15,7 +15,7 @@
                 <!-- Print Information -->
                 <div class="card-body">
                   <div class="row">
-                      <div class="col-8 mb-3">
+                      <div class="col-12 mb-3">
                         <div class="label-print-value">
                           <span class="label-print-inline fw-bold">Date: </span>
                           <div class="label-print-stacked fw-bold">Date</div>
@@ -23,13 +23,6 @@
                         </div>
                       </div>
                 
-                      <div class="col-4 mb-3">
-                        <div class="label-print-value">
-                          <span class="label-print-inline fw-bold">Type: </span>
-                          <div class="label-print-stacked fw-bold">Type</div>
-                          <div>{{ print['print_type'] }}</div>
-                        </div>
-                      </div>
                     </div>
 
                     <div class="row">
@@ -48,13 +41,6 @@
                             <span class="label-print-inline fw-bold">Cost: </span>
                             <div class="label-print-stacked fw-bold">Cost</div>
                             <div>{{ '%.2f' | format(total_cost) }} {{currencysymbol}}</div>
-                          </div>
-                          {% endif %}
-                          {% if print.get('display_filament_total') is not none %}
-                          <div class="label-print-value">
-                            <span class="label-print-inline fw-bold">Filament: </span>
-                            <div class="label-print-stacked fw-bold">Filament</div>
-                            <div>{{ '%.2f' | format(print['display_filament_total']) }}g</div>
                           </div>
                           {% endif %}
                         </div>
@@ -134,7 +120,7 @@
                                   <div class="text-muted small fw-semibold mb-2">[External]</div>
                                 {% endif %}
                                 {% if filament['spool'] %}
-                                    <a href="{{ url_for('spool_info', spool_id=filament['spool'].id) }}" class="nav-link link-body-emphasis">
+                                    <div class="print-filament-row nav-link link-body-emphasis d-flex justify-content-between align-items-center">
                                         <div class="filament-info d-flex justify-content-between align-items-center">
                                             <div class="d-flex align-items-start">
                                                 <div class="slicer-color-stack me-3">
@@ -203,10 +189,10 @@
                                                 </small>
                                                 </div>
                                     </div>
-                                    </a>
+                                    </div>
 
                                             <!-- Edit Button rechts -->
-                                            <a href="{{ url_for('print_select_spool', ams_slot=filament['ams_slot'], print_id=print['id'], old_spool_id=filament['spool'].id, change_spool=true )}}" class="btn btn-sm btn-outline-primary ms-3{% if printer_is_busy %} d-none{% endif %}"{% if printer_is_busy %} aria-disabled="true" tabindex="-1" title="Während eines laufenden Drucks deaktiviert"{% endif %}>
+                                            <a href="{{ url_for('print_select_spool', ams_slot=filament['ams_slot'], print_id=print['id'], old_spool_id=filament['spool'].id, change_spool=true )}}" class="btn btn-sm btn-outline-primary ms-3 flex-shrink-0 align-self-center{% if printer_is_busy %} d-none{% endif %}"{% if printer_is_busy %} aria-disabled="true" tabindex="-1" title="Während eines laufenden Drucks deaktiviert"{% endif %}>
                                                 <i class="bi bi-pencil"></i>
                                             </a>
                                         </div>

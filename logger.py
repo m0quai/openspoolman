@@ -173,12 +173,18 @@ def _format_ams_console_message(text):
 
     if _pending_ams_tray and (
         re.match(r"^\s*- Keine (?:Spoolman-)?Spule diesem Tray zugeordnet\.$", text)
+        or re.match(r"^\s*- Keine Spule$", text)
+        or re.match(r"^\s*- Fach leer$", text)
         or re.match(r"^\s*- ---$", text)
         or re.match(r"^\s*- No Spool!$", text)
         or re.match(r"^\s*- Not found\. Update spool tag!$", text)
     ):
+        if re.match(r"^\s*- Fach leer$", text) or re.match(r"^\s*- No Spool!$", text):
+            status = "Fach leer"
+        else:
+            status = "Keine Spule"
         output = (
-            f"    - [{_pending_ams_tray}] ---"
+            f"    - [{_pending_ams_tray}] {status}"
             f"{_uid_suffix(_pending_ams_uid)}"
         )
         _pending_ams_tray = None

@@ -45,7 +45,8 @@ $required = @(
   [ordered]@{ name = "Type"; order = 0; unit = $null; field_type = "choice"; default_value = '"Basic"'; choices = @("AERO","CF","GF","FR","Basic","HF","Translucent","Aero","Dynamic","Galaxy","Glow","Impact","Lite","Marble","Matte","Metal","Silk","Silk+","Sparkle","Tough","Tough+","Wood","Support for ABS","Support for PA PET","Support for PLA","Support for PLA-PETG","G","W","85A","90A","95A","95A HF","for AMS"); multi_choice = $false; key = "type"; entity_type = "filament" },
   [ordered]@{ name = "Nozzle Temperature"; order = 0; unit = "°C"; field_type = "integer_range"; default_value = "[190,230]"; choices = $null; multi_choice = $null; key = "nozzle_temperature"; entity_type = "filament" },
   [ordered]@{ name = "Filament ID"; order = 0; unit = $null; field_type = "text"; default_value = '""'; choices = $null; multi_choice = $null; key = "filament_id"; entity_type = "filament" },
-  [ordered]@{ name = "Setting ID"; order = 0; unit = $null; field_type = "text"; default_value = '""'; choices = $null; multi_choice = $null; key = "setting_id"; entity_type = "filament" }
+  [ordered]@{ name = "Setting ID"; order = 0; unit = $null; field_type = "text"; default_value = '""'; choices = $null; multi_choice = $null; key = "setting_id"; entity_type = "filament" },
+  [ordered]@{ name = "PA-Profil Index"; order = 0; unit = $null; field_type = "integer"; default_value = '-1'; choices = $null; multi_choice = $null; key = "cali_idx"; entity_type = "filament" }
 )
 
 if ($WhatIf) {
@@ -65,7 +66,7 @@ for (table,) in tables:
     if 'key' not in cols or 'value' not in cols: continue
     row=con.execute(f"select key,value from {table} where key='extra_fields_filament'").fetchone()
     if not row: continue
-    fields=json.loads(row[1])
+    fields=[x for x in json.loads(row[1]) if isinstance(x,dict) and x.get('key') != 'pa_filament_id']
     keys={x.get('key') for x in fields if isinstance(x,dict)}
     fields.extend(x for x in required if x['key'] not in keys)
     con.execute(f"update {table} set value=? where key='extra_fields_filament'",(json.dumps(fields,ensure_ascii=False),))
