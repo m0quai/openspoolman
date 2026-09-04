@@ -2,6 +2,9 @@
 import os
 import logging
 import builtins
+import socket
+import ssl
+import struct
 from pathlib import Path
 from datetime import datetime
 
@@ -212,7 +215,7 @@ if not app.secret_key:
 
 from bambu_auth_routes import bp as bambu_cloud_bp
 from nfc_routes import bp as ams_nfc_bp
-from flask import jsonify, redirect, request, url_for, render_template, send_from_directory
+from flask import jsonify, redirect, request, url_for, render_template, send_from_directory, Response, stream_with_context
 import mqtt_bambulab
 import print_history as print_history_service
 from config import EXTERNAL_SPOOL_AMS_ID, PRINTER_ID
@@ -575,8 +578,58 @@ def reconcile_stale_print_history_statuses():
 
 @app.route("/livecam")
 def livecam():
-    return render_template("livecam.html", livecam_url=os.getenv("LIVE_CAM_URL", ""))
-    return None
+    return render_template("livecam.html")
+
+@app.route("/livecam/stream")
+def livecam_stream():
+    """Relay the P1S TLS/JPEG camera protocol as a browser-compatible MJPEG stream."""
+    from config import PRINTER_IP, PRINTER_CODE
+
+    def frame_stream():
+        if not PRINTER_IP or not PRINTER_CODE:
+            return
+        raw_socket = None
+        camera_socket = None
+        try:
+            raw_socket = socket.create_connection((PRINTER_IP, 6000), timeout=10)
+            tls_context = ssl._create_unverified_context()
+            camera_socket = tls_context.wrap_socket(raw_socket, server_hostname=PRINTER_IP)
+            auth_packet = struct.pack("<IIII", 0x40, 0x3000, 0, 0)
+            auth_packet += b"bblp".ljust(32, b"\0")
+            auth_packet += PRINTER_CODE.encode("ascii", "ignore")[:32].ljust(32, b"\0")
+            camera_socket.sendall(auth_packet)
+
+            while True:
+                header = _recv_exact(camera_socket, 16)
+                if not header:
+                    break
+                payload_size, _, _, _ = struct.unpack("<IIII", header)
+                if payload_size <= 0 or payload_size > 10 * 1024 * 1024:
+                    break
+                image = _recv_exact(camera_socket, payload_size)
+                if not image or not image.startswith(b"\xff\xd8"):
+                    continue
+                yield b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(image)).encode() + b"\r\n\r\n" + image + b"\r\n"
+        except (OSError, ssl.SSLError, ValueError, struct.error):
+            return
+        finally:
+            if camera_socket is not None:
+                camera_socket.close()
+            elif raw_socket is not None:
+                raw_socket.close()
+
+    return Response(stream_with_context(frame_stream()), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+def _recv_exact(sock, size):
+    chunks = []
+    remaining = size
+    while remaining:
+        chunk = sock.recv(min(4096, remaining))
+        if not chunk:
+            return None
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
 
 
 @app.get("/ams/state-generation")
