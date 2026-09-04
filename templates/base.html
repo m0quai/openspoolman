@@ -49,8 +49,8 @@
       <ul class="nav col-12 col-lg-auto me-lg-auto mb-2 justify-content-center mb-md-0">
         <li><a href="{{ url_for('home') }}" class="nav-link px-2 link-body-emphasis">Home</a></li>
         <li><a href="{{ url_for('print_history') }}" class="nav-link px-2 link-body-emphasis">History</a></li>
-        <li><a href="{{ url_for('bambu_cloud.index') }}" class="nav-link px-2 link-body-emphasis">Settings{% if not mqtt_connected|default(false) %}<span class="mqtt-menu-status-dot disconnected" title="MQTT nicht verbunden"></span>{% endif %}</a></li>
         <li><a href="{{ url_for('livecam') }}" class="nav-link px-2 link-body-emphasis">LiveCam</a></li>
+        <li><a href="{{ url_for('bambu_cloud.index') }}" class="nav-link px-2 link-body-emphasis">Settings{% if not mqtt_connected|default(false) %}<span class="mqtt-menu-status-dot disconnected" title="MQTT nicht verbunden"></span>{% endif %}</a></li>
         <li><a href="{{ SPOOLMAN_BASE_URL }}" target="_blank" class="nav-link px-2 link-body-emphasis">SpoolMan</a></li>
       </ul>
     </div>
