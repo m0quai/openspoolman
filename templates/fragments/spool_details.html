@@ -39,7 +39,7 @@
   <div class="card-footer text-muted container">
     <div class="row">
       <div class="col-sm-6"><small>Registered: {{ current_spool.registered }}</small></div>
-      <div class="col-sm-6"><small>Last Used: {{ current_spool.last_used }}</small></div>
+      <div class="col-sm-6"><small>Last Used: {% if current_spool.last_used %}{{ current_spool.last_used[:16] | replace('T', ' ') }}{% else %}-{% endif %}</small></div>
     </div>
   </div>
 </div>

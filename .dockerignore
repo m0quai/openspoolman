@@ -1,0 +1,54 @@
+# Source control and editor state
+.git/
+.github/
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Local configuration and secrets
+.env
+.env/
+.venv/
+env/
+venv/
+config.env
+secrets/
+
+# Python and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Frontend tooling and reports
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+playwright/.auth/
+
+# Runtime data
+data/
+logs/
+static/prints/
+
+# Non-runtime projects and development assets
+AMSHelper/
+packages/
+helm/
+docs/
+*.sln
+*.pyproj
+launch.json
+package.json
+package-lock.json
+playwright.config.js
+
+# Local archives and build outputs
+build/
+dist/
+*.zip

@@ -5,7 +5,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>{F3596A78-EC0B-4F41-9AE0-88E0CFF7EC7D}</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>vs_debug.py</StartupFile>
+    <StartupFile>debug.py</StartupFile>
     <SearchPath>.</SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
@@ -16,10 +16,24 @@
     <TestFramework>Pytest</TestFramework>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="**\*.py" Exclude=".venv\**;venv\**;env\**;__pycache__\**;data\**;logs\**;node_modules\**" />
-    <Content Include="templates\**\*;static\**\*;*.yaml;*.yml;requirements.txt;Dockerfile;README*" />
+    <Compile Include="**\*.py" Exclude=".venv\**;venv\**;env\**;.env\**;__pycache__\**;data\**;logs\**;node_modules\**" />
+    <Content Include="docs\**\*" />
+    <Content Include="templates\**\*" />
+    <Content Include="static\**\*" />
+    <Content Include="compose.yaml" />
+    <Content Include="requirements.txt" />
+    <Content Include="Dockerfile" />
+    <Content Include=".dockerignore" />
   </ItemGroup>
   <ItemGroup>
+    <Folder Include="docs\" />
+    <Folder Include="docs\amshelper\" />
+    <Folder Include="docs\architektur\" />
+    <Folder Include="docs\bambu\" />
+    <Folder Include="docs\entwicklung\" />
+    <Folder Include="docs\img\" />
+    <Folder Include="docs\img\amshelper\" />
+    <Folder Include="docs\referenz\" />
     <Folder Include="scripts\" />
     <Folder Include="static\" />
     <Folder Include="static\css\" />

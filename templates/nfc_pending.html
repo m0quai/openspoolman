@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">NFC-Tags</h3>
+  <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">Zurück</a>
+</div>
+
+{% if request.args.get('success') %}
+<div class="alert alert-success">{{ request.args.get('success') }}</div>
+{% endif %}
+{% if request.args.get('error') %}
+<div class="alert alert-danger">{{ request.args.get('error') }}</div>
+{% endif %}
+
+{% if pending_tags %}
+  {% for tag in pending_tags %}
+  <div class="card shadow-sm mb-3">
+    <div class="card-body">
+      <div class="row align-items-end">
+        <div class="col-lg-3 mb-2">
+          <strong>Unbekannter NFC-Tag</strong><br>
+          <code>{{ tag.uid }}</code>
+        </div>
+        <div class="col-lg-2 mb-2">
+          Tray {{ tag.tray_index + 1 }}
+        </div>
+        <div class="col-lg-7 mb-2">
+          <form method="post" action="{{ url_for('ams_nfc.assign_pending_tag', uid=tag.uid) }}" class="d-flex gap-2">
+            <select name="spool_id" class="form-select" required>
+              <option value="">Spule auswählen ...</option>
+              {% for spool in spools %}
+              <option value="{{ spool.id }}">#{{ spool.id }} · {{ spool.filament.vendor.name if spool.filament.vendor else '' }} {{ spool.filament.name }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-primary text-nowrap">Spule zuordnen</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="alert alert-success">Keine unbekannten NFC-Tags vorhanden.</div>
+{% endif %}
+{% endblock %}

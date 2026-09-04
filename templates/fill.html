@@ -1,7 +1,10 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<h1>Fill tray</h1>
+<div class="d-flex align-items-center gap-3 mb-4">
+  <a class="badge bg-primary rounded-pill text-decoration-none px-3 py-1 align-self-center d-inline-flex align-items-center" href="{{ url_for('home') }}"><i class="bi bi-chevron-left"></i> Back</a>
+  <h1 class="mb-0">Fill Tray</h1>
+</div>
 {% if ams_id|int != EXTERNAL_SPOOL_AMS_ID %}
   <h2 class="mb-4">AMS {{ ams_id|int + 1 }} - Tray {{ tray_id|int + 1 }}</h2>
 {% else %}
