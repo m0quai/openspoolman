@@ -12,7 +12,7 @@ from config import EXTERNAL_SPOOL_AMS_ID, EXTERNAL_SPOOL_ID, TRACK_LAYER_USAGE
 from spoolman_client import consumeSpool
 from spoolman_service import fetchSpools, getAMSFromTray, trayUid
 from tools_3mf import download3mfFromCloud, download3mfFromFTP, download3mfFromLocalFilesystem, getMetaDataFrom3mf
-from print_history import update_filament_spool, update_filament_grams_used, get_all_filament_usage_for_print, update_layer_tracking, update_print_image, get_print_image, get_latest_running_print_id
+from print_history import update_filament_spool, update_filament_grams_used, update_filament_physical_slot, claim_filament_usage_event, set_filament_usage_event_status, finalize_filament_usage_events, get_all_filament_usage_for_print, update_layer_tracking, update_print_image, get_print_image, get_latest_running_print_id, find_latest_print_id
 
 GCODE_STATE_LABELS = {
     "IDLE": "Drucker bereit",
@@ -120,7 +120,7 @@ def recover_model(task_id, subtask_id):
   ams_mapping = metadata.get("ams_mapping")
   gcode_file_name = metadata.get("gcode_file_name")
 
-  if current_layer is None or gcode_file_name is None:
+  if current_layer is None:
     return None
 
   return str(model_path), gcode_file_name, current_layer, ams_mapping
@@ -307,6 +307,7 @@ class FilamentUsageTracker:
       self._handle_print_start(print_obj)
 
     if command == "push_status":
+      self._apply_current_ams_tray(print_obj)
       if "layer_num" in print_obj:
         last_layer = self.current_layer
         layer = print_obj["layer_num"]
@@ -332,7 +333,7 @@ class FilamentUsageTracker:
     if self.gcode_state == "RUNNING" and previous_state != "RUNNING" and self.active_model is None:
       task_id = print_obj.get("task_id")
       subtask_id = print_obj.get("subtask_id")
-      self._attempt_print_resume(task_id, subtask_id, print_obj.get("url"))
+      self._attempt_print_resume(task_id, subtask_id, print_obj.get("url"), print_obj)
 
   def _handle_print_start(self, print_obj: dict) -> None:
     log("[filament-tracker] Print start")
@@ -346,6 +347,11 @@ class FilamentUsageTracker:
 
     use_ams = bool(print_obj.get("use_ams", False))
     ams_mapping = print_obj.get("ams_mapping", []) if use_ams else None
+    current_tray = self._active_ams_tray(print_obj)
+    if current_tray is not None and not ams_mapping:
+      use_ams = True
+      ams_mapping = [current_tray]
+      log(f"[filament-tracker] AMS mapping from current tray: filament 0 -> tray {current_tray}")
     gcode_file_name = print_obj.get("param")
     self._start_layer_tracking_for_model(
       model_path=model_path,
@@ -515,6 +521,7 @@ class FilamentUsageTracker:
     self._maybe_update_predicted_total()
     self._update_layer_tracking_progress()
     if self.print_id:
+      finalize_filament_usage_events(self.print_id)
       self._set_layer_tracking_status(
           LAYER_TRACKING_STATUS_COMPLETED,
           extra_fields={"actual_end_time": self._format_timestamp(datetime.now())},
@@ -540,6 +547,7 @@ class FilamentUsageTracker:
     self._maybe_update_predicted_total()
     self._update_layer_tracking_progress()
     if self.print_id:
+      finalize_filament_usage_events(self.print_id)
       self._set_layer_tracking_status(
           status,
           extra_fields={"actual_end_time": self._format_timestamp(datetime.now())},
@@ -579,13 +587,13 @@ class FilamentUsageTracker:
       return
 
     for filament, usage_mm in layer_usage.items():
-      self._apply_usage_for_filament(filament, usage_mm)
+        self._apply_usage_for_filament(filament, usage_mm, layer)
 
     self._flush_all_pending_usage()
     self._maybe_update_predicted_total()
     self._update_layer_tracking_progress()
 
-  def _apply_usage_for_filament(self, filament: int, usage_mm: float) -> bool:
+  def _apply_usage_for_filament(self, filament: int, usage_mm: float, layer: int | None = None) -> bool:
     if not TRACK_LAYER_USAGE:
       return False
     pending_mm = self._pending_usage_mm.pop(filament, 0.0)
@@ -624,6 +632,14 @@ class FilamentUsageTracker:
     usage_grams = self._mm_to_grams(total_mm, diameter_mm, density)
 
     usage_rounded = round(total_mm, 5)
+    event_layer = self.current_layer if layer is None else layer
+    event_layer = event_layer or 0
+    event_status = claim_filament_usage_event(self.print_id, event_layer, filament, spool_id, usage_rounded)
+    if event_status in {"confirmed", "sent"}:
+      log(f"[filament-tracker] Skipping already transferred consumption event: print_id={self.print_id}, layer={event_layer}, filament={filament}, status={event_status}")
+      return False
+    if self.print_id:
+      set_filament_usage_event_status(self.print_id, event_layer, filament, "sent")
     filament_key = filament + 1
     previous_grams = self.cumulative_grams_used.get(filament_key, 0.0)
     self.cumulative_grams_used[filament_key] = previous_grams + usage_grams
@@ -634,10 +650,18 @@ class FilamentUsageTracker:
     grams_rounded = round(self.cumulative_grams_used[filament_key], 2)
     log(f"[filament-tracker] Consume spool {spool_id} for filament {filament} with {usage_rounded}mm ({grams_rounded}g cumulative) (tray_uid={tray_uid})")
 
-    consumeSpool(spool_id, use_length=usage_rounded)
+    try:
+      consumeSpool(spool_id, use_length=usage_rounded)
+    except Exception as exc:
+      log(f"[filament-tracker] Spoolman transfer failed; event remains sent: print_id={self.print_id}, layer={event_layer}, filament={filament}, error={exc!r}")
+      return False
+
+    if self.print_id:
+      set_filament_usage_event_status(self.print_id, event_layer, filament, "confirmed")
 
     if self.print_id:
       update_filament_spool(self.print_id, filament_key, spool_id)
+      update_filament_physical_slot(self.print_id, filament_key, mapping_value)
       update_filament_grams_used(self.print_id, filament_key, grams_rounded, length_used=cumulative_length)
 
     self._filament_spool_id_map[filament] = spool_id
@@ -760,6 +784,9 @@ class FilamentUsageTracker:
         continue
 
       update_filament_spool(self.print_id, filament_index + 1, spool_id)
+      mapping_value = self._resolve_tray_mapping(filament_index)
+      if mapping_value is not None and mapping_value != EXTERNAL_SPOOL_ID:
+        update_filament_physical_slot(self.print_id, filament_index + 1, mapping_value)
       self._filament_spool_id_map[filament_index] = spool_id
 
       if spool_id not in self._spool_data_cache:
@@ -856,9 +883,54 @@ class FilamentUsageTracker:
       return
     self.active_model = evaluate_gcode(gcode)
 
-  def _attempt_print_resume(self, task_id, subtask_id, model_url=None) -> None:
+  @staticmethod
+  def _active_ams_tray(print_obj: dict) -> int | None:
+    """Return the physical AMS tray currently selected by the printer.
+
+    ``vt_tray.id=254`` is the separate external-spool channel and must not be
+    used as the active AMS mapping.  Only a real AMS tray index (0..15) is
+    accepted here.
+    """
+    ams = print_obj.get("ams") or {}
+    value = ams.get("tray_tar")
+    try:
+      tray = int(value)
+    except (TypeError, ValueError):
+      return None
+    return tray if 0 <= tray < 16 else None
+
+  def _apply_current_ams_tray(self, print_obj: dict) -> None:
+    """Use the printer's current physical tray for pending layer usage."""
+    if self.active_model is None:
+      return
+    tray = self._active_ams_tray(print_obj)
+    if tray is None:
+      return
+    if self.using_ams and any(value is not None for value in (self.ams_mapping or [])):
+      return
+
+    filament_indexes = set(self._pending_usage_mm) | set(self._total_usage_mm_per_filament)
+    filament_index = min(filament_indexes) if filament_indexes else 0
+    mapping = list(self.ams_mapping or [])
+    while len(mapping) <= filament_index:
+      mapping.append(None)
+    if mapping[filament_index] == tray and self.using_ams:
+      return
+    mapping[filament_index] = tray
+    log(f"[filament-tracker] AMS mapping from current status: filament {filament_index} -> tray {tray}")
+    self.apply_ams_mapping(mapping)
+
+  def _attempt_print_resume(self, task_id, subtask_id, model_url=None, print_obj=None) -> None:
+    print_obj = print_obj or {}
     if self.print_id is None:
       self.print_id = get_latest_running_print_id()
+    if self.print_id is None:
+      history_name = print_obj.get("subtask_name") or print_obj.get("gcode_file")
+      self.print_id = find_latest_print_id(history_name)
+      log(
+        f"[filament-tracker] Resume history fallback: name={history_name!r}, "
+        f"resolved_print_id={self.print_id}"
+      )
     checkpoint_metadata = _get_checkpoint_metadata()
     model_url = model_url or checkpoint_metadata.get("model_url")
     previous_version = checkpoint_metadata.get("checkpoint_version", 0)
@@ -882,10 +954,65 @@ class FilamentUsageTracker:
       log("[filament-tracker] Legacy checkpoint detected, but no 3MF source URL is available")
     result = recover_model(task_id, subtask_id)
     if result is None:
-      log("[filament-tracker] No checkpoint to recover")
+      log(
+        "[filament-tracker] No checkpoint to recover; attempting reconstruction "
+        f"from current printer status (print_id={self.print_id})"
+      )
+      if self.print_id is None:
+        log("[filament-tracker] Resume reconstruction aborted: no matching history entry")
+        return
+
+      gcode_file = print_obj.get("gcode_file")
+      if not model_url and gcode_file:
+        model_url = f"ftp://{str(gcode_file).lstrip('/')}"
+      log(
+        f"[filament-tracker] Resume reconstruction input: model_url={model_url!r}, "
+        f"gcode_file={gcode_file!r}, layer={print_obj.get('layer_num')!r}, "
+        f"total_layers={print_obj.get('total_layer_num')!r}"
+      )
+      model_path = self._retrieve_model(model_url)
+      if model_path is None:
+        log("[filament-tracker] Resume reconstruction failed: 3MF could not be retrieved")
+        return
+
+      ams_mapping = print_obj.get("ams_mapping") or []
+      current_tray = self._active_ams_tray(print_obj)
+      if not ams_mapping and current_tray is not None:
+        ams_mapping = [current_tray]
+        log(f"[filament-tracker] Resume AMS mapping from current tray: filament 0 -> tray {current_tray}")
+      use_ams = bool(ams_mapping) or bool(print_obj.get("use_ams", False))
+      self._start_layer_tracking_for_model(
+        model_path=model_path,
+        gcode_file_name=print_obj.get("param"),
+        use_ams=use_ams,
+        ams_mapping=ams_mapping if use_ams else None,
+        task_id=task_id,
+        subtask_id=subtask_id,
+      )
+      if self.active_model is None:
+        log("[filament-tracker] Resume reconstruction failed: 3MF contains no usable G-code")
+        return
+
+      try:
+        current_layer = max(0, int(print_obj.get("layer_num") or 0))
+      except (TypeError, ValueError):
+        current_layer = 0
+      self.spent_layers = set(range(current_layer + 1))
+      self.current_layer = current_layer
+      update_checkpoint_layer(current_layer)
+      self._update_layer_tracking_progress()
+      log(
+        f"[filament-tracker] Resume reconstruction complete: print_id={self.print_id}, "
+        f"current_layer={current_layer}, total_layers={self._layer_tracking_total_layers}, "
+        f"checkpoint_saved=True"
+      )
       return
     log(f"[filament-tracker] Recovering from checkpoint task={task_id} subtask={subtask_id}")
     model_path, gcode_file_name, current_layer, ams_mapping = result
+    current_tray = self._active_ams_tray(print_obj)
+    if not ams_mapping and current_tray is not None:
+      ams_mapping = [current_tray]
+      log(f"[filament-tracker] Checkpoint AMS mapping from current tray: filament 0 -> tray {current_tray}")
     self._load_model(model_path, gcode_file_name)
     if self.print_id:
       _restore_thumbnail(model_path, self.print_id)

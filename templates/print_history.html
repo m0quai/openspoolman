@@ -67,6 +67,8 @@ function initHistoryCollapsePersistence() {
       const icon = toggle?.querySelector('.bi');
       if (icon) icon.className = `bi bi-chevron-${open ? 'up' : 'down'}`;
       if (toggle) toggle.setAttribute('aria-expanded', String(open));
+      const deleteAction = toggle?.parentElement?.querySelector('.history-delete-action');
+      if (deleteAction) deleteAction.classList.toggle('d-none', !open);
     };
     if (localStorage.getItem(key + ':' + id) === '1') { panel.classList.add('show'); setIcon(true); }
     panel.addEventListener('shown.bs.collapse', () => { localStorage.setItem(key + ':' + id, '1'); setIcon(true); });
@@ -77,6 +79,105 @@ function initHistoryCollapsePersistence() {
       adjustPrintImages();
     });
   });
+}
+function cleanOneTimeHistoryParameters() {
+  const url = new URL(window.location.href);
+  const anchor = url.hash;
+  let changed = false;
+  ['print_id', 'ams_slot', 'spool_id', 'old_spool_id'].forEach(key => {
+    if (url.searchParams.has(key)) { url.searchParams.delete(key); changed = true; }
+  });
+  if (changed) window.history.replaceState({}, document.title, url.pathname + (url.search ? url.search : '') + anchor);
+  if (anchor) {
+    window.setTimeout(() => {
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.hash = '';
+      window.history.replaceState({}, document.title, cleanUrl.pathname + (cleanUrl.search ? cleanUrl.search : ''));
+    }, 800);
+  }
+}
+function initHistoryTableControls() {
+  const table = document.querySelector('.history-master-table');
+  const idFilter = document.getElementById('history-id-filter');
+  const dateFilter = document.getElementById('history-date-filter');
+  const nameFilter = document.getElementById('history-name-filter');
+  const statusMenu = document.getElementById('history-status-menu');
+  const statusButton = document.getElementById('history-status-filter-button');
+  const sortButtons = Array.from(document.querySelectorAll('[data-history-sort]'));
+  if (!table || !idFilter || !dateFilter || !nameFilter || !statusMenu || !statusButton || !sortButtons.length) return;
+  const body = table.tBodies[0];
+  const rows = Array.from(body.querySelectorAll('tr[data-history-row]'));
+  const details = new Map(Array.from(body.querySelectorAll('tr[data-history-detail]')).map(row => [row.dataset.historyDetail, row]));
+  const storageKey = 'openspoolman-history-table-state';
+  let savedState = {};
+  try { savedState = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch (_) { savedState = {}; }
+  [...new Set(rows.map(row => row.dataset.historyStatus))].sort().forEach(value => {
+    const label = value.charAt(0).toUpperCase() + value.slice(1);
+    const wrapper = document.createElement('label');
+    wrapper.className = 'dropdown-item d-flex align-items-center gap-2';
+    wrapper.innerHTML = `<input class="form-check-input mt-0 history-status-check" type="checkbox" value="${value}"><span>${label}</span>`;
+    statusMenu.appendChild(wrapper);
+  });
+  [...new Set(rows.map(row => row.dataset.historyDate.slice(0, 10)))].sort().reverse().forEach(value => {
+    const option = document.createElement('option');
+    option.value = value;
+    const [year, month, day] = value.split('-');
+    option.textContent = `${day}.${month}.${year}`;
+    dateFilter.appendChild(option);
+  });
+  idFilter.value = savedState.id || '';
+  dateFilter.value = savedState.date || '';
+  nameFilter.value = savedState.name || '';
+  const savedStatuses = Array.isArray(savedState.status) ? savedState.status : (savedState.status ? [savedState.status] : []);
+  statusMenu.querySelectorAll('.history-status-check').forEach(check => { check.checked = savedStatuses.includes(check.value); });
+  let sortField = 'date';
+  let sortDirection = 'desc';
+  if (['id', 'date', 'status', 'name'].includes(savedState.sortField)) sortField = savedState.sortField;
+  if (savedState.sortDirection === 'asc' || savedState.sortDirection === 'desc') sortDirection = savedState.sortDirection;
+  const apply = () => {
+    const idNeedle = idFilter.value.trim().toLowerCase();
+    const selectedDate = dateFilter.value;
+    const nameNeedle = nameFilter.value.trim().toLowerCase();
+    const wantedStatuses = new Set(Array.from(statusMenu.querySelectorAll('.history-status-check:checked')).map(check => check.value));
+    statusButton.textContent = wantedStatuses.size ? `${wantedStatuses.size} Status ausgewählt` : 'Alle Status';
+    try { localStorage.setItem(storageKey, JSON.stringify({ id: idFilter.value, date: dateFilter.value, name: nameFilter.value, status: Array.from(wantedStatuses), sortField, sortDirection })); } catch (_) {}
+    const visible = rows.filter(row => (!idNeedle || row.dataset.historyId.includes(idNeedle)) && (!selectedDate || row.dataset.historyDate.startsWith(selectedDate)) && (!nameNeedle || row.dataset.historyName.includes(nameNeedle)) && (!wantedStatuses.size || wantedStatuses.has(row.dataset.historyStatus)));
+    visible.sort((a, b) => {
+      let left = sortField === 'date' ? a.dataset.historyDate : sortField === 'id' ? Number(a.dataset.historyId) : sortField === 'name' ? a.dataset.historyName : a.dataset.historyStatus;
+      let right = sortField === 'date' ? b.dataset.historyDate : sortField === 'id' ? Number(b.dataset.historyId) : sortField === 'name' ? b.dataset.historyName : b.dataset.historyStatus;
+      const result = left < right ? -1 : left > right ? 1 : 0;
+      return sortDirection === 'asc' ? result : -result;
+    });
+    const visibleSet = new Set(visible);
+    rows.forEach(row => {
+      const detail = details.get(row.dataset.historyId);
+      row.hidden = !visibleSet.has(row);
+      if (detail) detail.hidden = !visibleSet.has(row);
+    });
+    visible.forEach(row => {
+      body.appendChild(row);
+      const detail = details.get(row.dataset.historyId);
+      if (detail) body.appendChild(detail);
+    });
+  };
+  [idFilter, dateFilter, nameFilter].forEach(input => input.addEventListener('input', apply));
+  statusMenu.addEventListener('change', apply);
+  sortButtons.forEach(button => button.addEventListener('click', () => {
+    const nextField = button.dataset.historySort;
+    sortDirection = nextField === sortField && sortDirection === 'desc' ? 'asc' : 'desc';
+    sortField = nextField;
+    sortButtons.forEach(item => {
+      const icon = item.querySelector('.bi');
+      if (icon) icon.className = `bi bi-arrow-${item === button ? (sortDirection === 'asc' ? 'up' : 'down') : 'down-up'}`;
+    });
+    apply();
+  }));
+  const activeButton = sortButtons.find(button => button.dataset.historySort === sortField);
+  if (activeButton) {
+    const icon = activeButton.querySelector('.bi');
+    if (icon) icon.className = `bi bi-arrow-${sortDirection === 'asc' ? 'up' : 'down'}`;
+  }
+  apply();
 }
 function formatExpectedEnd() {
   document.querySelectorAll('.expected-end').forEach(el => {
@@ -112,7 +213,8 @@ function closeThumbnailOverlay() {
 }
 window.addEventListener('load', initThumbnailHover);
 window.addEventListener('load', initPrintHistoryRefresh);
-window.addEventListener('load', initHistoryCollapsePersistence);
+window.addEventListener('load', cleanOneTimeHistoryParameters);
+window.addEventListener('load', () => { initHistoryCollapsePersistence(); initHistoryTableControls(); });
 window.addEventListener('load', formatExpectedEnd);
 window.addEventListener('load', formatPrintDurations);
 </script>

@@ -103,6 +103,8 @@ def consumeSpool(spool_id, use_weight=None, use_length=None):
     payload=payload,
     status=response.status_code,
   )
+  response.raise_for_status()
+  return True
   #print(response.status_code)
   #print(response.text)
 

@@ -149,7 +149,148 @@ main.container {
 .print-history {
     display: flex;
     flex-direction: column;
-    gap: 15px;
+    gap: 10px;
+}
+.history-header {
+    min-height: 52px;
+    padding-top: .55rem;
+    padding-bottom: .55rem;
+}
+.history-header-main .badge {
+    font-size: .72rem;
+}
+.history-header-file {
+    max-width: min(42vw, 520px);
+}
+.history-table {
+    --bs-table-bg: transparent;
+    margin-bottom: 0;
+}
+.history-table th {
+    width: 1%;
+    white-space: nowrap;
+    color: var(--bs-secondary-color);
+    font-weight: 600;
+}
+.history-table td,
+.history-table th {
+    padding: .3rem .55rem;
+}
+.history-timing {
+    min-height: 1.25rem;
+    margin: 0 .55rem .35rem;
+}
+.printinfo > .card {
+    margin-top: .35rem;
+}
+.printinfo > .d-flex form {
+    margin: 0;
+}
+.history-master-table {
+    margin-bottom: 0;
+    table-layout: auto;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .375rem;
+    overflow: hidden;
+    min-width: 980px;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+.history-master-table th,
+.history-master-table td {
+    vertical-align: middle;
+    border-right: 1px solid var(--bs-border-color);
+    border-bottom: 1px solid var(--bs-border-color);
+    padding: .7rem .8rem;
+}
+.history-master-table tr > :last-child { border-right: 0; }
+.history-master-table tbody tr:last-child > * { border-bottom: 0; }
+.history-master-table thead th {
+    white-space: nowrap;
+    font-size: .8rem;
+    color: var(--bs-secondary-color);
+    background: var(--bs-tertiary-bg);
+}
+.history-sort-button {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+}
+.history-sort-button:hover,
+.history-sort-button:focus-visible { color: var(--bs-primary); }
+.history-sort-button .bi { font-size: .8rem; }
+.history-filter-row th { padding-top: .45rem; padding-bottom: .45rem; background: var(--bs-body-bg); }
+.history-filter-row input,
+.history-filter-row select { min-width: 0; width: 100%; }
+.history-status-menu { max-height: 14rem; overflow-y: auto; }
+.history-status-menu .dropdown-item { cursor: pointer; border-radius: .25rem; }
+.history-status-menu .dropdown-item:hover { background: var(--bs-tertiary-bg); }
+.history-status-menu .history-status-check {
+    width: 1rem !important;
+    min-width: 1rem !important;
+    height: 1rem;
+    flex: 0 0 1rem;
+    appearance: auto;
+}
+.history-print-name {
+    min-width: 360px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.history-master-table th:nth-child(1) { width: 100px; }
+.history-master-table th:nth-child(2) { width: 175px; }
+.history-master-table th:nth-child(3) { width: 125px; }
+.history-master-table th:last-child { width: 90px; }
+.history-filament-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .35rem;
+}
+.history-detail-row > td {
+    background: var(--bs-tertiary-bg);
+}
+.history-detail {
+    border-top: 1px solid var(--bs-border-color);
+}
+.history-detail-table th {
+    width: 1%;
+    white-space: nowrap;
+    color: var(--bs-secondary-color);
+}
+.history-filament-detail {
+    border-top: 1px solid var(--bs-border-color);
+    padding: .55rem 0;
+}
+.history-color-swatch {
+    display: inline-block;
+    width: 48px;
+    height: 20px;
+    margin: .3rem 0;
+    border: 1px solid var(--bs-border-color-translucent);
+    border-radius: .35rem;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
+}
+.history-filament-detail:first-child {
+    border-top: 0;
+}
+.history-image img {
+    max-height: 260px;
+    object-fit: contain;
+}
+@media (max-width: 768px) {
+    .history-master-table {
+        min-width: 900px;
+    }
+    .history-print-name {
+        min-width: 300px;
+    }
 }
 .print-job {
     padding: 15px;
@@ -168,9 +309,12 @@ main.container {
     grid-area: filament;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 10px;
-    padding: 10px;
+    gap: 6px;
+    padding: 6px;
     border-radius: 5px;
+}
+.filament-container > .card {
+    margin: 0;
 }
 
 .filament-info {

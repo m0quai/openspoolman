@@ -59,6 +59,23 @@ def create_database() -> None:
             estimated_grams REAL,
             length_used REAL,
             estimated_length REAL,
+            calculated_length REAL,
+            spoolman_length_used REAL,
+        FOREIGN KEY (print_id) REFERENCES prints (id) ON DELETE CASCADE
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS filament_usage_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            print_id INTEGER NOT NULL,
+            layer INTEGER NOT NULL,
+            filament_index INTEGER NOT NULL,
+            spool_id INTEGER NOT NULL,
+            length_used REAL NOT NULL,
+            created_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('pending', 'sent', 'confirmed')),
+            UNIQUE (print_id, layer, filament_index),
             FOREIGN KEY (print_id) REFERENCES prints (id) ON DELETE CASCADE
         )
     ''')
@@ -95,6 +112,33 @@ def create_database() -> None:
         "filament_usage",
         "estimated_length",
         "REAL",
+    )
+    _ensure_column(cursor, "filament_usage_events", "status", "TEXT NOT NULL DEFAULT 'confirmed'")
+    # Events written by older versions already caused the corresponding Spoolman
+    # charge, so they must never become retry candidates after migration.
+    cursor.execute("UPDATE filament_usage_events SET status = 'confirmed' WHERE status IS NULL OR status NOT IN ('pending', 'sent', 'confirmed')")
+    _ensure_column(cursor, "filament_usage", "calculated_length", "REAL")
+    _ensure_column(cursor, "filament_usage", "spoolman_length_used", "REAL")
+    cursor.execute("UPDATE filament_usage SET calculated_length = length_used WHERE calculated_length IS NULL AND length_used IS NOT NULL")
+    # Legacy completed/failed jobs already had their usage sent to Spoolman.
+    # Backfill the confirmed total while leaving the currently running job open.
+    cursor.execute(
+        """UPDATE filament_usage
+           SET calculated_length = COALESCE(calculated_length, length_used, 0),
+               spoolman_length_used = COALESCE(spoolman_length_used, length_used, 0)
+           WHERE spoolman_length_used IS NULL
+             AND print_id IN (
+               SELECT f.print_id
+               FROM filament_usage f
+               LEFT JOIN print_layer_tracking t ON t.print_id = f.print_id
+               WHERE COALESCE(t.status, 'COMPLETED') <> 'RUNNING'
+             )"""
+    )
+    _ensure_column(
+        cursor,
+        "filament_usage",
+        "physical_ams_slot",
+        "INTEGER",
     )
 
     # Ensure column definitions exist for older databases
@@ -164,6 +208,29 @@ def get_latest_running_print_id() -> int | None:
     return int(row[0]) if row else None
 
 
+def find_latest_print_id(file_name: str | None) -> int | None:
+    """Find the newest history entry for a printer-reported file/subtask name."""
+    if not file_name:
+        return None
+
+    name = str(file_name).strip()
+    candidates = [name]
+    for suffix in (".gcode.3mf", ".3mf", ".gcode"):
+        if name.lower().endswith(suffix):
+            candidates.append(name[: -len(suffix)])
+    candidates = list(dict.fromkeys(candidates))
+
+    conn = sqlite3.connect(db_config["db_path"])
+    placeholders = ",".join("?" for _ in candidates)
+    row = conn.execute(
+        f"SELECT id FROM prints WHERE file_name IN ({placeholders}) "
+        "AND COALESCE(is_deleted, 0) = 0 ORDER BY id DESC LIMIT 1",
+        candidates,
+    ).fetchone()
+    conn.close()
+    return int(row[0]) if row else None
+
+
 def cancel_stale_running_prints(actual_end_time: str) -> int:
     """Mark interrupted legacy runs as canceled without touching filament usage."""
     conn = sqlite3.connect(db_config["db_path"])
@@ -186,6 +253,7 @@ def insert_filament_usage(
     estimated_grams: float | None = None,
     length_used: float | None = None,
     estimated_length: float | None = None,
+    physical_ams_slot: int | None = None,
 ) -> None:
     """
     Inserts a new filament usage entry for a specific print job.
@@ -196,9 +264,9 @@ def insert_filament_usage(
     conn = sqlite3.connect(db_config["db_path"])
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO filament_usage (print_id, filament_type, color, grams_used, ams_slot, estimated_grams, length_used, estimated_length)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (print_id, filament_type, color, grams_used, ams_slot, estimated_grams, length_used, estimated_length))
+        INSERT INTO filament_usage (print_id, filament_type, color, grams_used, ams_slot, estimated_grams, length_used, estimated_length, calculated_length, physical_ams_slot)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (print_id, filament_type, color, grams_used, ams_slot, estimated_grams, length_used, estimated_length, length_used, physical_ams_slot))
     conn.commit()
     conn.close()
 
@@ -216,6 +284,76 @@ def update_filament_spool(print_id: int, filament_id: int, spool_id: int) -> Non
     conn.commit()
     conn.close()
 
+def update_filament_physical_slot(print_id: int, filament_id: int, physical_ams_slot: int) -> None:
+    """Persist the physical AMS tray for a logical filament channel."""
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute(
+        "UPDATE filament_usage SET physical_ams_slot = ? WHERE ams_slot = ? AND print_id = ?",
+        (physical_ams_slot, filament_id, print_id),
+    )
+    conn.commit()
+    conn.close()
+
+def claim_filament_usage_event(print_id: int | None, layer: int, filament_index: int, spool_id: int, length_used: float) -> str | None:
+    """Create/inspect one consumption event and return its transfer status."""
+    if print_id is None:
+        return "pending"
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute(
+        """INSERT OR IGNORE INTO filament_usage_events
+           (print_id, layer, filament_index, spool_id, length_used, created_at, status)
+           VALUES (?, ?, ?, ?, ?, ?, 'pending')""",
+        (print_id, int(layer), int(filament_index), int(spool_id), float(length_used), datetime.now().isoformat()),
+    )
+    row = conn.execute(
+        "SELECT status FROM filament_usage_events WHERE print_id = ? AND layer = ? AND filament_index = ?",
+        (print_id, int(layer), int(filament_index)),
+    ).fetchone()
+    conn.commit()
+    conn.close()
+    return row[0] if row else None
+
+
+def finalize_filament_usage_events(print_id: int) -> None:
+    """Persist confirmed transfer totals and remove only finalized layer events."""
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute("PRAGMA foreign_keys = ON")
+    rows = conn.execute(
+        """SELECT filament_index, SUM(length_used) AS transferred_length
+           FROM filament_usage_events
+           WHERE print_id = ? AND status = 'confirmed'
+           GROUP BY filament_index""",
+        (int(print_id),),
+    ).fetchall()
+    for filament_index, transferred_length in rows:
+        filament_id = int(filament_index) + 1
+        conn.execute(
+            """UPDATE filament_usage
+               SET calculated_length = COALESCE(calculated_length, length_used, ?),
+                   spoolman_length_used = ?
+               WHERE print_id = ? AND ams_slot = ?""",
+            (float(transferred_length or 0.0), float(transferred_length or 0.0), int(print_id), filament_id),
+        )
+    conn.execute(
+        "DELETE FROM filament_usage_events WHERE print_id = ? AND status = 'confirmed'",
+        (int(print_id),),
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_filament_usage_event_status(print_id: int, layer: int, filament_index: int, status: str) -> None:
+    """Advance a consumption event through pending, sent and confirmed."""
+    if status not in {"pending", "sent", "confirmed"}:
+        raise ValueError(f"Invalid filament usage event status: {status}")
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute(
+        "UPDATE filament_usage_events SET status = ? WHERE print_id = ? AND layer = ? AND filament_index = ?",
+        (status, int(print_id), int(layer), int(filament_index)),
+    )
+    conn.commit()
+    conn.close()
+
 def update_filament_grams_used(print_id: int, filament_id: int, grams_used: float, length_used: float | None = None) -> None:
     """
     Updates the grams_used (and optional length_used) for a given filament usage entry, ensuring it belongs to the specified print job.
@@ -224,6 +362,8 @@ def update_filament_grams_used(print_id: int, filament_id: int, grams_used: floa
     params: list[float | int] = [grams_used]
     if length_used is not None:
         set_parts.append("length_used = ?")
+        params.append(length_used)
+        set_parts.append("calculated_length = ?")
         params.append(length_used)
 
     set_clause = ", ".join(set_parts)
@@ -267,7 +407,10 @@ def get_prints_with_filament(limit: int | None = None, offset: int | None = None
                 'estimated_grams', f.estimated_grams,
                 'length_used', f.length_used,
                 'estimated_length', f.estimated_length,
-                'ams_slot', f.ams_slot
+                'calculated_length', f.calculated_length,
+                'spoolman_length_used', f.spoolman_length_used,
+                'ams_slot', f.ams_slot,
+                'physical_ams_slot', f.physical_ams_slot
             )) FROM filament_usage f WHERE f.print_id = p.id
         ) AS filament_info
         FROM prints p
