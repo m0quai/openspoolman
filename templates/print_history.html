@@ -1,6 +1,16 @@
 {% extends 'base.html' %}
 {% block content %}
 <script>
+const expectedEndLabel = {{ _('Erwartetes Ende:')|tojson }};
+const remainingLabel = {{ _('Restlaufzeit:')|tojson }};
+const durationLabel = {{ _('Druckdauer:')|tojson }};
+const historyStatusLabels = {
+  finished: {{ _('Finished')|tojson }},
+  cancelled: {{ _('Cancelled')|tojson }},
+  failed: {{ _('Failed')|tojson }},
+  printing: {{ _('Printing')|tojson }},
+  running: {{ _('Printing')|tojson }},
+};
 function adjustPrintImages() {
   let referenceHeight = 0;
   document.querySelectorAll('.print-grid').forEach(grid => {
@@ -38,16 +48,18 @@ function initThumbnailHover() {
 function initPrintHistoryRefresh() {
   const forceButton = document.getElementById('print-history-refresh-now');
   const forceButtonLabel = document.getElementById('print-history-refresh-label');
+  const refreshNowText = {{ _('Jetzt aktualisieren')|tojson }};
+  const refreshCountdownTemplate = {{ _('Jetzt aktualisieren – nächste Aktualisierung in {seconds} s')|tojson }};
   const hasActivePrint = {{ 'true' if active_print_id else 'false' }};
   if (!hasActivePrint) {
-    if (forceButtonLabel) forceButtonLabel.textContent = 'Jetzt aktualisieren';
+    if (forceButtonLabel) forceButtonLabel.textContent = refreshNowText;
     forceButton?.addEventListener('click', () => window.location.reload());
     return;
   }
   const intervalSeconds = 15;
   let remaining = intervalSeconds;
   const updateStatus = () => {
-    if (forceButtonLabel) forceButtonLabel.textContent = 'Jetzt aktualisieren – nächste Aktualisierung in ' + remaining + ' s';
+    if (forceButtonLabel) forceButtonLabel.textContent = refreshCountdownTemplate.replace('{seconds}', remaining);
   };
   updateStatus();
   window.setInterval(() => {
@@ -112,10 +124,10 @@ function initHistoryTableControls() {
   let savedState = {};
   try { savedState = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch (_) { savedState = {}; }
   [...new Set(rows.map(row => row.dataset.historyStatus))].sort().forEach(value => {
-    const label = value.charAt(0).toUpperCase() + value.slice(1);
+    const label = historyStatusLabels[value] || value.charAt(0).toUpperCase() + value.slice(1);
     const wrapper = document.createElement('label');
-    wrapper.className = 'dropdown-item d-flex align-items-center gap-2';
-    wrapper.innerHTML = `<input class="form-check-input mt-0 history-status-check" type="checkbox" value="${value}"><span>${label}</span>`;
+    wrapper.className = 'filter-choice';
+    wrapper.innerHTML = `<input class="filter-choice-input history-status-check" type="checkbox" value="${value}"><span>${label}</span>`;
     statusMenu.appendChild(wrapper);
   });
   [...new Set(rows.map(row => row.dataset.historyDate.slice(0, 10)))].sort().reverse().forEach(value => {
@@ -139,7 +151,7 @@ function initHistoryTableControls() {
     const selectedDate = dateFilter.value;
     const nameNeedle = nameFilter.value.trim().toLowerCase();
     const wantedStatuses = new Set(Array.from(statusMenu.querySelectorAll('.history-status-check:checked')).map(check => check.value));
-    statusButton.textContent = wantedStatuses.size ? `${wantedStatuses.size} Status ausgewählt` : 'Alle Status';
+    statusButton.textContent = wantedStatuses.size ? `${wantedStatuses.size} ${statusButton.dataset.selectedLabel}` : statusButton.dataset.allLabel;
     try { localStorage.setItem(storageKey, JSON.stringify({ id: idFilter.value, date: dateFilter.value, name: nameFilter.value, status: Array.from(wantedStatuses), sortField, sortDirection })); } catch (_) {}
     const visible = rows.filter(row => (!idNeedle || row.dataset.historyId.includes(idNeedle)) && (!selectedDate || row.dataset.historyDate.startsWith(selectedDate)) && (!nameNeedle || row.dataset.historyName.includes(nameNeedle)) && (!wantedStatuses.size || wantedStatuses.has(row.dataset.historyStatus)));
     visible.sort((a, b) => {
@@ -162,6 +174,18 @@ function initHistoryTableControls() {
   };
   [idFilter, dateFilter, nameFilter].forEach(input => input.addEventListener('input', apply));
   statusMenu.addEventListener('change', apply);
+  const positionStatusMenu = () => {
+    const rect = statusButton.getBoundingClientRect();
+    statusMenu.style.setProperty('position', 'fixed', 'important');
+    statusMenu.style.setProperty('transform', 'none', 'important');
+    statusMenu.style.setProperty('left', `${rect.left}px`, 'important');
+    statusMenu.style.setProperty('width', `${rect.width}px`, 'important');
+    statusMenu.style.setProperty('top', `${rect.bottom}px`, 'important');
+  };
+  statusButton.closest('.dropdown')?.addEventListener('shown.bs.dropdown', () => {
+    window.requestAnimationFrame(positionStatusMenu);
+    window.setTimeout(positionStatusMenu, 0);
+  });
   sortButtons.forEach(button => button.addEventListener('click', () => {
     const nextField = button.dataset.historySort;
     sortDirection = nextField === sortField && sortDirection === 'desc' ? 'asc' : 'desc';
@@ -192,7 +216,7 @@ function formatExpectedEnd() {
     const hours = Math.floor(remainingSeconds / 3600);
     const minutes = Math.floor((remainingSeconds % 3600) / 60);
     const remaining = hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
-    el.textContent = `Erwartetes Ende: ${time}${sameDay ? '' : ', ' + date} · Restlaufzeit: ${remaining}`;
+    el.textContent = `${expectedEndLabel} ${time}${sameDay ? '' : ', ' + date} · ${remainingLabel} ${remaining}`;
   });
 }
 function formatPrintDurations() {
@@ -201,7 +225,7 @@ function formatPrintDurations() {
     const end = new Date((el.dataset.end || '').replace(' ', 'T'));
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
     const minutes = Math.max(0, Math.round((end - start) / 60000));
-    el.textContent = `Druckdauer: ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+    el.textContent = `${durationLabel} ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
   });
 }
 function closeThumbnailOverlay() {
@@ -218,31 +242,31 @@ window.addEventListener('load', () => { initHistoryCollapsePersistence(); initHi
 window.addEventListener('load', formatExpectedEnd);
 window.addEventListener('load', formatPrintDurations);
 </script>
-<h1 class="mb-4 text-center">Print history</h1>
+<h1 class="mb-4 text-center">{{ _('Print history') }}</h1>
 <div class="d-flex justify-content-center align-items-center gap-3 mb-3">
   <button id="print-history-refresh-now" type="button" class="btn btn-sm btn-primary rounded-pill px-2 py-1">
-    <i class="bi bi-arrow-clockwise me-1"></i><span id="print-history-refresh-label">Jetzt aktualisieren{% if active_print_id %} – nächste Aktualisierung in 15 s{% endif %}</span>
+    <i class="bi bi-arrow-clockwise me-1"></i><span id="print-history-refresh-label">{% if active_print_id %}{{ _('Jetzt aktualisieren – nächste Aktualisierung in {seconds} s').replace('{seconds}', '15') }}{% else %}{{ _('Jetzt aktualisieren') }}{% endif %}</span>
   </button>
-  {% if has_deleted_prints %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('print_history', show_deleted=0 if show_deleted else 1) }}">{{ 'Aktive anzeigen' if show_deleted else 'Gelöschte anzeigen' }}</a>{% endif %}
+  {% if has_deleted_prints %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('print_history', show_deleted=0 if show_deleted else 1) }}">{{ _('Aktive anzeigen') if show_deleted else _('Gelöschte anzeigen') }}</a>{% endif %}
 </div>
 {% if prints %}
   {% if total_pages > 1 %}
-  <nav aria-label="Print history pagination" class="mb-3"><ul class="pagination justify-content-center">
-    <li class="page-item {% if page <= 1 %}disabled{% endif %}"><a class="page-link" href="{{ url_for('print_history', page=page-1) }}">Previous</a></li>
-    <li class="page-item disabled"><span class="page-link">Page {{ page }} of {{ total_pages }}</span></li>
-    <li class="page-item {% if page >= total_pages %}disabled{% endif %}"><a class="page-link" href="{{ url_for('print_history', page=page+1) }}">Next</a></li>
+  <nav aria-label="{{ _('Print history pagination') }}" class="mb-3"><ul class="pagination justify-content-center">
+    <li class="page-item {% if page <= 1 %}disabled{% endif %}"><a class="page-link" href="{{ url_for('print_history', page=page-1) }}">{{ _('Previous') }}</a></li>
+    <li class="page-item disabled"><span class="page-link">{{ _('Page') }} {{ page }} {{ _('of') }} {{ total_pages }}</span></li>
+    <li class="page-item {% if page >= total_pages %}disabled{% endif %}"><a class="page-link" href="{{ url_for('print_history', page=page+1) }}">{{ _('Next') }}</a></li>
   </ul></nav>
   {% endif %}
   {% with action_assign=True %}{% include 'fragments/list_prints.html' %}{% endwith %}
   {% if total_pages > 1 %}
-  <nav aria-label="Print history pagination" class="mt-3"><ul class="pagination justify-content-center">
-    <li class="page-item {% if page <= 1 %}disabled{% endif %}"><a class="page-link" href="{{ url_for('print_history', page=page-1) }}">Previous</a></li>
-    <li class="page-item disabled"><span class="page-link">Page {{ page }} of {{ total_pages }}</span></li>
-    <li class="page-item {% if page >= total_pages %}disabled{% endif %}"><a class="page-link" href="{{ url_for('print_history', page=page+1) }}">Next</a></li>
+  <nav aria-label="{{ _('Print history pagination') }}" class="mt-3"><ul class="pagination justify-content-center">
+    <li class="page-item {% if page <= 1 %}disabled{% endif %}"><a class="page-link" href="{{ url_for('print_history', page=page-1) }}">{{ _('Previous') }}</a></li>
+    <li class="page-item disabled"><span class="page-link">{{ _('Page') }} {{ page }} {{ _('of') }} {{ total_pages }}</span></li>
+    <li class="page-item {% if page >= total_pages %}disabled{% endif %}"><a class="page-link" href="{{ url_for('print_history', page=page+1) }}">{{ _('Next') }}</a></li>
   </ul></nav>
   {% endif %}
   <div id="image-overlay" class="image-overlay hidden"><div class="overlay-backdrop"></div><div class="overlay-content bg-body p-3 rounded"><img class="overlay-image" style="width:100%;height:100%;"/></div></div>
 {% else %}
-  <div class="text-center text-body-secondary py-5"><p class="mb-0 fs-5">Keine Historie vorhanden.</p></div>
+  <div class="text-center text-body-secondary py-5"><p class="mb-0 fs-5">{{ _('Keine Historie vorhanden.') }}</p></div>
 {% endif %}
 {% endblock %}

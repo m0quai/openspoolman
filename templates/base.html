@@ -1,5 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="auto">
+{% macro language_flag(language) -%}
+  {% if language == 'de' %}
+    <img class="language-flag" src="{{ language_metadata[language]['Icon'] }}" alt="{{ language_metadata[language]['Name'] }}">
+  {% else %}
+    <img class="language-flag" src="{{ language_metadata[language]['Icon'] }}" alt="{{ language_metadata[language]['Name'] }}">
+  {% endif %}
+{%- endmacro %}
+<html lang="{{ current_language|default('de') }}" data-bs-theme="auto">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="initial-scale=0.8, shrink-to-fit=yes, user-scalable=no">
@@ -7,7 +14,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="OpenSpoolMan">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>OpenSpoolMan</title>
+  <title>{{ _('OpenSpoolMan') }}</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
@@ -39,19 +46,36 @@
 
 </head>
 <body class="page-shell">
-<header class="p-1 mb-3 border-bottom">
+<header class="app-navigation p-1 mb-3 border-bottom">
   <div class="container">
-    <div class="d-flex flex-wrap align-items-center justify-content-center justify-content-lg-start">
-      <a href="{{ url_for('home') }}" class="d-flex align-items-center mb-2 mb-lg-0 link-body-emphasis text-decoration-none">
-        <img width="40" height="40" alt="OpenSpoolMan Logo" src="{{ url_for('static', filename='logo.png') }}"/>
+    <div class="d-flex align-items-center">
+      <a href="{{ url_for('home') }}" class="d-flex align-items-center me-2 link-body-emphasis text-decoration-none">
+        <img width="40" height="40" alt="{{ _('OpenSpoolMan Logo') }}" src="{{ url_for('static', filename='logo.png') }}"/>
       </a>
       
-      <ul class="nav col-12 col-lg-auto me-lg-auto mb-2 justify-content-center mb-md-0">
-        <li><a href="{{ url_for('home') }}" class="nav-link px-2 link-body-emphasis">Home</a></li>
-        <li><a href="{{ url_for('print_history') }}" class="nav-link px-2 link-body-emphasis">History</a></li>
-        <li><a href="{{ url_for('livecam') }}" class="nav-link px-2 link-body-emphasis">LiveCam</a></li>
-        <li><a href="{{ url_for('bambu_cloud.index') }}" class="nav-link px-2 link-body-emphasis">Settings{% if not mqtt_connected|default(false) %}<span class="mqtt-menu-status-dot disconnected" title="MQTT nicht verbunden"></span>{% endif %}</a></li>
-        <li><a href="{{ SPOOLMAN_BASE_URL }}" target="_blank" class="nav-link px-2 link-body-emphasis">SpoolMan</a></li>
+      <ul class="nav app-navigation-links flex-grow-1 align-items-center">
+        <li><a href="{{ url_for('home') }}" class="nav-link px-2 link-body-emphasis">{{ _('Home') }}</a></li>
+        <li><a href="{{ url_for('print_history') }}" class="nav-link px-2 link-body-emphasis">{{ _('History') }}</a></li>
+        <li><a href="{{ url_for('livecam') }}" class="nav-link px-2 link-body-emphasis">{{ _('LiveCam') }}</a></li>
+        <li><a href="{{ url_for('inventory') }}" class="nav-link px-2 link-body-emphasis">{{ _('Inventory') }}</a></li>
+        <li><a href="{{ url_for('bambu_cloud.index') }}" class="nav-link px-2 link-body-emphasis">{{ _('Settings') }}{% if not mqtt_connected|default(false) %}<span class="mqtt-menu-status-dot disconnected" title="{{ _('MQTT not connected') }}"></span>{% endif %}</a></li>
+        <li><a href="{{ SPOOLMAN_BASE_URL }}" target="openspoolman-spoolman" data-spoolman-window="true" class="nav-link px-2 link-body-emphasis d-inline-flex align-items-center"><i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>{{ _('SpoolMan') }}</a></li>
+        <li class="nav-item dropdown ms-auto">
+          <button class="nav-link dropdown-toggle px-2 link-body-emphasis language-menu-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="{{ _('Sprache') }}">
+            {{ language_flag(current_language) }}
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end language-menu">
+            {% for language in available_languages %}
+              <li>
+                <form method="post" action="{{ url_for('set_language') }}" class="m-0">
+                  <input type="hidden" name="language" value="{{ language }}">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <button type="submit" class="dropdown-item d-flex align-items-center gap-2{% if current_language == language %} active{% endif %}">{{ language_flag(language) }}{{ language_metadata[language]['Name'] }}</button>
+                </form>
+              </li>
+            {% endfor %}
+          </ul>
+        </li>
       </ul>
     </div>
   </div>
@@ -129,8 +153,8 @@
 <main class="container">
   {% if success_message %}
   <div id="success-alert" class="alert alert-success alert-dismissible fade show" role="alert">
-    <strong>Success!</strong> {{ success_message }}
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    <strong>{{ _('Success!') }}</strong> {{ success_message }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{{ _('Close') }}"></button>
   </div>
   {% endif %}
   <script>
@@ -150,7 +174,7 @@
   <footer class="d-flex flex-wrap justify-content-between align-items-center py-3 my-4 border-top">
     <ul class="nav col-md-12 justify-content-end list-unstyled d-flex">
       <li class="nav-item d-flex align-items-center me-2">
-        <span class="text-body-secondary">v{{ openspoolman_version }} (Build {{ openspoolman_build_number }}) @m0quai</span>
+        <span class="text-body-secondary">v{{ openspoolman_version }} ({{ _('Build') }} {{ openspoolman_build_number }}) @m0quai</span>
       </li>
       <li class="ms-3"><a class="link-body-emphasis" href="https://github.com/m0quai/openspoolman" target="_blank" rel="noopener noreferrer">
         <i class="bi bi-github"></i>
@@ -174,6 +198,46 @@
     }
   })()
   document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('a[data-spoolman-window]').forEach(function (link) {
+      link.addEventListener('click', function (event) {
+        const spoolmanWindow = window.open(link.href, 'openspoolman-spoolman');
+        if (!spoolmanWindow) {
+          return;
+        }
+        event.preventDefault();
+        try {
+          spoolmanWindow.focus();
+        } catch (_) {
+          // Cross-origin windows may not expose additional properties, but focus is safe to request.
+        }
+      });
+    });
+    const languageToggle = document.querySelector('.language-menu-toggle');
+    const languageMenu = document.querySelector('.language-menu');
+    const languageDropdown = languageToggle && languageToggle.closest('.dropdown');
+    if (languageToggle && languageMenu && languageDropdown) {
+      const positionLanguageMenu = function () {
+        const toggleRect = languageToggle.getBoundingClientRect();
+        const menuWidth = languageMenu.offsetWidth || 180;
+        const menuHeight = Math.min(languageMenu.scrollHeight, window.innerHeight - 16);
+        const left = Math.max(8, toggleRect.right - menuWidth);
+        const top = toggleRect.bottom + menuHeight > window.innerHeight
+          ? Math.max(8, toggleRect.top - menuHeight)
+          : toggleRect.bottom;
+        languageMenu.style.setProperty('left', `${left}px`, 'important');
+        languageMenu.style.setProperty('top', `${top}px`, 'important');
+        languageMenu.style.setProperty('width', `${menuWidth}px`, 'important');
+      };
+      languageDropdown.addEventListener('shown.bs.dropdown', function () {
+        window.requestAnimationFrame(positionLanguageMenu);
+        window.setTimeout(positionLanguageMenu, 0);
+      });
+      languageDropdown.addEventListener('hidden.bs.dropdown', function () {
+        languageMenu.style.removeProperty('left');
+        languageMenu.style.removeProperty('top');
+        languageMenu.style.removeProperty('width');
+      });
+    }
     const popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'))
     popoverTriggerList.forEach(function (popoverTriggerEl) {
       const popover = new bootstrap.Popover(popoverTriggerEl, {container: 'body', trigger: 'manual'})

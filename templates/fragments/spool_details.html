@@ -1,6 +1,6 @@
 <div class="card mb-3 shadow-sm">
   <div class="card-header fw-bold">
-    Spool Details
+    {{ _('Spool Details') }}
   </div>
   <div class="card-body">
     <!-- Filament Color Badge and Name -->
@@ -14,7 +14,7 @@
                 {% else %}
                 <span class="badge d-inline-block missing-color"
                       style="background-color: var(--bs-secondary, #6c757d); width: 40px; height: 40px; border-radius: 5px;"
-                      title="Color not set">
+                      title="{{ _('Color not set') }}">
                 </span>
                 {% endif %}
       </div>
@@ -27,19 +27,19 @@
     <!-- Filament Details -->
     <div class="row mb-2">
       <div class="col-6">
-        <p class="mb-1"><strong>Remaining Weight:</strong> {{ current_spool.remaining_weight|round(2) }}g</p>
-        <p class="mb-1"><strong>Remaining Length:</strong> {{ current_spool.remaining_length|round(0) }}mm</p>
+        <p class="mb-1"><strong>{{ _('Remaining Weight:') }}</strong> {{ current_spool.remaining_weight|round(2) }}g</p>
+        <p class="mb-1"><strong>{{ _('Remaining Length:') }}</strong> {{ current_spool.remaining_length|round(0) }}mm</p>
       </div>
       <div class="col-6">
-        <p class="mb-1"><strong>Nozzle Temp:</strong> {{ current_spool.filament.extra.nozzle_temperature }}</p>
-        <p class="mb-1"><a href="{{ SPOOLMAN_BASE_URL }}/spool/show/{{ current_spool.id }}" target="_blank">view in spoolman <i class="bi bi-box-arrow-up-right"></i></a></p>
+        <p class="mb-1"><strong>{{ _('Nozzle Temp:') }}</strong> {{ current_spool.filament.extra.nozzle_temperature }}</p>
+        <p class="mb-1"><a href="{{ SPOOLMAN_BASE_URL }}/spool/show/{{ current_spool.id }}" target="openspoolman-spoolman" data-spoolman-window="true">{{ _('view in spoolman') }} <i class="bi bi-box-arrow-up-right"></i></a></p>
       </div>
     </div>
   </div>
   <div class="card-footer text-muted container">
     <div class="row">
-      <div class="col-sm-6"><small>Registered: {{ current_spool.registered }}</small></div>
-      <div class="col-sm-6"><small>Last Used: {% if current_spool.last_used %}{{ current_spool.last_used[:16] | replace('T', ' ') }}{% else %}-{% endif %}</small></div>
+      <div class="col-sm-6"><small>{{ _('Registered:') }} {{ current_spool.registered }}</small></div>
+      <div class="col-sm-6"><small>{{ _('Last Used:') }} {% if current_spool.last_used %}{{ current_spool.last_used[:16] | replace('T', ' ') }}{% else %}-{% endif %}</small></div>
     </div>
   </div>
 </div>

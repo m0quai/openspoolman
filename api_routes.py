@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from flask import Blueprint, jsonify, request
 
 import mqtt_bambulab
-import spoolman_client
+import spool_repository as spool_repo
 import spoolman_service
 from config import EXTERNAL_SPOOL_AMS_ID, EXTERNAL_SPOOL_ID, PRINTER_ID, PRINTER_NAME
 
@@ -262,7 +262,7 @@ def api_assign_tray(printer_id: str, tray_index: int):
     resolved_tray = tray_index
 
   try:
-    spool_data = spoolman_client.getSpoolById(spool_id)
+    spool_data = spool_repo.get_spool(spool_id)
   except Exception as exc:
     traceback.print_exc()
     return json_error("SPOOL_FETCH_FAILED", f"Failed to fetch spool '{spool_id}': {exc}", 502)
@@ -297,7 +297,7 @@ def api_unassign_tray(printer_id: str, tray_index: int):
   try:
     spool: Optional[Dict[str, Any]] = None
     if spool_id:
-      spool = spoolman_client.getSpoolById(spool_id)
+      spool = spool_repo.get_spool(spool_id)
     else:
       spools = spoolman_service.fetchSpools()
       ams_id, _ = _resolve_tray_context(tray_index)
@@ -309,7 +309,7 @@ def api_unassign_tray(printer_id: str, tray_index: int):
       return json_error("SPOOL_NOT_FOUND", "No spool assigned to this tray", 404)
 
     extras = spool.get("extra") or {}
-    spoolman_client.patchExtraTags(spool["id"], extras, {"active_tray": ""})
+    spool_repo.update_spool_extra(spool["id"], extras, active_tray="")
     return json_success(
         {
             "printer_id": ACTIVE_PRINTER_ID,

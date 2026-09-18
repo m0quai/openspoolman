@@ -467,6 +467,24 @@ def get_prints_by_spool(spool_id: int):
     conn.close()
     return prints
 
+
+def get_spool_print_usage(spool_id: int) -> list[dict]:
+    """Return the print-level consumption records for one spool."""
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """SELECT p.id AS print_id, p.print_date, p.file_name,
+                  f.grams_used, f.length_used, f.calculated_length,
+                  f.spoolman_length_used
+           FROM prints p
+           JOIN filament_usage f ON f.print_id = p.id
+           WHERE f.spool_id = ?
+           ORDER BY p.print_date DESC, p.id DESC""",
+        (int(spool_id),),
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
 def get_filament_for_slot(print_id: int, ams_slot: int):
   conn = sqlite3.connect(db_config["db_path"])
   conn.row_factory = sqlite3.Row  # Enable column name access

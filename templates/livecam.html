@@ -1,16 +1,16 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<h1 class="mb-4 text-center">LiveCam</h1>
+<h1 class="mb-4 text-center">{{ _('LiveCam') }}</h1>
 <div class="card shadow-sm mx-auto" style="max-width: 960px;">
-  <div class="card-header">Livebild</div>
+  <div class="card-header">{{ _('Livebild') }}</div>
   <div class="card-body text-center">
     <div class="livecam-frame border rounded bg-body-secondary d-flex align-items-center justify-content-center">
-      <img id="livecam-image" src="" alt="Livebild" class="img-fluid d-none" style="max-height: 70vh;" data-stream-url="{{ url_for('livecam_stream') }}">
-      <img id="livecam-placeholder" src="{{ url_for('static', filename='livecam-placeholder.png') }}" alt="Livebild nicht aktiv – OpenSpoolMan @ moquai">
+      <img id="livecam-image" src="" alt="{{ _('Livebild') }}" class="img-fluid d-none" style="max-height: 70vh;" data-stream-url="{{ url_for('livecam_stream') }}">
+      <img id="livecam-placeholder" src="{{ url_for('static', filename='livecam-placeholder.png') }}" alt="{{ _('Livebild nicht aktiv – OpenSpoolMan @ moquai') }}">
     </div>
     <button id="livecam-toggle" type="button" class="btn btn-sm btn-primary rounded-pill px-3 py-2 mt-3">
-      <i class="bi bi-play-fill me-1"></i> Start
+      <i class="bi bi-play-fill me-1"></i> {{ _('Start') }}
     </button>
   </div>
 </div>
@@ -30,12 +30,12 @@
       // Frame des MJPEG-Streams tatsächlich geladen hat.
       image.classList.add('d-none');
       placeholder.classList.remove('d-none');
-      button.innerHTML = '<i class="bi bi-stop-fill me-1"></i> Stop';
+      button.innerHTML = '<i class="bi bi-stop-fill me-1"></i> {{ _('Stop') }}';
     } else {
       image.removeAttribute('src');
       image.classList.add('d-none');
       placeholder.classList.remove('d-none');
-      button.innerHTML = '<i class="bi bi-play-fill me-1"></i> Start';
+      button.innerHTML = '<i class="bi bi-play-fill me-1"></i> {{ _('Start') }}';
     }
   });
   image.addEventListener('load', () => {
@@ -48,7 +48,7 @@
     image.removeAttribute('src');
     image.classList.add('d-none');
     placeholder.classList.remove('d-none');
-    button.innerHTML = '<i class="bi bi-play-fill me-1"></i> Start';
+    button.innerHTML = '<i class="bi bi-play-fill me-1"></i> {{ _('Start') }}';
   });
 })();
 </script>

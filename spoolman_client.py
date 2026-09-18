@@ -70,10 +70,15 @@ def patchFilamentExtra(filament_id, old_extra, new_values):
   return response.json()
 
 
-def fetchSpoolList():
+def fetchSpoolList(include_archived=False):
   url = f"{SPOOLMAN_API_URL}/spool"
+  query = []
   if SPOOL_SORTING:
-    url += f"?sort={SPOOL_SORTING}"
+    query.append(f"sort={SPOOL_SORTING}")
+  if include_archived:
+    query.append("allow_archived=true")
+  if query:
+    url += "?" + "&".join(query)
   response = requests.get(url, timeout=10)
   response.raise_for_status()
   try:

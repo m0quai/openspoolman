@@ -215,8 +215,9 @@ if not app.secret_key:
 
 from bambu_auth_routes import bp as bambu_cloud_bp
 from nfc_routes import bp as ams_nfc_bp
-from flask import jsonify, redirect, request, url_for, render_template, send_from_directory, Response, stream_with_context
+from flask import jsonify, redirect, request, url_for, render_template, send_from_directory, Response, stream_with_context, session
 import mqtt_bambulab
+import spool_repository as spool_data
 import print_history as print_history_service
 from config import EXTERNAL_SPOOL_AMS_ID, PRINTER_ID
 from __version__ import __build_number__, __version__
@@ -224,6 +225,99 @@ import tools_3mf as _tools_3mf
 import filament_usage_tracker as _filament_usage_tracker
 
 from logger import log as _log
+
+# Bambu's mc_percent is the printer's authoritative completion value.  The
+# upstream history view derives progress from layer counts, which can differ
+# noticeably for jobs with variable layer durations.  Enrich the rendered
+# history data in the custom entry point without modifying app.py.
+_original_app_render_template = _openspoolman_app_module.render_template
+
+def _render_template_with_printer_progress(template_name, *args, **kwargs):
+    if template_name == "print_history.html":
+        requested_print_id = request.args.get("print_id")
+        try:
+            requested_print_id = int(requested_print_id) if requested_print_id is not None else None
+        except (TypeError, ValueError):
+            requested_print_id = None
+        if requested_print_id is not None:
+            # A history deep link should open the selected print, not merely
+            # scroll to its table row.  Keep this override in the custom entry
+            # point so the upstream app.py remains untouched.
+            kwargs["active_print_id"] = requested_print_id
+        print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
+        raw_percent = print_state.get("mc_percent")
+        active_print_id = print_history_service.get_latest_running_print_id()
+        try:
+            percent = max(0, min(100, int(float(raw_percent)))) if raw_percent is not None else None
+        except (TypeError, ValueError):
+            percent = None
+        if percent is not None and active_print_id is not None:
+            for print_entry in kwargs.get("prints", []) or []:
+                if print_entry.get("id") == active_print_id and print_entry.get("layer_tracking"):
+                    print_entry["layer_tracking"]["progress_percent"] = percent
+                    break
+    return _original_app_render_template(template_name, *args, **kwargs)
+
+_openspoolman_app_module.render_template = _render_template_with_printer_progress
+
+_UI_TRANSLATIONS = {
+        "de": {"Home":"Home", "History":"History", "LiveCam":"LiveCam", "Inventory":"Inventar", "Settings":"Settings", "SpoolMan":"SpoolMan", "Spool":"Spule", "Hersteller":"Hersteller", "Material":"Material", "Filament":"Filament", "Farbe":"Farbe", "Restgewicht":"Restgewicht", "Drucke":"Drucke", "Alle":"Alle", "Status":"Status", "ausgewählt":"ausgewählt", "Datum":"Datum", "Auftrag":"Auftrag", "Verbrauch":"Verbrauch", "Ohne Namen":"Ohne Namen", "ungebraucht":"ungebraucht", "Keine Spulen gefunden":"Keine Spulen gefunden", "Sprache":"Sprache", "Deutsch":"Deutsch", "Englisch":"Englisch", "Speichern":"Speichern", "Print history":"Druckhistorie", "Jetzt aktualisieren":"Jetzt aktualisieren", "Druckname":"Druckname", "Aktive anzeigen":"Aktive anzeigen", "Gelöschte anzeigen":"Gelöschte anzeigen", "Previous":"Zurück", "Next":"Weiter", "Page":"Seite", "of":"von", "Abmelden":"Abmelden", "Drucker übernehmen":"Drucker übernehmen", "Code bestätigen":"Code bestätigen", "Bei Bambu anmelden":"Bei Bambu anmelden", "Drucker Verbindung":"Drucker Verbindung", "Verbindungsmodus":"Verbindungsmodus", "Lokaler LAN-Modus":"Lokaler LAN-Modus", "Online-Authentifizierung":"Online-Authentifizierung", "Direkte Verbindung zum Drucker im lokalen Netzwerk.":"Direkte Verbindung zum Drucker im lokalen Netzwerk.", "Drucker-IP":"Drucker-IP", "Seriennummer":"Seriennummer", "Druckername":"Druckername", "Printer Access LAN":"Printer Access LAN", "Drucker auswählen":"Drucker auswählen", "Keine gebundenen Drucker zurückgegeben.":"Keine gebundenen Drucker zurückgegeben."},
+    "en": {"Home":"Home", "History":"History", "LiveCam":"LiveCam", "Inventory":"Inventory", "Settings":"Settings", "SpoolMan":"SpoolMan", "Spool":"Spool", "Hersteller":"Manufacturer", "Material":"Material", "Filament":"Filament", "Farbe":"Color", "Restgewicht":"Remaining weight", "Drucke":"Prints", "Alle":"All", "Status":"Status", "ausgewählt":"selected", "Datum":"Date", "Auftrag":"Job", "Verbrauch":"Usage", "Ohne Namen":"Unnamed", "ungebraucht":"Unused", "Keine Spulen gefunden":"No spools found", "Sprache":"Language", "Deutsch":"German", "Englisch":"English", "Speichern":"Save", "Print history":"Print history", "Jetzt aktualisieren":"Refresh now", "Druckname":"Print name", "Aktive anzeigen":"Show active", "Gelöschte anzeigen":"Show deleted", "Previous":"Previous", "Next":"Next", "Page":"Page", "of":"of", "Abmelden":"Sign out", "Drucker übernehmen":"Use printer", "Code bestätigen":"Confirm code", "Bei Bambu anmelden":"Sign in to Bambu", "Drucker Verbindung":"Printer connection", "Verbindungsmodus":"Connection mode", "Lokaler LAN-Modus":"Local LAN mode", "Online-Authentifizierung":"Online authentication", "Direkte Verbindung zum Drucker im lokalen Netzwerk.":"Direct connection to the printer on the local network.", "Drucker-IP":"Printer IP", "Seriennummer":"Serial number", "Druckername":"Printer name", "Printer Access LAN":"Printer LAN access", "Drucker auswählen":"Select printer", "Keine gebundenen Drucker zurückgegeben.":"No bound printers returned."},
+}
+
+# Additional labels used by the existing pages. Keeping these keys here lets
+# legacy templates migrate incrementally while still using one translation
+# source.
+_UI_TRANSLATIONS["de"].update({
+    "Deutsch oder Englisch für die Benutzeroberfläche": "Deutsch oder Englisch für die Benutzeroberfläche",
+    "Ein LAN Access-Code ist gespeichert. Leer lassen, um ihn beizubehalten.": "Ein LAN Access-Code ist gespeichert. Leer lassen, um ihn beizubehalten.",
+    "Bambu Cloud": "Bambu Cloud", "Angemeldet": "Angemeldet", "als": "als", "Name": "Name", "Modell": "Modell", "Online": "Online", "Lokale IP": "Lokale IP", "Bambu Cloud anmelden": "Bambu Cloud anmelden", "Bambu E-Mail": "Bambu E-Mail", "Passwort": "Passwort", "Verbunden": "Verbunden", "Nicht verbunden": "Nicht verbunden", "MQTT": "MQTT", "Status:": "Status:",
+    "Link Bambu Spool to SpoolMan": "Bambu-Spule mit SpoolMan verknüpfen", "Bambu tag": "Bambu-Tag", "detected in this tray. Pick the matching SpoolMan spool to bind this tag and assign the tray.": "in diesem Fach erkannt. Wähle die passende SpoolMan-Spule zum Verknüpfen und Zuordnen.", "Error": "Fehler", "Back": "Zurück", "Fill Tray": "Fach füllen", "External Spool": "Externe Spule", "Solve issue": "Problem lösen", "Livebild": "Livebild", "NFC-Tags": "NFC-Tags", "Zurück": "Zurück", "Unbekannter NFC-Tag": "Unbekannter NFC-Tag", "Spule auswählen ...": "Spule auswählen ...", "Spule zuordnen": "Spule zuordnen", "Keine unbekannten NFC-Tags vorhanden.": "Keine unbekannten NFC-Tags vorhanden.", "Change spool": "Spule ändern", "Assign spool to print": "Spule dem Druck zuordnen", "Assign Tray": "Fach zuordnen", "NFC Write Process": "NFC-Schreibvorgang", "Follow the steps below to write data to your NFC tag.": "Folge den Schritten zum Schreiben deines NFC-Tags.", "Allow NFC usage if prompted.": "Erlaube die NFC-Nutzung, wenn du dazu aufgefordert wirst.", "Bring the tag close to your phone when prompted.": "Halte den Tag an dein Telefon, wenn du dazu aufgefordert wirst.", "Humidity": "Luftfeuchtigkeit", "Filament type mismatch": "Filamenttyp stimmt nicht überein", "No AMS material selected": "Kein AMS-Material ausgewählt", "Fach leer": "Fach leer", "Unknown spool detected": "Unbekannte Spule erkannt", "Last used:": "Zuletzt verwendet:", "Full": "Voll", "Remaining:": "Verbleibend:", "Link to Spoolman": "Mit SpoolMan verknüpfen", "Assign": "Zuordnen", "Clear": "Leeren", "Fill": "Füllen", "No Image": "Kein Bild", "Print ID": "Druck-ID", "Druck": "Druck", "Layers": "Schichten", "Billed": "Abgerechnet", "Progress": "Fortschritt", "No spool assigned": "Keine Spule zugeordnet", "printed": "gedruckt", "expected": "erwartet", "Spule ändern": "Spule ändern", "Eintrag aus der History ausblenden": "Eintrag aus der History ausblenden", "Eintrag löschen": "Eintrag löschen", "Remaining Weight:": "Restgewicht:", "Remaining Length:": "Restlänge:", "Nozzle Temp:": "Düsentemperatur:", "view in spoolman": "in SpoolMan anzeigen", "Registered:": "Registriert:", "Last Used:": "Zuletzt verwendet:", "Keine Historie vorhanden.": "Keine Historie vorhanden.", "Success!": "Erfolgreich!"
+})
+_UI_TRANSLATIONS["en"].update({
+    "Deutsch oder Englisch für die Benutzeroberfläche": "German or English for the user interface", "Ein LAN Access-Code ist gespeichert. Leer lassen, um ihn beizubehalten.": "A LAN access code is saved. Leave empty to keep it.", "Angemeldet": "Signed in", "als": "as", "Lokale IP": "Local IP", "Verbunden": "Connected", "Nicht verbunden": "Not connected", "Status:": "Status:", "Zurück": "Back", "Spule zuordnen": "Assign spool", "Keine unbekannten NFC-Tags vorhanden.": "No unknown NFC tags found.", "No Image": "No image", "Success!": "Success!", "Keine Historie vorhanden.": "No history available.", "Clear": "Clear", "Fill": "Fill", "Assign": "Assign", "Back": "Back", "Error": "Error", "Livebild": "Live view", "Humidity": "Humidity", "Full": "Full", "Remaining:": "Remaining:", "Last used:": "Last used:", "Unbekannter NFC-Tag": "Unknown NFC tag", "Spule auswählen ...": "Select spool ...", "Spule ändern": "Change spool", "Eintrag löschen": "Delete entry", "Eintrag aus der History ausblenden": "Hide history entry", "Keine Spule zugeordnet": "No spool assigned", "gedruckt": "printed", "erwartet": "expected", "Druck-ID": "Print ID", "Druck": "Print", "Schichten": "Layers", "Abgerechnet": "Billed", "Fortschritt": "Progress", "Restgewicht:": "Remaining weight:", "Restlänge:": "Remaining length:", "Düsentemperatur:": "Nozzle temperature:", "in SpoolMan anzeigen": "view in SpoolMan", "Registriert:": "Registered:", "Zuletzt verwendet:": "Last used:"
+})
+
+# The external module is the authoritative source; the legacy inline map
+# above is retained only for compatibility with older local checkouts.
+from translations import UI_TRANSLATIONS as _UI_TRANSLATIONS
+
+def _ui_language():
+    language = session.get("ui_language", "de")
+    return language if language in _ui_languages() else "de"
+
+def _ui_languages():
+    return tuple(
+        language
+        for language, values in _UI_TRANSLATIONS.items()
+        if language != "_init" and isinstance(values, dict)
+    )
+
+def _ui_language_metadata():
+    metadata = _UI_TRANSLATIONS.get("_init", {})
+    return {
+        language: metadata.get(language, {})
+        for language in _ui_languages()
+    }
+
+def _ui_text(key):
+    return _UI_TRANSLATIONS[_ui_language()].get(key, key)
+
+@app.context_processor
+def inject_ui_language():
+    return {
+        "_": _ui_text,
+        "current_language": _ui_language(),
+        "available_languages": _ui_languages(),
+        "language_metadata": _ui_language_metadata(),
+    }
+
+@app.post("/language")
+def set_language():
+    language = request.form.get("language", "de")
+    if language in _ui_languages():
+        session["ui_language"] = language
+    return redirect(request.form.get("next") or url_for("home"))
 
 _build_number_file = Path(__file__).resolve().parent / "build_number"
 _runtime_build_number = os.environ.get("BUILD_NUMBER", "").strip()
@@ -580,6 +674,26 @@ def reconcile_stale_print_history_statuses():
 def livecam():
     return render_template("livecam.html")
 
+
+@app.route("/inventory")
+def inventory():
+    """Show the Spoolman inventory together with print consumption history."""
+    inventory_rows = []
+    try:
+        spools = spool_data.list_spools(include_archived=True)
+    except Exception as exc:
+        _log(f"Inventory could not load archived spools: {exc}")
+        spools = mqtt_bambulab.fetchSpools()
+    for spool in spools:
+        spool_id = spool.get("id")
+        if spool_id is None:
+            continue
+        inventory_rows.append({
+            "spool": spool,
+            "prints": print_history_service.get_spool_print_usage(spool_id),
+        })
+    return render_template("inventory.html", inventory_rows=inventory_rows)
+
 @app.route("/livecam/stream")
 def livecam_stream():
     """Relay the P1S TLS/JPEG camera protocol as a browser-compatible MJPEG stream."""
@@ -747,9 +861,8 @@ def _block_mutating_tray_actions_while_pending():
     if _printer_is_busy():
         return render_template("error.html", exception="AMS-Aktionen sind während eines Drucks deaktiviert.")
     if request.endpoint == "fill":
-        import spoolman_client
         try:
-            selected_spool = spoolman_client.getSpoolById(spool_id)
+            selected_spool = spool_data.get_spool(spool_id)
             active_tray = (selected_spool.get("extra") or {}).get("active_tray")
             if active_tray and str(active_tray) not in {"", '""'}:
                 return render_template(

@@ -6,7 +6,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 
 import mqtt_bambulab
-import spoolman_client
+import spool_repository as spool_repo
 import spoolman_service
 
 bp = Blueprint("ams_nfc", __name__, url_prefix="/ams/nfc")
@@ -146,7 +146,7 @@ def assign_pending_tag(uid):
         return redirect(url_for("ams_nfc.pending_tags", error="Spule wurde nicht gefunden."))
 
     extras = spool.get("extra") or {}
-    spoolman_client.patchExtraTags(spool_id, extras, {"tag": json.dumps(normalized_uid)})
+    spool_repo.update_spool_extra(spool_id, extras, tag=json.dumps(normalized_uid))
     spool.setdefault("extra", {})["tag"] = json.dumps(normalized_uid)
     _assign_spool_to_tray(spool, int(pending["ams_id"]), int(pending["tray_index"]))
     _remove_pending(normalized_uid)

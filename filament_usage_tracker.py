@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from config import EXTERNAL_SPOOL_AMS_ID, EXTERNAL_SPOOL_ID, TRACK_LAYER_USAGE
-from spoolman_client import consumeSpool
+from spool_repository import record_consumption
 from spoolman_service import fetchSpools, getAMSFromTray, trayUid
 from tools_3mf import download3mfFromCloud, download3mfFromFTP, download3mfFromLocalFilesystem, getMetaDataFrom3mf
 from print_history import update_filament_spool, update_filament_grams_used, update_filament_physical_slot, claim_filament_usage_event, set_filament_usage_event_status, finalize_filament_usage_events, get_all_filament_usage_for_print, update_layer_tracking, update_print_image, get_print_image, get_latest_running_print_id, find_latest_print_id
@@ -651,7 +651,7 @@ class FilamentUsageTracker:
     log(f"[filament-tracker] Consume spool {spool_id} for filament {filament} with {usage_rounded}mm ({grams_rounded}g cumulative) (tray_uid={tray_uid})")
 
     try:
-      consumeSpool(spool_id, use_length=usage_rounded)
+      record_consumption(spool_id, length_mm=usage_rounded)
     except Exception as exc:
       log(f"[filament-tracker] Spoolman transfer failed; event remains sent: print_id={self.print_id}, layer={event_layer}, filament={filament}, error={exc!r}")
       return False

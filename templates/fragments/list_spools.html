@@ -5,7 +5,7 @@
 <!-- Empty State -->
 {% if spools|length == 0 or not spools %}
 <div class="alert alert-info text-center" role="alert">
-  No spools available to tag at the moment.
+  {{ _('No spools available to tag at the moment.') }}
 </div>
 {% else %}
 
@@ -22,7 +22,7 @@
     <button type="button"
             id="clear-material-filter"
             class="btn btn-sm {% if not selected_materials %}btn-primary active{% else %}btn-outline-secondary{% endif %}">
-      Show all
+      {{ _('Show all') }}
     </button>
   </div>
   <input type="hidden" id="material-filter-state" value='{{ selected_materials|tojson }}'>
@@ -58,7 +58,7 @@
                 {% else %}
                 <span class="badge d-inline-block missing-color"
               style="background-color: var(--bs-secondary, #6c757d); width: 20px; height: 50px;"
-              title="Color not set">
+              title="{{ _('Color not set') }}">
         </span>
                 {% endif %}
                 {% endif %}
@@ -73,14 +73,14 @@
         </span>
         {{ spool.filament.material }} - {{ spool.filament.vendor.name }}</h6>
       <!-- Filament Name (Row 2) -->
-      <small class="text-muted">{{ spool.filament.name }} - {{ spool.remaining_weight|round(0)|int }} g left</small>
+      <small class="text-muted">{{ spool.filament.name }} - {{ spool.remaining_weight|round(0)|int }} {{ _('g left') }}</small>
     </div>
 
   <div class="spool-actions d-flex flex-column flex-sm-row align-items-start align-items-sm-center gap-2 ms-sm-3">
     {% if action_fill or action_assign %}
     <a href="{{ url_for('spool_info', spool_id=spool.id) }}" class="spool-action-link">
       <span class="badge bg-primary rounded-pill">
-        <i class="bi bi-info-circle"></i> Spool info
+        <i class="bi bi-info-circle"></i> {{ _('Spool info') }}
       </span>
     </a>
     {% endif %}
@@ -97,8 +97,8 @@
     {% set active_tray = spool.extra.get('active_tray') if spool.extra else none %}
     {% set spool_in_use = active_tray and active_tray not in ['', '""'] %}
     {% if spool_in_use %}
-      <span class="badge bg-secondary rounded-pill" aria-disabled="true" title="Spule ist bereits einem Fach zugeordnet">
-        <i class="bi bi-lock-fill"></i> In use
+      <span class="badge bg-secondary rounded-pill" aria-disabled="true" title="{{ _('Spule ist bereits einem Fach zugeordnet') }}">
+        <i class="bi bi-lock-fill"></i> {{ _('In use') }}
       </span>
     {% else %}
       <a href="{{ url_for('fill', spool_id=spool.id, ams=ams_id, tray=tray_id) }}" class="spool-action-link">
@@ -114,11 +114,11 @@
     <!-- Action Icon -->
     {% if spool.extra.get("tag") or spool.extra.get("tag") == "\"\"" %}
       <span class="badge bg-secondary rounded-pill">
-        <i class="bi bi-plus-circle"></i> Reassign
+        <i class="bi bi-plus-circle"></i> {{ _('Reassign') }}
       </span>
     {% else %}
       <span class="badge bg-primary rounded-pill">
-        <i class="bi bi-plus-circle"></i> Assign
+        <i class="bi bi-plus-circle"></i> {{ _('Assign') }}
       </span>
     {% endif %}
     </a>
@@ -127,7 +127,7 @@
     {% if action_assign_print %}
     <a href="{{ url_for('print_history', print_id=print_id, ams_slot=ams_slot, spool_id=spool.id, old_spool_id=old_spool_id,_anchor='print_' + print_id) }}" class="spool-action-link">
       <span class="badge bg-primary rounded-pill">
-        <i class="bi bi-plus-circle"></i> Assign
+        <i class="bi bi-plus-circle"></i> {{ _('Assign') }}
       </span>
     </a>
     {% endif %}

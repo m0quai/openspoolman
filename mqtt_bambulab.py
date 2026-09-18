@@ -622,8 +622,8 @@ def _persist_confirmed_pa_profile(ams_id, tray_id, cali_idx, reported_filament_i
     )
     return False
 
-  import spoolman_client
-  spoolman_client.patchFilamentExtra(
+  import spool_repository as spool_repo
+  spool_repo.update_filament_metadata(
     spool["filament"]["id"],
     extras,
     {"cali_idx": index},
@@ -869,8 +869,8 @@ def on_message(client, userdata, msg):
               pass
             elif spool and spool.get("filament", {}).get("id"):
               PROFILE_RESPONSE_SAMPLES[sample_key] = sample
-              import spoolman_client
-              spoolman_client.patchFilamentExtra(
+              import spool_repository as spool_repo
+              spool_repo.update_filament_metadata(
                 spool["filament"]["id"],
                 spool["filament"].get("extra") or {},
                 {"filament_id": print_reply["tray_info_idx"], "setting_id": print_reply["setting_id"]},

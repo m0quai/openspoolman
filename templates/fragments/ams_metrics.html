@@ -7,7 +7,7 @@
     {% set show_raw = ams.humidity_raw is defined and ams.humidity_raw|int != 0 %}
     <span class="text-muted small d-flex align-items-center gap-2">
       <span class="d-flex align-items-center gap-1 ams-humidity-display">
-        <span class="text-body-secondary">Humidity</span>
+        <span class="text-body-secondary">{{ _('Humidity') }}</span>
         {% if show_raw %}
           <span class="fw-semibold">{{ ams.humidity_raw }}%</span>
         {% else %}
@@ -26,7 +26,7 @@
           </span>
         {% endif %}
       </span>
-      <span>Temp: {{ ams.temp }}°C</span>
+      <span>{{ _('Temp:') }} {{ ams.temp }}°C</span>
     </span>
   {% endif %}
 {% endmacro %}
