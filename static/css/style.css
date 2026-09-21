@@ -224,6 +224,8 @@ main.container {
 }
 .history-master-table tr > :last-child { border-right: 0; }
 .history-master-table tbody tr:last-child > * { border-bottom: 0; }
+.history-row-toggle { cursor: pointer; }
+.history-row-toggle:focus-visible { outline: 2px solid var(--bs-primary); outline-offset: -2px; }
 .history-master-table thead th {
     white-space: nowrap;
     font-size: .8rem;
@@ -362,6 +364,7 @@ main.container {
 }
 .inventory-table tr > :last-child { border-right: 0; }
 .inventory-table tbody tr:last-child > * { border-bottom: 0; }
+.inventory-table tbody tr > td { vertical-align: top; }
 .inventory-table thead th { background: var(--bs-tertiary-bg); white-space: nowrap; }
 .inventory-table thead th:nth-child(1) { width: 90px; }
 .inventory-table thead th:nth-child(2) { width: 150px; }
@@ -371,6 +374,8 @@ main.container {
 .inventory-table thead th:nth-child(6) { width: 130px; }
 .inventory-table thead th:nth-child(7) { width: 140px; }
 .inventory-table thead th:nth-child(8) { min-width: 300px; }
+.inventory-table.inventory-no-status thead th:nth-child(6) { width: 140px; }
+.inventory-table.inventory-no-status thead th:nth-child(7) { min-width: 300px; }
 .inventory-color-code {
     display: inline-block;
     min-width: 68px;
@@ -387,10 +392,16 @@ main.container {
 .inventory-spool-link { text-decoration: none; }
 .inventory-entity-link { text-decoration: none; }
 .inventory-print-table th,
-.inventory-print-table td { padding: .2rem .4rem; border-right: 0; font-size: .82rem; line-height: 1.15; }
+.inventory-print-table td { padding: .2rem .4rem; border-right: 0; font-size: .82rem; line-height: 1.15; text-align: left; }
+.inventory-print-table th:nth-child(2),
+.inventory-print-table td:nth-child(2),
 .inventory-print-table th:nth-child(3),
 .inventory-print-table td:nth-child(3),
 .inventory-table td:nth-child(7) { text-align: right; }
+.inventory-print-table th:nth-child(4),
+.inventory-print-table td:nth-child(4) { text-align: left; }
+.inventory-table.inventory-no-status td:nth-child(6) { text-align: right; }
+.inventory-table td:last-child { text-align: left; }
 .inventory-print-table thead th { background: transparent; font-size: .8rem; }
 .inventory-print-details summary { cursor: pointer; color: var(--bs-primary); }
 .inventory-print-details[open] { min-width: 520px; }

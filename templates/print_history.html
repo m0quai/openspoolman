@@ -4,6 +4,7 @@
 const expectedEndLabel = {{ _('Erwartetes Ende:')|tojson }};
 const remainingLabel = {{ _('Restlaufzeit:')|tojson }};
 const durationLabel = {{ _('Druckdauer:')|tojson }};
+const estimatedLabel = {{ _('(geschätzt)')|tojson }};
 const historyStatusLabels = {
   finished: {{ _('Finished')|tojson }},
   cancelled: {{ _('Cancelled')|tojson }},
@@ -75,6 +76,7 @@ function initHistoryCollapsePersistence() {
   document.querySelectorAll('.print-history .collapse').forEach(panel => {
     const id = panel.id;
     const toggle = document.querySelector(`[data-bs-target="#${id}"]`);
+    const row = panel.closest('tr.history-detail-row')?.previousElementSibling;
     const setIcon = open => {
       const icon = toggle?.querySelector('.bi');
       if (icon) icon.className = `bi bi-chevron-${open ? 'up' : 'down'}`;
@@ -83,6 +85,21 @@ function initHistoryCollapsePersistence() {
       if (deleteAction) deleteAction.classList.toggle('d-none', !open);
     };
     if (localStorage.getItem(key + ':' + id) === '1') { panel.classList.add('show'); setIcon(true); }
+    if (row) {
+      row.classList.add('history-row-toggle');
+      row.tabIndex = 0;
+      row.setAttribute('role', 'button');
+      const toggleRow = event => {
+        if (event.target.closest('a, button, form, input, select, textarea, label')) return;
+        bootstrap.Collapse.getOrCreateInstance(panel).toggle();
+      };
+      row.addEventListener('click', toggleRow);
+      row.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        toggleRow(event);
+      });
+    }
     panel.addEventListener('shown.bs.collapse', () => { localStorage.setItem(key + ':' + id, '1'); setIcon(true); });
     panel.addEventListener('shown.bs.collapse', adjustPrintImages);
     panel.addEventListener('hidden.bs.collapse', () => {
@@ -211,7 +228,7 @@ function formatExpectedEnd() {
     const time = `${pad(end.getHours())}:${pad(end.getMinutes())}`;
     const now = new Date();
     const sameDay = end.toDateString() === now.toDateString();
-    const date = `${pad(end.getDate())}.${pad(end.getMonth() + 1)}.${end.getFullYear()}`;
+    const date = new Intl.DateTimeFormat({{ current_language|tojson }} === 'de' ? 'de-DE' : 'en-US', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(end);
     const remainingSeconds = Math.max(0, Math.round((end - now) / 1000));
     const hours = Math.floor(remainingSeconds / 3600);
     const minutes = Math.floor((remainingSeconds % 3600) / 60);
@@ -228,6 +245,12 @@ function formatPrintDurations() {
     el.textContent = `${durationLabel} ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
   });
 }
+function formatEstimatedPrintDurations() {
+  document.querySelectorAll('.estimated-print-duration').forEach(el => {
+    const minutes = Math.max(0, Math.round(Number(el.dataset.minutes || 0)));
+    el.textContent = `${durationLabel} ${Math.floor(minutes / 60)} h ${minutes % 60} min ${estimatedLabel}`;
+  });
+}
 function closeThumbnailOverlay() {
   const overlay = document.getElementById('image-overlay');
   if (!overlay) return;
@@ -241,6 +264,7 @@ window.addEventListener('load', cleanOneTimeHistoryParameters);
 window.addEventListener('load', () => { initHistoryCollapsePersistence(); initHistoryTableControls(); });
 window.addEventListener('load', formatExpectedEnd);
 window.addEventListener('load', formatPrintDurations);
+window.addEventListener('load', formatEstimatedPrintDurations);
 </script>
 <h1 class="mb-4 text-center">{{ _('Print history') }}</h1>
 <div class="d-flex justify-content-center align-items-center gap-3 mb-3">

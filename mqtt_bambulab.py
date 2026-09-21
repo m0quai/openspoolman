@@ -22,14 +22,29 @@ from config import (
 )
 from messages import GET_VERSION, PUSH_ALL, AMS_FILAMENT_SETTING
 from spoolman_service import spendFilaments, setActiveTray, fetchSpools, clear_active_spool_for_tray
+from spool_repository import record_consumption
 from tools_3mf import getMetaDataFrom3mf
 import time
 import threading
 import copy
+from datetime import datetime
 from collections.abc import Mapping
 from logger import application_log_file, append_to_rotating_file, log
-from print_history import insert_print, insert_filament_usage
+from print_history import (
+  insert_print,
+  insert_filament_usage,
+  ensure_layer_tracking,
+  update_print_image,
+  update_layer_tracking,
+  find_open_print_for_printer_job,
+  get_filament_usage_for_reconciliation,
+  mark_print_reconciled,
+  set_estimated_duration_if_missing,
+  update_printer_job_status,
+  update_latest_printer_job_status,
+)
 from filament_usage_tracker import FilamentUsageTracker
+from jobs_3mf import JOBS_3MF
 MQTT_CLIENT = {}  # Global variable storing MQTT Client
 MQTT_CLIENT_CONNECTED = False
 MQTT_KEEPALIVE = 60
@@ -59,7 +74,9 @@ PRINTER_STATE = {}
 PRINTER_STATE_LAST = {}
 
 PENDING_PRINT_METADATA = {}
+ACTIVE_3MF_PRINTS = {}
 FILAMENT_TRACKER = FilamentUsageTracker()
+_COMPLETION_RECONCILE_LOCK = threading.Lock()
 LOG_FILE = application_log_file("mqtt.log")
 def getPrinterModel():
     global PRINTER_ID
@@ -197,6 +214,155 @@ def _metadata_is_usable(metadata):
   )
 
 
+def _job_key(print_data):
+  task_id = print_data.get("task_id")
+  subtask_id = print_data.get("subtask_id")
+  if task_id is not None or subtask_id is not None:
+    return f"{task_id or ''}:{subtask_id or ''}"
+  return str(print_data.get("subtask_name") or print_data.get("gcode_file") or print_data.get("url") or "unknown")
+
+
+def _on_3mf_job_complete(job_key, local_path, metadata, error):
+  global PENDING_PRINT_METADATA
+  job = ACTIVE_3MF_PRINTS.get(job_key)
+  if not job:
+    log(f"[3MF] Ergebnis für unbekannten Job ignoriert: {job_key}")
+    return
+  if error:
+    log(f"[3MF] Job {job_key} fehlgeschlagen: {error}")
+    return
+
+  metadata = dict(metadata or {})
+  metadata.update(job.get("print_metadata") or {})
+  metadata["print_id"] = job["print_id"]
+  metadata["local_model_path"] = local_path
+  metadata["complete"] = True
+  PENDING_PRINT_METADATA = metadata
+  if metadata.get("image"):
+    update_print_image(job["print_id"], metadata["image"])
+
+  if metadata.get("print_type") == "local":
+    FILAMENT_TRACKER.start_local_print_from_metadata(metadata, local_path)
+  else:
+    FILAMENT_TRACKER.set_print_metadata(metadata)
+
+  for filament_id, filament in (metadata.get("filaments") or {}).items():
+    parsed_grams = _parse_grams(filament.get("used_g"))
+    parsed_length_m = _parse_grams(filament.get("used_m"))
+    estimated_length_mm = parsed_length_m * 1000 if parsed_length_m is not None else None
+    insert_filament_usage(
+      job["print_id"], filament.get("type") or "", filament.get("color") or "",
+      0.0 if TRACK_LAYER_USAGE else (parsed_grams or 0.0), filament_id,
+      estimated_grams=parsed_grams,
+      length_used=0.0 if TRACK_LAYER_USAGE else (estimated_length_mm or 0.0),
+      estimated_length=estimated_length_mm,
+    )
+  log(f"[3MF] Job ready task={job_key} print_id={job['print_id']} local={local_path!r}")
+
+
+def _queue_3mf_job(print_data):
+  job_key = _job_key(print_data)
+  existing = ACTIVE_3MF_PRINTS.get(job_key)
+  if existing:
+    print_data["_metadata_job_queued"] = True
+    return existing
+
+  file_name = print_data.get("subtask_name") or print_data.get("gcode_file") or print_data.get("url") or job_key
+  print_id = insert_print(file_name, print_data.get("print_type") or "cloud")
+  ensure_layer_tracking(print_id, "PREPARING")
+  metadata = {
+    "task_id": print_data.get("task_id"),
+    "subtask_id": print_data.get("subtask_id"),
+    "print_type": print_data.get("print_type"),
+    "ams_mapping": print_data.get("ams_mapping") or ([EXTERNAL_SPOOL_ID] if not print_data.get("use_ams") else []),
+  }
+  ACTIVE_3MF_PRINTS[job_key] = {"print_id": print_id, "print_metadata": metadata, "source": print_data.get("url") or print_data.get("gcode_file")}
+  JOBS_3MF.enqueue(job_key, ACTIVE_3MF_PRINTS[job_key]["source"], _on_3mf_job_complete)
+  print_data["_metadata_job_queued"] = True
+  log(f"[3MF] Print-ID {print_id} sofort angelegt, Metadaten laufen im Hintergrund: {job_key}")
+  return ACTIVE_3MF_PRINTS[job_key]
+
+
+def _reconcile_completed_printer_job(print_data: dict) -> None:
+  """Recover a completed job after OpenSpoolMan was offline during its finish."""
+  state = str(print_data.get("gcode_state") or "").upper()
+  try:
+    percent = float(print_data.get("mc_percent"))
+  except (TypeError, ValueError):
+    percent = None
+  if percent is None or percent < 100 or state not in {"FINISH", "IDLE"}:
+    return
+
+  candidate = find_open_print_for_printer_job(
+    print_data.get("subtask_name"),
+    print_data.get("gcode_file"),
+    print_data.get("url"),
+  )
+  if not candidate or not _COMPLETION_RECONCILE_LOCK.acquire(blocking=False):
+    return
+  try:
+    print_id = int(candidate["id"])
+    usage_rows = get_filament_usage_for_reconciliation(print_id)
+    updates = []
+    for row in usage_rows:
+      expected_length = row.get("estimated_length")
+      if expected_length is None:
+        expected_length = row.get("length_used") or row.get("spoolman_length_used") or 0.0
+      expected_length = max(float(expected_length or 0.0), 0.0)
+      current_length = row.get("spoolman_length_used")
+      if current_length is None:
+        current_length = row.get("calculated_length") or row.get("length_used") or 0.0
+      current_length = max(float(current_length or 0.0), 0.0)
+      missing_length = max(expected_length - current_length, 0.0)
+      if missing_length > 0.01:
+        spool_id = row.get("spool_id")
+        if spool_id is None:
+          log(
+            f"[filament-tracker] Abschluss-Recovery wartet: Print {print_id}, "
+            f"Fach {row.get('ams_slot')} ohne Spool-Zuordnung"
+          )
+          return
+        try:
+          record_consumption(
+            int(spool_id),
+            length_mm=missing_length,
+            occurred_at=candidate.get("predicted_end_time"),
+          )
+        except Exception as exc:
+          log(
+            f"[filament-tracker] Abschluss-Recovery fehlgeschlagen: Print {print_id}, "
+            f"Spool {spool_id}, {missing_length:.2f}mm, Fehler={exc!r}"
+          )
+          return
+        log(
+          f"[filament-tracker] Abschluss-Recovery gebucht: Print {print_id}, "
+          f"Spool {spool_id}, Differenz={missing_length:.2f}mm"
+        )
+
+      expected_grams = row.get("estimated_grams")
+      current_grams = float(row.get("grams_used") or 0.0)
+      final_grams = float(expected_grams) if expected_grams is not None else current_grams
+      updates.append({"id": row["id"], "grams_used": final_grams, "length_used": expected_length})
+
+    # The MQTT packet arrival time is not the printer's completion time. Prefer
+    # the calculated end time captured from mc_remaining_time; only use the
+    # receipt time when no calculated end time exists at all.
+    completion_time = candidate.get("predicted_end_time")
+    if not completion_time:
+      log(
+        f"[filament-tracker] Abschluss-Recovery wartet: Print {print_id} "
+        "hat keine errechnete Endzeit; Empfangszeit wird nicht verwendet"
+      )
+      return
+    mark_print_reconciled(print_id, updates, completion_time)
+    log(
+      f"[filament-tracker] Abschluss-Recovery abgeschlossen: Print {print_id}, "
+      f"Druckerstatus={state}/{percent:.0f}%, errechnetes_ende={completion_time}"
+    )
+  finally:
+    _COMPLETION_RECONCILE_LOCK.release()
+
+
 def _mask_serial(serial: str | None, keep_chars: int = 3) -> str:
   if not serial:
     return ""
@@ -285,53 +451,46 @@ def processMessage(data):
   global LAST_AMS_CONFIG, PRINTER_STATE, PRINTER_STATE_LAST, PENDING_PRINT_METADATA
 
    # Prepare AMS spending estimation
-  if "print" in data:    
+  if "print" in data:
     update_dict(PRINTER_STATE, data)
+    current_print = data.get("print", {})
+    status_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    active_job = ACTIVE_3MF_PRINTS.get(_job_key(current_print))
+    if active_job and current_print.get("mc_remaining_time") is not None:
+      try:
+        remaining_minutes = float(current_print.get("mc_remaining_time"))
+      except (TypeError, ValueError):
+        remaining_minutes = None
+      if remaining_minutes is not None and remaining_minutes > 0:
+        set_estimated_duration_if_missing(active_job["print_id"], remaining_minutes)
+    try:
+      current_percent = float(current_print.get("mc_percent"))
+    except (TypeError, ValueError):
+      current_percent = None
+    if active_job:
+      update_printer_job_status(active_job["print_id"], percent=current_percent, status_at=status_at)
+    else:
+      update_latest_printer_job_status(
+        (current_print.get("subtask_name"), current_print.get("gcode_file"), current_print.get("url")),
+        percent=current_percent,
+        status_at=status_at,
+      )
+    _reconcile_completed_printer_job(current_print)
+    if active_job:
+      state = str(current_print.get("gcode_state") or "").upper()
+      status = {
+        "PREPARE": "PREPARING",
+        "RUNNING": "RUNNING",
+        "PAUSE": "PAUSED",
+        "FINISH": "COMPLETED",
+        "FAILED": "FAILED",
+        "STOP": "ABORTED",
+      }.get(state)
+      if status:
+        update_layer_tracking(active_job["print_id"], status=status)
     
     if data["print"].get("command") == "project_file" and data["print"].get("url"):
-      PENDING_PRINT_METADATA = getMetaDataFrom3mf(data["print"]["url"])
-      if not _metadata_is_usable(PENDING_PRINT_METADATA):
-        log(f"[3MF] project_file Metadaten unvollstaendig; Print-Tracking wird fuer diese Meldung nicht gestartet: {data['print'].get('url')!r}")
-        PENDING_PRINT_METADATA = {}
-        PRINTER_STATE_LAST = copy.deepcopy(PRINTER_STATE)
-        return
-
-      PENDING_PRINT_METADATA["print_type"] = PRINTER_STATE["print"].get("print_type")
-      PENDING_PRINT_METADATA["task_id"] = PRINTER_STATE["print"].get("task_id")
-      PENDING_PRINT_METADATA["subtask_id"] = PRINTER_STATE["print"].get("subtask_id")
-      print_id = insert_print(PRINTER_STATE["print"].get("subtask_name") or PENDING_PRINT_METADATA["file"], "cloud", PENDING_PRINT_METADATA["image"])
-
-      if PRINTER_STATE["print"].get("use_ams"):
-        PENDING_PRINT_METADATA["ams_mapping"] = PRINTER_STATE["print"].get("ams_mapping") or []
-      else:
-        PENDING_PRINT_METADATA["ams_mapping"] = [EXTERNAL_SPOOL_ID]
-
-      PENDING_PRINT_METADATA["print_id"] = print_id
-      PENDING_PRINT_METADATA["complete"] = True
-      if TRACK_LAYER_USAGE:
-        # The tracker must receive the database ID after insert_print();
-        # assigning metadata before that left active cloud jobs with no ID.
-        FILAMENT_TRACKER.set_print_metadata(PENDING_PRINT_METADATA)
-
-      for id, filament in PENDING_PRINT_METADATA["filaments"].items():
-        parsed_grams = _parse_grams(filament.get("used_g"))
-        parsed_length_m = _parse_grams(filament.get("used_m"))
-        estimated_length_mm = parsed_length_m * 1000 if parsed_length_m is not None else None
-        grams_used = parsed_grams if parsed_grams is not None else 0.0
-        length_used = estimated_length_mm if estimated_length_mm is not None else 0.0
-        if TRACK_LAYER_USAGE:
-          grams_used = 0.0
-          length_used = 0.0
-        insert_filament_usage(
-            print_id,
-            filament["type"],
-            filament["color"],
-            grams_used,
-            id,
-            estimated_grams=parsed_grams,
-            length_used=length_used,
-            estimated_length=estimated_length_mm,
-        )
+      _queue_3mf_job(data["print"])
   
     #if ("gcode_state" in data["print"] and data["print"]["gcode_state"] == "RUNNING") and ("print_type" in data["print"] and data["print"]["print_type"] != "local") \
     #  and ("tray_tar" in data["print"] and data["print"]["tray_tar"] != "255") and ("stg_cur" in data["print"] and data["print"]["stg_cur"] == 0 and PRINT_CURRENT_STAGE != 0):
@@ -345,13 +504,14 @@ def processMessage(data):
           PRINTER_STATE["print"].get("gcode_file")
         ):
 
-        if not PENDING_PRINT_METADATA:
-          PENDING_PRINT_METADATA = getMetaDataFrom3mf(PRINTER_STATE["print"]["gcode_file"])
+        if not PENDING_PRINT_METADATA and not data["print"].get("_metadata_job_queued"):
+          _queue_3mf_job(PRINTER_STATE["print"])
+          PENDING_PRINT_METADATA = {}
         if PENDING_PRINT_METADATA and not _metadata_is_usable(PENDING_PRINT_METADATA):
           log(f"[3MF] Lokale Druckmetadaten unvollstaendig; verwerfe Zwischenstand fuer {PRINTER_STATE['print'].get('gcode_file')!r}.")
           PENDING_PRINT_METADATA = {}
 
-        if _metadata_is_usable(PENDING_PRINT_METADATA):
+        if _metadata_is_usable(PENDING_PRINT_METADATA) and not PENDING_PRINT_METADATA.get("print_id"):
           PENDING_PRINT_METADATA["print_type"] = PRINTER_STATE["print"].get("print_type")
           PENDING_PRINT_METADATA["task_id"] = PRINTER_STATE["print"].get("task_id")
           PENDING_PRINT_METADATA["subtask_id"] = PRINTER_STATE["print"].get("subtask_id")

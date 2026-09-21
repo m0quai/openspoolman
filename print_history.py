@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -155,6 +156,13 @@ def create_database() -> None:
         "actual_end_time",
         "TEXT",
     )
+    _ensure_column(cursor, "print_layer_tracking", "completion_source", "TEXT")
+    _ensure_column(cursor, "print_layer_tracking", "printer_completion_time", "TEXT")
+    _ensure_column(cursor, "print_layer_tracking", "reconciliation_done", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(cursor, "print_layer_tracking", "estimated_duration_minutes", "REAL")
+    _ensure_column(cursor, "print_layer_tracking", "printer_percent", "REAL")
+    _ensure_column(cursor, "print_layer_tracking", "last_status_at", "TEXT")
+    _ensure_column(cursor, "print_layer_tracking", "last_usage_event_at", "TEXT")
 
     conn.commit()
     conn.close()
@@ -182,6 +190,20 @@ def insert_print(file_name: str, print_type: str, image_file: str = None, print_
     conn.commit()
     conn.close()
     return print_id
+
+
+def ensure_layer_tracking(print_id: int, status: str = "PREPARING") -> None:
+    """Create the lightweight tracking row before 3MF metadata is ready."""
+    if print_id is None:
+        return
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute(
+        "INSERT INTO print_layer_tracking (print_id, status) VALUES (?, ?) "
+        "ON CONFLICT(print_id) DO UPDATE SET status = excluded.status",
+        (print_id, status),
+    )
+    conn.commit()
+    conn.close()
 
 def update_print_image(print_id: int, image_file: str) -> None:
     if print_id is None or not image_file:
@@ -229,6 +251,174 @@ def find_latest_print_id(file_name: str | None) -> int | None:
     ).fetchone()
     conn.close()
     return int(row[0]) if row else None
+
+
+def _normalise_print_name(value: str | None) -> str:
+    name = str(value or "").strip().lower()
+    for suffix in (".gcode.3mf", ".3mf", ".gcode"):
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+    return name
+
+
+def find_open_print_for_printer_job(*names: str | None) -> dict | None:
+    """Find the newest non-finalized history row matching a printer job name."""
+    wanted = {_normalise_print_name(name) for name in names if name}
+    wanted.discard("")
+    if not wanted:
+        return None
+
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """SELECT p.id, p.file_name, t.status, t.total_layers,
+                         t.layers_printed, t.predicted_end_time,
+                         t.estimated_duration_minutes, t.reconciliation_done
+             FROM prints p
+             JOIN print_layer_tracking t ON t.print_id = p.id
+             WHERE COALESCE(p.is_deleted, 0) = 0
+               AND t.status IN ('RUNNING', 'ABORTED')
+               AND COALESCE(t.reconciliation_done, 0) = 0
+             ORDER BY p.id DESC"""
+    ).fetchall()
+    conn.close()
+    for row in rows:
+        if _normalise_print_name(row["file_name"]) in wanted:
+            return dict(row)
+    return None
+
+
+def get_filament_usage_for_reconciliation(print_id: int) -> list[dict]:
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """SELECT id, ams_slot, spool_id, grams_used, estimated_grams,
+                         length_used, estimated_length, calculated_length,
+                         spoolman_length_used
+             FROM filament_usage
+             WHERE print_id = ?
+             ORDER BY ams_slot""",
+        (int(print_id),),
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def set_estimated_duration_if_missing(print_id: int, minutes: float) -> None:
+    if print_id is None or minutes <= 0:
+        return
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute(
+        """UPDATE print_layer_tracking
+           SET estimated_duration_minutes = ?
+           WHERE print_id = ? AND estimated_duration_minutes IS NULL""",
+        (float(minutes), int(print_id)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_printer_job_status(
+    print_id: int,
+    *,
+    percent: float | None = None,
+    status_at: str | None = None,
+) -> None:
+    if print_id is None:
+        return
+    fields = []
+    values = []
+    if percent is not None:
+        fields.append("printer_percent = ?")
+        values.append(max(0.0, min(100.0, float(percent))))
+    if status_at:
+        fields.append("last_status_at = ?")
+        values.append(status_at)
+    if not fields:
+        return
+    values.append(int(print_id))
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute(f"UPDATE print_layer_tracking SET {', '.join(fields)} WHERE print_id = ?", values)
+    conn.commit()
+    conn.close()
+
+
+def update_latest_printer_job_status(names: tuple[str | None, ...], *, percent: float | None, status_at: str) -> None:
+    wanted = {_normalise_print_name(name) for name in names if name}
+    wanted.discard("")
+    if not wanted:
+        return
+    conn = sqlite3.connect(db_config["db_path"])
+    rows = conn.execute(
+        """SELECT p.id, p.file_name FROM prints p
+           WHERE COALESCE(p.is_deleted, 0) = 0 ORDER BY p.id DESC"""
+    ).fetchall()
+    for print_id, file_name in rows:
+        if _normalise_print_name(file_name) in wanted:
+            fields = ["last_status_at = ?"]
+            values: list[object] = [status_at]
+            if percent is not None:
+                fields.append("printer_percent = ?")
+                values.append(max(0.0, min(100.0, float(percent))))
+            values.append(int(print_id))
+            conn.execute(f"UPDATE print_layer_tracking SET {', '.join(fields)} WHERE print_id = ?", values)
+            break
+    conn.commit()
+    conn.close()
+
+
+def mark_print_reconciled(
+    print_id: int,
+    usage_updates: list[dict],
+    completion_time: str,
+    source: str = "mqtt_finish_recovery",
+) -> None:
+    """Persist recovered totals and close the job after successful external transfers."""
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute("PRAGMA foreign_keys = ON")
+    for update in usage_updates:
+        conn.execute(
+            """UPDATE filament_usage
+               SET grams_used = ?, length_used = ?, calculated_length = ?,
+                   spoolman_length_used = ?
+               WHERE id = ?""",
+            (
+                update["grams_used"],
+                update["length_used"],
+                update["length_used"],
+                update["length_used"],
+                int(update["id"]),
+            ),
+        )
+    conn.execute(
+        """UPDATE print_layer_tracking
+           SET status = 'COMPLETED',
+               layers_printed = COALESCE(total_layers, layers_printed),
+               filament_grams_billed = COALESCE(
+                   (SELECT SUM(grams_used) FROM filament_usage WHERE print_id = ?),
+                   filament_grams_billed
+               ),
+               estimated_duration_minutes = COALESCE(
+                   estimated_duration_minutes,
+                   (julianday(predicted_end_time) -
+                    (SELECT julianday(print_date) FROM prints WHERE id = ?)) * 1440.0
+               ),
+               actual_end_time = ?, completion_source = ?,
+               printer_completion_time = ?, printer_percent = 100,
+               last_usage_event_at = COALESCE(
+                   last_usage_event_at,
+                   (SELECT MAX(created_at) FROM filament_usage_events WHERE print_id = ?)
+               ),
+               reconciliation_done = 1
+           WHERE print_id = ?""",
+        (int(print_id), int(print_id), completion_time, source, completion_time, int(print_id), int(print_id)),
+    )
+    conn.execute(
+        "DELETE FROM filament_usage_events WHERE print_id = ? AND status = 'confirmed'",
+        (int(print_id),),
+    )
+    conn.commit()
+    conn.close()
 
 
 def cancel_stale_running_prints(actual_end_time: str) -> int:
@@ -351,6 +541,16 @@ def set_filament_usage_event_status(print_id: int, layer: int, filament_index: i
         "UPDATE filament_usage_events SET status = ? WHERE print_id = ? AND layer = ? AND filament_index = ?",
         (status, int(print_id), int(layer), int(filament_index)),
     )
+    if status == "confirmed":
+        conn.execute(
+            """UPDATE print_layer_tracking
+               SET last_usage_event_at = COALESCE(
+                   (SELECT MAX(created_at) FROM filament_usage_events WHERE print_id = ?),
+                   last_usage_event_at
+               )
+               WHERE print_id = ?""",
+            (int(print_id), int(print_id)),
+        )
     conn.commit()
     conn.close()
 
@@ -521,6 +721,9 @@ def update_layer_tracking(print_id: int, **fields):
       "status",
       "predicted_end_time",
       "actual_end_time",
+      "printer_percent",
+      "last_status_at",
+      "last_usage_event_at",
   }
 
   sanitized = {key: value for key, value in fields.items() if key in allowed_columns}
@@ -551,13 +754,33 @@ def get_layer_tracking_for_prints(print_ids: list[int]):
   cursor = conn.cursor()
   placeholders = ",".join("?" for _ in print_ids)
   cursor.execute(f'''
-      SELECT print_id, total_layers, layers_printed, filament_grams_billed, filament_grams_total, status, predicted_end_time, actual_end_time
+      SELECT print_id, total_layers, layers_printed, filament_grams_billed, filament_grams_total, status, predicted_end_time, actual_end_time, estimated_duration_minutes, printer_percent, last_status_at, last_usage_event_at
       FROM print_layer_tracking
       WHERE print_id IN ({placeholders})
   ''', print_ids)
   rows = cursor.fetchall()
   conn.close()
   return {row["print_id"]: dict(row) for row in rows}
+
+
+def get_latest_print_summary() -> dict | None:
+  """Return the latest visible print and its persisted tracking status."""
+  conn = sqlite3.connect(db_config["db_path"])
+  conn.row_factory = sqlite3.Row
+  row = conn.execute(
+    """SELECT p.id, p.print_date, p.file_name,
+              t.status, t.layers_printed, t.total_layers,
+              t.actual_end_time, t.predicted_end_time, t.estimated_duration_minutes,
+              t.printer_percent, t.last_status_at, t.last_usage_event_at,
+              t.filament_grams_billed, t.filament_grams_total
+       FROM prints p
+       LEFT JOIN print_layer_tracking t ON t.print_id = p.id
+       WHERE COALESCE(p.is_deleted, 0) = 0
+       ORDER BY p.print_date DESC, p.id DESC
+       LIMIT 1"""
+  ).fetchone()
+  conn.close()
+  return dict(row) if row else None
 
 def get_all_filament_usage_for_print(print_id: int):
   """

@@ -49,15 +49,16 @@
 <header class="app-navigation p-1 mb-3 border-bottom">
   <div class="container">
     <div class="d-flex align-items-center">
-      <a href="{{ url_for('home') }}" class="d-flex align-items-center me-2 link-body-emphasis text-decoration-none">
+      <a href="{{ url_for('home_status') }}" class="d-flex align-items-center me-2 link-body-emphasis text-decoration-none">
         <img width="40" height="40" alt="{{ _('OpenSpoolMan Logo') }}" src="{{ url_for('static', filename='logo.png') }}"/>
       </a>
       
       <ul class="nav app-navigation-links flex-grow-1 align-items-center">
-        <li><a href="{{ url_for('home') }}" class="nav-link px-2 link-body-emphasis">{{ _('Home') }}</a></li>
+        <li><a href="{{ url_for('home_status') }}" class="nav-link px-2 link-body-emphasis">{{ _('Home') }}</a></li>
+        <li><a href="{{ url_for('ams') }}" class="nav-link px-2 link-body-emphasis">{{ _('AMS') }}</a></li>
         <li><a href="{{ url_for('print_history') }}" class="nav-link px-2 link-body-emphasis">{{ _('History') }}</a></li>
-        <li><a href="{{ url_for('livecam') }}" class="nav-link px-2 link-body-emphasis">{{ _('LiveCam') }}</a></li>
         <li><a href="{{ url_for('inventory') }}" class="nav-link px-2 link-body-emphasis">{{ _('Inventory') }}</a></li>
+        <li><a href="{{ url_for('livecam') }}" class="nav-link px-2 link-body-emphasis">{{ _('LiveCam') }}</a></li>
         <li><a href="{{ url_for('bambu_cloud.index') }}" class="nav-link px-2 link-body-emphasis">{{ _('Settings') }}{% if not mqtt_connected|default(false) %}<span class="mqtt-menu-status-dot disconnected" title="{{ _('MQTT not connected') }}"></span>{% endif %}</a></li>
         <li><a href="{{ SPOOLMAN_BASE_URL }}" target="openspoolman-spoolman" data-spoolman-window="true" class="nav-link px-2 link-body-emphasis d-inline-flex align-items-center"><i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>{{ _('SpoolMan') }}</a></li>
         <li class="nav-item dropdown ms-auto">

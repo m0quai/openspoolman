@@ -38,8 +38,8 @@
   </div>
   <div class="card-footer text-muted container">
     <div class="row">
-      <div class="col-sm-6"><small>{{ _('Registered:') }} {{ current_spool.registered }}</small></div>
-      <div class="col-sm-6"><small>{{ _('Last Used:') }} {% if current_spool.last_used %}{{ current_spool.last_used[:16] | replace('T', ' ') }}{% else %}-{% endif %}</small></div>
+      <div class="col-sm-6"><small>{{ _('Registered:') }} {% if current_spool.registered %}{{ format_datetime(current_spool.registered) }}{% else %}-{% endif %}</small></div>
+      <div class="col-sm-6"><small>{{ _('Last Used:') }} {% if current_spool.last_used %}{{ format_datetime(current_spool.last_used) }}{% else %}-{% endif %}</small></div>
     </div>
   </div>
 </div>

@@ -1,4 +1,5 @@
 import requests
+from datetime import datetime, timezone
 from config import SPOOLMAN_API_URL, SPOOL_SORTING
 import json
 from logger import application_log_file, append_to_rotating_file
@@ -91,7 +92,7 @@ def fetchSpoolList(include_archived=False):
     raise RuntimeError("Spoolman returned an unexpected spool-list format")
   return data
 
-def consumeSpool(spool_id, use_weight=None, use_length=None):
+def consumeSpool(spool_id, use_weight=None, use_length=None, occurred_at=None):
   if use_weight is None and use_length is None:
     raise ValueError("use_weight or use_length is required")
 
@@ -109,6 +110,27 @@ def consumeSpool(spool_id, use_weight=None, use_length=None):
     status=response.status_code,
   )
   response.raise_for_status()
+  if occurred_at:
+    try:
+      timestamp = datetime.fromisoformat(str(occurred_at).replace("Z", "+00:00"))
+      if timestamp.tzinfo is None:
+        timestamp = timestamp.astimezone()
+      last_used = timestamp.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+      timestamp_response = requests.patch(
+        f"{SPOOLMAN_API_URL}/spool/{spool_id}",
+        json={"last_used": last_used},
+      )
+      _log_spoolman_change(
+        "set_spool_last_used",
+        spool_id=spool_id,
+        payload={"last_used": last_used},
+        status=timestamp_response.status_code,
+      )
+      timestamp_response.raise_for_status()
+    except Exception as exc:
+      # Consumption succeeded already; keep it confirmed and make the
+      # timestamp failure visible instead of retrying the consumption.
+      append_to_rotating_file(SPOOLMAN_LOG_FILE, f"set_spool_last_used failed: spool_id={spool_id} error={exc!r}")
   return True
   #print(response.status_code)
   #print(response.text)

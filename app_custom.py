@@ -5,6 +5,7 @@ import builtins
 import socket
 import ssl
 import struct
+import threading
 from pathlib import Path
 from datetime import datetime
 
@@ -219,12 +220,18 @@ from flask import jsonify, redirect, request, url_for, render_template, send_fro
 import mqtt_bambulab
 import spool_repository as spool_data
 import print_history as print_history_service
-from config import EXTERNAL_SPOOL_AMS_ID, PRINTER_ID
+from config import EXTERNAL_SPOOL_AMS_ID, PRINTER_ID, PRINTER_NAME
 from __version__ import __build_number__, __version__
 import tools_3mf as _tools_3mf
 import filament_usage_tracker as _filament_usage_tracker
+from jobs_3mf import JOBS_3MF
+from ui_formatting import format_ui_datetime
 
 from logger import log as _log
+
+_AMS_REFRESH_LOCK = threading.Lock()
+_AMS_REFRESH_LAST_REQUEST = 0.0
+_AMS_REFRESH_MIN_INTERVAL_SECONDS = 5.0
 
 # Bambu's mc_percent is the printer's authoritative completion value.  The
 # upstream history view derives progress from layer counts, which can differ
@@ -256,6 +263,16 @@ def _render_template_with_printer_progress(template_name, *args, **kwargs):
                 if print_entry.get("id") == active_print_id and print_entry.get("layer_tracking"):
                     print_entry["layer_tracking"]["progress_percent"] = percent
                     break
+        print_ids = [entry.get("id") for entry in kwargs.get("prints", []) or [] if entry.get("id") is not None]
+        tracking_rows = print_history_service.get_layer_tracking_for_prints(print_ids)
+        for print_entry in kwargs.get("prints", []) or []:
+            tracking = print_entry.get("layer_tracking")
+            row = tracking_rows.get(print_entry.get("id"))
+            if tracking is not None and row is not None:
+                tracking["estimated_duration_minutes"] = row.get("estimated_duration_minutes")
+                tracking["printer_percent"] = row.get("printer_percent")
+                tracking["last_status_at"] = row.get("last_status_at")
+                tracking["last_usage_event_at"] = row.get("last_usage_event_at")
     return _original_app_render_template(template_name, *args, **kwargs)
 
 _openspoolman_app_module.render_template = _render_template_with_printer_progress
@@ -277,6 +294,18 @@ _UI_TRANSLATIONS["de"].update({
 _UI_TRANSLATIONS["en"].update({
     "Deutsch oder Englisch für die Benutzeroberfläche": "German or English for the user interface", "Ein LAN Access-Code ist gespeichert. Leer lassen, um ihn beizubehalten.": "A LAN access code is saved. Leave empty to keep it.", "Angemeldet": "Signed in", "als": "as", "Lokale IP": "Local IP", "Verbunden": "Connected", "Nicht verbunden": "Not connected", "Status:": "Status:", "Zurück": "Back", "Spule zuordnen": "Assign spool", "Keine unbekannten NFC-Tags vorhanden.": "No unknown NFC tags found.", "No Image": "No image", "Success!": "Success!", "Keine Historie vorhanden.": "No history available.", "Clear": "Clear", "Fill": "Fill", "Assign": "Assign", "Back": "Back", "Error": "Error", "Livebild": "Live view", "Humidity": "Humidity", "Full": "Full", "Remaining:": "Remaining:", "Last used:": "Last used:", "Unbekannter NFC-Tag": "Unknown NFC tag", "Spule auswählen ...": "Select spool ...", "Spule ändern": "Change spool", "Eintrag löschen": "Delete entry", "Eintrag aus der History ausblenden": "Hide history entry", "Keine Spule zugeordnet": "No spool assigned", "gedruckt": "printed", "erwartet": "expected", "Druck-ID": "Print ID", "Druck": "Print", "Schichten": "Layers", "Abgerechnet": "Billed", "Fortschritt": "Progress", "Restgewicht:": "Remaining weight:", "Restlänge:": "Remaining length:", "Düsentemperatur:": "Nozzle temperature:", "in SpoolMan anzeigen": "view in SpoolMan", "Registriert:": "Registered:", "Zuletzt verwendet:": "Last used:"
 })
+_UI_TRANSLATIONS["de"]["Last print"] = "Letzter Druck"
+_UI_TRANSLATIONS["en"]["Last print"] = "Last print"
+_UI_TRANSLATIONS["de"]["(geschätzt)"] = "(geschätzt)"
+_UI_TRANSLATIONS["en"]["(geschätzt)"] = "(estimated)"
+_UI_TRANSLATIONS["de"].update({"Finished": "Abgeschlossen", "Completed": "Abgeschlossen", "Failed": "Fehlgeschlagen", "Cancelled": "Abgebrochen", "Aborted": "Abgebrochen", "Running": "Druck läuft"})
+_UI_TRANSLATIONS["en"].update({"Finished": "Finished", "Completed": "Completed", "Failed": "Failed", "Cancelled": "Cancelled", "Aborted": "Aborted", "Running": "Printing"})
+_UI_TRANSLATIONS["de"]["Ready"] = "Bereit"
+_UI_TRANSLATIONS["en"]["Ready"] = "Ready"
+_UI_TRANSLATIONS["de"].update({"Last status": "Letzter Status", "Last booking": "Letzte Buchung"})
+_UI_TRANSLATIONS["en"].update({"Last status": "Last status", "Last booking": "Last booking"})
+_UI_TRANSLATIONS["de"].update({"Letzter Druck": "Letzter Druck", "Letzter Status": "Letzter Status", "Letzte Buchung": "Letzte Buchung"})
+_UI_TRANSLATIONS["en"].update({"Letzter Druck": "Last print", "Letzter Status": "Last status", "Letzte Buchung": "Last booking"})
 
 # The external module is the authoritative source; the legacy inline map
 # above is retained only for compatibility with older local checkouts.
@@ -310,6 +339,7 @@ def inject_ui_language():
         "current_language": _ui_language(),
         "available_languages": _ui_languages(),
         "language_metadata": _ui_language_metadata(),
+        "format_datetime": lambda value: format_ui_datetime(value, _ui_language()),
     }
 
 @app.post("/language")
@@ -446,7 +476,7 @@ _tools_3mf.setupPycurlConnection = _setup_pycurl_connection_for_large_3mf
 _original_download3mf_from_ftp = _tools_3mf.download3mfFromFTP
 
 
-def _download3mf_with_unique_suffix_fallback(filename, dest_file):
+def _download3mf_with_unique_suffix_fallback(filename, dest_file, progress_callback=None):
     """Resolve printer-side filename prefixes without guessing between matches.
 
     Bambu .bbl files may reference /sdcard/Kerstin.gcode.3mf while FTPS exposes
@@ -455,7 +485,7 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file):
     variants; otherwise a suffix match is accepted only when it is unique.
     """
     try:
-        return _original_download3mf_from_ftp(filename, dest_file)
+        return _original_download3mf_from_ftp(filename, dest_file, progress_callback)
     except Exception as original_error:
         expected_name = os.path.basename(str(filename or "").strip())
         if not expected_name.lower().endswith(".3mf"):
@@ -483,7 +513,7 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file):
             _log(
                 f"[3MF] Exakter FTPS-Root-Treffer fuer {expected_name!r}: {resolved_path}; erneuter Download."
             )
-            return _original_download3mf_from_ftp(resolved_path, dest_file)
+            return _original_download3mf_from_ftp(resolved_path, dest_file, progress_callback)
 
         matches = [
             name
@@ -497,7 +527,7 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file):
             _log(
                 f"[3MF] Eindeutiger FTPS-Suffix-Treffer fuer {expected_name!r}: {resolved_path}"
             )
-            return _original_download3mf_from_ftp(resolved_path, dest_file)
+            return _original_download3mf_from_ftp(resolved_path, dest_file, progress_callback)
 
         if len(matches) > 1:
             _log(
@@ -516,12 +546,20 @@ _filament_usage_tracker.download3mfFromFTP = _download3mf_with_unique_suffix_fal
 _original_download3mf_from_cloud = _tools_3mf.download3mfFromCloud
 
 
-def _download3mf_from_cloud_with_timeout(url, dest_file):
+def _download3mf_from_cloud_with_timeout(url, dest_file, progress_callback=None):
     """Download cloud 3MF files with bounded connect and transfer waits."""
     _log("Downloading 3MF file from cloud...")
-    response = _tools_3mf.requests.get(url, timeout=(5, 180))
+    response = _tools_3mf.requests.get(url, timeout=(5, 180), stream=True)
     response.raise_for_status()
-    dest_file.write(response.content)
+    total = int(response.headers.get("content-length") or 0)
+    downloaded = 0
+    for chunk in response.iter_content(chunk_size=1024 * 1024):
+        if not chunk:
+            continue
+        dest_file.write(chunk)
+        downloaded += len(chunk)
+        if progress_callback:
+            progress_callback(downloaded, total)
 
 
 _tools_3mf.download3mfFromCloud = _download3mf_from_cloud_with_timeout
@@ -612,6 +650,51 @@ def open_bambu_setup_when_mqtt_is_offline():
         return redirect(url_for("bambu_cloud.index"))
 
 
+@app.route("/home")
+def home_status():
+    """Show the connected printer and its current connection/job status."""
+    return render_template(
+        "home_status.html",
+        last_print=print_history_service.get_latest_print_summary(),
+    )
+
+
+@app.route("/ams")
+def ams():
+    """Keep the AMS tray dashboard available under its explicit menu name."""
+    return _openspoolman_app_module.home()
+
+
+def _current_printer_status_payload():
+    connected = bool(mqtt_bambulab.isMqttClientConnected())
+    print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
+    active_print_id = print_history_service.get_latest_running_print_id()
+    if active_print_id is None:
+        active_jobs = getattr(mqtt_bambulab, "ACTIVE_3MF_PRINTS", {})
+        if active_jobs:
+            active_print_id = next(reversed(active_jobs.values())).get("print_id")
+    return {
+        "printer_name": PRINTER_NAME or (getattr(mqtt_bambulab, "getPrinterModel", lambda: {})() or {}).get("devicename") or PRINTER_ID,
+        "mqtt_connected": connected,
+        "mqtt_status": _ui_text("Verbunden" if connected else "Nicht verbunden"),
+        "printer_state": print_state.get("gcode_state") or "OFFLINE",
+        "printer_status": _ui_text(_printer_status_code()),
+        "print_id": active_print_id,
+        "last_print": print_history_service.get_latest_print_summary(),
+        "temperatures": _printer_temperature_status(),
+        "ams_environment": _ams_environment_status(),
+        "download": {
+            key: value for key, value in JOBS_3MF.get().items()
+            if key in {"job_key", "state", "percent", "bytes_downloaded", "bytes_total", "speed_bytes_per_second", "elapsed_seconds", "error"}
+        },
+    }
+
+
+@app.get("/home/state")
+def home_state():
+    return jsonify(_current_printer_status_payload())
+
+
 def _load_openspoolman_version():
     from pathlib import Path
     import re
@@ -636,9 +719,40 @@ def _printer_temperature_status():
     }
 
 
+def _ams_environment_status():
+    metrics = []
+    for index, ams in enumerate((getattr(mqtt_bambulab, "LAST_AMS_CONFIG", {}) or {}).get("ams", []) or []):
+        raw_humidity = ams.get("humidity_raw")
+        humidity = f"{raw_humidity}%" if raw_humidity not in (None, "", 0, "0") else None
+        temperature = ams.get("temp")
+        if humidity is None and temperature in (None, "", "0", "0.0", 0, 0.0):
+            continue
+        metrics.append({
+            "label": chr(ord("A") + index),
+            "humidity": humidity,
+            "temperature": temperature if temperature not in (None, "", "0", "0.0", 0, 0.0) else None,
+        })
+    return metrics
+
+
 def _printer_is_busy():
     state = (getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}).get("gcode_state")
     return bool(state and str(state).upper() not in {"IDLE", "FINISH", "FAILED", "STOP"})
+
+
+def _printer_status_code():
+    state = str((getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}).get("gcode_state") or "OFFLINE").upper()
+    return {
+        "IDLE": "Ready",
+        "PREPARE": "Preparing",
+        "RUNNING": "Printing",
+        "PAUSE": "Paused",
+        # FINISH describes the last print job, not a busy printer. The
+        # printer itself is ready once Bambu reports FINISH.
+        "FINISH": "Ready",
+        "FAILED": "Failed",
+        "STOP": "Cancelled",
+    }.get(state, "Offline" if state == "OFFLINE" else state.title())
 
 
 @app.context_processor
@@ -655,6 +769,10 @@ def inject_openspoolman_version():
         "openspoolman_version": _load_openspoolman_version(),
         "openspoolman_build_number": _runtime_build_number,
         "printer_temperatures": _printer_temperature_status(),
+        "printer_ams_environment": _ams_environment_status(),
+        "printer_status": _ui_text(_printer_status_code()),
+        "mqtt_connected": mqtt_bambulab.isMqttClientConnected(),
+        "PRINTER_ID": PRINTER_ID,
         "printer_is_busy": _printer_is_busy(),
         "ams_operation_pending": mqtt_bambulab.is_any_ams_operation_pending(),
         "pending_nfc": pending_nfc,
@@ -692,7 +810,12 @@ def inventory():
             "spool": spool,
             "prints": print_history_service.get_spool_print_usage(spool_id),
         })
-    return render_template("inventory.html", inventory_rows=inventory_rows)
+    show_status_column = any(bool(item["spool"].get("archived")) for item in inventory_rows)
+    return render_template(
+        "inventory.html",
+        inventory_rows=inventory_rows,
+        show_status_column=show_status_column,
+    )
 
 @app.route("/livecam/stream")
 def livecam_stream():
@@ -749,12 +872,25 @@ def _recv_exact(sock, size):
 @app.get("/ams/state-generation")
 def ams_state_generation():
     temperatures = _printer_temperature_status()
+    print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
+    active_print_id = print_history_service.get_latest_running_print_id()
+    if active_print_id is None:
+        active_jobs = getattr(mqtt_bambulab, "ACTIVE_3MF_PRINTS", {})
+        if active_jobs:
+            active_print_id = next(reversed(active_jobs.values())).get("print_id")
     return jsonify({
         "generation": getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0),
         "hotend": temperatures.get("hotend"),
         "hotend_target": temperatures.get("hotend_target"),
         "bed": temperatures.get("bed"),
         "bed_target": temperatures.get("bed_target"),
+        "printer_state": print_state.get("gcode_state") or "OFFLINE",
+        "printer_status": _ui_text(_printer_status_code()),
+        "print_id": active_print_id,
+        "download": {
+            key: value for key, value in JOBS_3MF.get().items()
+            if key in {"job_key", "state", "percent", "bytes_downloaded", "bytes_total", "speed_bytes_per_second", "elapsed_seconds", "error"}
+        },
     })
 
 
@@ -762,34 +898,50 @@ def ams_state_generation():
 def refresh_ams():
     """Read a fresh AMS state without writing filament settings to the printer."""
     import time
+    global _AMS_REFRESH_LAST_REQUEST
     import mqtt_bambulab
     from messages import PUSH_ALL
+    target_endpoint = request.form.get("next_endpoint")
+    if target_endpoint not in {"home", "home_status"}:
+        target_endpoint = "home"
 
     if not mqtt_bambulab.isMqttClientConnected():
         return redirect(url_for(
-            "home",
+            target_endpoint,
             success_message="AMS konnte nicht aktualisiert werden: MQTT ist nicht verbunden."
         ))
 
-    before_generation = getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0)
+    now = time.monotonic()
+    if now - _AMS_REFRESH_LAST_REQUEST < _AMS_REFRESH_MIN_INTERVAL_SECONDS:
+        _log("AMS-AKTUALISIERUNG: doppelte Statusabfrage verworfen (Cooldown)")
+        return redirect(url_for(target_endpoint))
+    if not _AMS_REFRESH_LOCK.acquire(blocking=False):
+        _log("AMS-AKTUALISIERUNG: doppelte Statusabfrage verworfen (laufende Abfrage)")
+        return redirect(url_for(target_endpoint))
 
-    if not mqtt_bambulab.publish(mqtt_bambulab.getMqttClient(), PUSH_ALL):
-        return redirect(url_for(
-            "home",
-            success_message="AMS-Abfrage konnte nicht gesendet werden."
-        ))
-    mqtt_bambulab.FORCE_AMS_STATUS_LOG = True
-    # PUSH_ALL is deliberately read-only.  Do not call setActiveSpool here:
-    # that sends ams_filament_setting and changes the printer state.
-    _log("AMS-AKTUALISIERUNG: Statusabfrage gesendet")
+    _AMS_REFRESH_LAST_REQUEST = now
+    try:
+        before_generation = getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0)
 
-    deadline = time.monotonic() + 3.0
-    while time.monotonic() < deadline:
-        time.sleep(0.10)
-        if getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0) > before_generation:
-            return redirect(url_for("home"))
+        if not mqtt_bambulab.publish(mqtt_bambulab.getMqttClient(), PUSH_ALL):
+            return redirect(url_for(
+                target_endpoint,
+                success_message="AMS-Abfrage konnte nicht gesendet werden."
+            ))
+        mqtt_bambulab.FORCE_AMS_STATUS_LOG = True
+        # PUSH_ALL is deliberately read-only.  Do not call setActiveSpool here:
+        # that sends ams_filament_setting and changes the printer state.
+        _log("AMS-AKTUALISIERUNG: Statusabfrage gesendet")
 
-    return redirect(url_for("home"))
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            time.sleep(0.10)
+            if getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0) > before_generation:
+                return redirect(url_for(target_endpoint))
+
+        return redirect(url_for(target_endpoint))
+    finally:
+        _AMS_REFRESH_LOCK.release()
 
 
 def _custom_tray_clear():
@@ -848,8 +1000,9 @@ app.view_functions["tray_clear"] = _custom_tray_clear
 @app.before_request
 def _block_mutating_tray_actions_while_pending():
     """Reject direct assignment URLs until the preceding tray operation is stable."""
-    if request.endpoint == "refresh_ams" and _printer_is_busy():
-        return render_template("error.html", exception="AMS-Aktionen sind während eines Drucks deaktiviert.")
+    # refresh_ams only sends the read-only PUSH_ALL request.  It must remain
+    # available while printing so Home can refresh the printer/job status;
+    # mutating tray actions below remain blocked while the printer is busy.
     if request.endpoint not in {"fill", "tray_load", "assign_bambu_spool"}:
         return None
 
