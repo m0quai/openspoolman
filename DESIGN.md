@@ -4,13 +4,15 @@ Diese Datei ist die zentrale und verbindliche Sammlung dauerhafter Projektentsch
 
 ## Dokumentation und Workflow
 
-- Einziger Dokumentationseinstieg ist `docs/START.md`.
-- Die Root-`AGENTS.md` entfällt; Agentenregeln liegen in `docs/entwicklung/agenten.md`.
+- `AGENTS.md` im Repository-Root ist die einzige verbindliche Arbeits- und Agentenregel.
+- `docs/START.md` ist der Einstieg in die Fachdokumentation.
 - Markdown verwendet Windows-Zeilenenden CRLF.
 - Dokumentation wird auf Deutsch geführt.
 - Dauerhafte Entscheidungen werden hier gepflegt; Detaildokumente definieren keine konkurrierenden Zielarchitekturen.
 - Der Repository-Code ist Quelle der Wahrheit für den Implementierungsstand; diese Datei ist Quelle der Wahrheit für die beschlossene Zielarchitektur.
-- Regulärer Arbeits- und Übergabeweg ist der GitHub-Branch `feature/NewFiles`. Änderungen werden dort direkt gepflegt und committed. Patch-ZIPs werden nicht mehr als regulärer Übergabeweg verwendet.
+- `dev` ist der Entwicklungs- und Integrationsbranch, `main` bleibt stabil.
+- Feature-Branches heißen `feature/<name>`, Fehlerbehebungs-Branches `bug/<name>` und werden immer von `dev` abgeleitet. Der Präfix `codex/` wird nicht verwendet.
+- Änderungen werden geprüft und anschließend in `dev` integriert. Patch-ZIPs sind kein regulärer Übergabeweg.
 
 ## OpenSpoolMan-Struktur
 
@@ -23,6 +25,12 @@ Diese Datei ist die zentrale und verbindliche Sammlung dauerhafter Projektentsch
 - Navigation: `templates/base.html`.
 - Zertifikats-/Signing-Funktionalität: `bambu_certificate.py`.
 - Eigene Funktionalität bleibt modular und updatefreundlich; keine aufgabenfremden Refactorings.
+- Spoolman-Daten werden über `spool_repository.py` als zentrale Datenzugriffsschicht
+  bezogen. Fachlogik und UI greifen nicht direkt auf die Spoolman-HTTP-API zu.
+- Nicht benötigte Spoolman-Felder werden an dieser Grenze reduziert; interne Modelle
+  enthalten nur die für OpenSpoolMan benötigten Daten.
+- Dauerhafte UI-Texte liegen zentral in `translations.py`; sichtbare Texte und
+  Buttons dürfen nicht seitenweise fest verdrahtet werden.
 
 ## Bambu-Verbindungsmodi und Cloud
 
@@ -51,7 +59,13 @@ Diese Datei ist die zentrale und verbindliche Sammlung dauerhafter Projektentsch
 ## AMSHelper-Softwarearchitektur
 
 - ESP32-S3, C#/.NET nanoFramework.
-- WLAN/Netzwerk ist eine eigene Klasse und gehört nicht in das gemeinsame ESP-/Hardwareobjekt.
+- Verifizierter Hardwarestand: ESP32-S3 Revision v0.2, 16 MB Flash, physisch
+  erkanntes 8 MB PSRAM, eigenes Target `ESP32_S3_N16_NOPSRAM`, Visual-Studio-
+  Device-Explorer über COM8.
+- Deployment und Debugging des AMSHelper-Projekts aus Visual Studio funktionieren.
+- WLAN, DHCP/IP-Konfiguration, DNS und Namensauflösung sind auf diesem Target
+  bestätigt; WLAN bleibt in einer eigenen Netzwerkklasse.
+- WLAN/Netzwerk gehört nicht in das gemeinsame ESP-/Hardwareobjekt.
 - Vier `AmsTray`-Objekte repräsentieren AMS-Slot 0–3.
 - `AmsTray` kapselt traybezogene PN532-/NTAG-/UID- und Zustandslogik; Reader wird intern initialisiert.
 - **AMSHelper interessiert fachlich ausschließlich die lokale PN532-/NTAG-UID und der Tray-Zustand. Material, Farbe, Bambu-Tag-UID, Restmenge und sonstige Spulendaten werden im AMSHelper nicht benötigt und nicht als Tray-Fachzustand geführt.**
@@ -107,10 +121,23 @@ Dieser I²C-Aufbau ist der aktuelle Einzelreader-Teststand, **nicht** die Zielar
 - Große Bildschirme: AMS `col-lg-8`, External Spool `col-lg-4`.
 - Beide sind getrennte Geschwister-Karten.
 - Grüne Erfolgsmeldungen schließen nach 10 Sekunden automatisch; manuelles Schließen bleibt möglich.
+- History und Inventory verwenden tabellarische Darstellung mit Filterung und Sortierung;
+  Filterzustände bleiben bei Aktualisierungen erhalten.
+- Die Spoolman-Navigation wird in einem wiederverwendeten Fenster geöffnet, sofern
+  bereits eines vorhanden ist.
 
 ## Entwicklung und Sicherheit
 
 - Primärer Testweg ist Visual Studio Debug; Docker-Rebuild/Compose ist nicht Standard.
 - Dokumentationsscreenshots verwenden den Einstieg `app_custom.py` und Live-Daten im Read-only-Modus; einen Snapshot-/Testdatenmodus gibt es nicht.
-- Vor Änderungen aktuellen `feature/NewFiles`-Stand prüfen und unabhängige Nutzeränderungen nicht überschreiben.
-- Keine Passwörter, WLAN-Zugangsdaten, Tokens, API-Schlüssel, Drucker-Zugangscodes oder private Schlüssel in Git, Dokumentation oder Debugausgaben.
+- Vor Änderungen den aktuellen Stand von `dev` beziehungsweise des zugehörigen Feature-/Bug-Branches prüfen und unabhängige Nutzeränderungen nicht überschreiben.
+- Änderungen auf die konkrete Aufgabe begrenzen, Upstream-Kompatibilität erhalten und keine aufgabenfremden Formatierungs- oder Refactoring-Änderungen einführen.
+- Den LAN- und Online-Verbindungsmodus erhalten, sofern nicht ausdrücklich anders entschieden.
+- Vor Commit oder Übergabe Diff und geänderte Dateien auf unbeabsichtigte Änderungen und Geheimnisse prüfen.
+- Tatsächlich ausgeführte Tests von offenen Laufzeit- oder Hardwaretests unterscheiden.
+- Keine echten Geheimnisse in Git, Dokumentation oder Debugausgaben: insbesondere keine Passwörter,
+  WLAN-Zugangsdaten, Bambu-LAN-Access-Codes, Tokens, API-Schlüssel, Session-Cookies oder privaten Schlüssel.
+- In Dokumentation und Beispielkonfiguration ausschließlich erkennbare Platzhalter verwenden.
+- Bambu-Passwörter und LAN-Access-Codes nur zur Anmeldung beziehungsweise Verbindung verwenden und nicht speichern.
+- Access Token, numerische User-ID und erforderliche Token-Metadaten dürfen nur entsprechend der Implementierung
+  lokal gespeichert werden; Credential-Dateien bleiben von Git ausgeschlossen.

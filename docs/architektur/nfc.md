@@ -1,6 +1,6 @@
 # NFC-/AMS-/Spoolman-Architektur
 
-> Einstieg: [START.md](../START.md) · Entscheidungen: [Design-Entscheidungen](../design-entscheidungen.md)
+> Einstieg: [START.md](../START.md) · Entscheidungen: [Design](../../DESIGN.md)
 
 Die NFC-Lösung verbindet Bambu-AMS-Slots über ESP32-S3 und NTAG215 mit OpenSpoolMan/Spoolman.
 

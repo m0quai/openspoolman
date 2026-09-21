@@ -1,6 +1,6 @@
 # Bambu-Authentifizierung
 
-> Einstieg: [START.md](../START.md) · Entscheidungen: [Design-Entscheidungen](../design-entscheidungen.md)
+> Einstieg: [START.md](../START.md) · Entscheidungen: [Design](../../DESIGN.md)
 
 ## Lokaler LAN-Modus
 

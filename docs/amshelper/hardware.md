@@ -1,6 +1,6 @@
 # AMSHelper – Hardware
 
-> Einstieg: [START.md](../START.md) · Entscheidungen: [Design-Entscheidungen](../design-entscheidungen.md)
+> Einstieg: [START.md](../START.md) · Entscheidungen: [Design](../../DESIGN.md)
 
 ## ESP32-S3
 

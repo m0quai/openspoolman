@@ -1,103 +1,123 @@
-# OpenSpoolMan / AMSHelper - Codex Instructions
+# OpenSpoolMan / AMSHelper – verbindliche Arbeitsregeln
 
-Diese Datei enthaelt verbindliche Arbeitsregeln fuer Codex und andere Coding-Agenten in diesem Repository.
+Diese Datei ist die einzige verbindliche Codex- und Entwicklerdokumentation unter
+den Solution Items. Ältere parallele Anleitungen dürfen keine abweichenden Regeln
+enthalten.
 
-## Repository und Arbeitsbranch
+## Repository, Branches und Arbeitsweise
 
-- Repository: `m0quai/openspoolman`
-- Aktiver Entwicklungsbranch: `feature/NewFiles`
-- Vor jeder Aenderung zuerst den aktuellen Stand des Branches einlesen.
-- Keine Aenderung auf Basis eines vermuteten oder veralteten Dateistands vornehmen.
-- Bestehende lokale Aenderungen des Benutzers nicht ungefragt verwerfen, ueberschreiben oder resetten.
+- Repository: `m0quai/openspoolman`.
+- `dev` ist der aktuelle Entwicklungs- und Integrationsbranch.
+- `main` bleibt der stabile Branch.
+- Feature-Branches heißen ausschließlich `feature/<name>`.
+- Fehlerbehebungs-Branches heißen ausschließlich `bug/<name>`.
+- Jeder Feature- oder Bug-Branch wird immer direkt von `dev` abgeleitet:
+  `git switch -c feature/<name> dev` beziehungsweise `git switch -c bug/<name> dev`.
+- Der Präfix `codex/` wird für Branches nicht verwendet.
+- Änderungen werden nach Prüfung in `dev` integriert. `main` wird nur nach einer
+  bewussten Freigabe aktualisiert.
 
-## Allgemeiner Arbeitsablauf
+Vor jeder Änderung:
 
-1. `git status` pruefen.
-2. Aktuellen Branch pruefen: `git branch --show-current`.
-3. Falls der Working Tree sauber ist, aktuellen Remote-Stand holen: `git pull --ff-only origin feature/NewFiles`.
-4. Vor Implementierung die betroffenen Dateien und vorhandene Architektur lesen.
-5. Kleine, nachvollziehbare Aenderungen bevorzugen.
-6. Nach Aenderungen Diff pruefen und passende Builds/Tests ausfuehren.
-7. Projektdateien (`.sln`, `.nfproj`, `.pyproj`, `packages.config` usw.) mit aktualisieren, wenn Dateien/Abhaengigkeiten hinzugefuegt oder entfernt werden.
-8. Keine Build-Artefakte, lokalen IDE-Dateien, Tokens, Passwoerter oder sonstige Secrets committen.
+1. `git status --short` prüfen.
+2. `git branch --show-current` prüfen.
+3. Bei sauberem Arbeitsbaum den aktuellen Stand des aktiven Branches holen:
+   `git pull --ff-only origin dev` (nur auf `dev`) beziehungsweise den passenden
+   Feature-/Bug-Branch aktualisieren.
+4. Diese Datei sowie die betroffenen Dateien und ihre Architektur lesen.
+5. Lokale Änderungen niemals ungefragt verwerfen, überschreiben oder resetten.
 
-## OpenSpoolMan - verbindliche Regeln
+Nach Änderungen:
+
+- `git diff` und `git status` prüfen.
+- Passende Tests, Builds und Laufzeitprüfungen ausführen.
+- Projektdateien (`.sln`, `.pyproj`, `.nfproj`, `packages.config` usw.) mitpflegen.
+- Keine Build-Artefakte, IDE-Dateien, Tokens, Passwörter oder sonstige Secrets
+  committen.
+- Commit-Nachrichten kurz und beschreibend halten.
+
+Keine Force-Pushes und keine History-Rewrites ohne ausdrücklichen Auftrag.
+
+## OpenSpoolMan
 
 - OpenSpoolMan wird als eigener Fork gepflegt; Upstream ist `drndos/openspoolman`.
-- Anpassungen muessen moeglichst updatefreundlich bleiben.
-- `app.py` moeglichst nicht veraendern.
-- Eigene Erweiterungen bevorzugt ueber `app_custom.py` und getrennte Module/Blueprints implementieren.
-- Fuer Bambu-Authentifizierung existieren getrennte Module wie `bambu_auth.py`; bestehende Trennung respektieren.
-- Token-, Credential- und Secret-Dateien duerfen nicht in Git gelangen.
-- Die Weboberflaeche und bestehende API-Vertraege nicht ohne ausdruecklichen Auftrag inkompatibel aendern.
-- Die Spool-/UID-Zuordnungslogik bleibt auf OpenSpoolMan-Seite; der AMSHelper loest keine UID selbst zu einer Spool-ID auf.
+- Änderungen möglichst updatefreundlich halten.
+- `app.py` nicht ändern, sofern es nicht ausdrücklich erforderlich und beauftragt
+  ist. Eigene Erweiterungen gehören bevorzugt in `app_custom.py` sowie getrennte
+  Module oder Blueprints.
+- Bestehende Trennung für Bambu-Authentifizierung (z. B. `bambu_auth.py`) achten.
+- Die Kommunikation mit Spoolman läuft zentral über die Repository-/Datenzugriffsschicht
+  (`spool_repository.py`); direkte API-Aufrufe in UI- oder Fachlogik vermeiden.
+- Die Spool-/UID-Zuordnung bleibt auf OpenSpoolMan-Seite; AMSHelper löst keine UID
+  selbst in eine Spool-ID auf.
+- Weboberfläche und bestehende API-Verträge nicht ohne ausdrücklichen Auftrag
+  inkompatibel ändern.
+- Token-, Credential- und Secret-Dateien gehören nicht in Git.
 
-## AMSHelper - Architektur
+## AMSHelper-Architektur
 
-Das Projekt `AMSHelper` ist eine nanoFramework-Anwendung fuer ESP32-S3 und Bambu Lab P1S/AMS.
+AMSHelper ist eine nanoFramework-Anwendung für ESP32-S3 und Bambu Lab P1S/AMS.
 
-### Komponenten und Verantwortlichkeiten
-
-- `BambuMqtt`: nur lokaler Bambu-MQTT-Transport, TLS-Verbindung, Subscribe, Empfang und Reconnect.
-- `BambuStatusParser`: JSON-Auswertung. Nur vorhandene Felder auswerten; fehlende Felder nicht als neue Werte interpretieren.
-- WLAN/Netzwerk ist eine separate Komponente und gehoert nicht in ein gemeinsames `Esp`-Objekt.
+- `BambuMqtt`: lokaler Bambu-MQTT-Transport, TLS, Subscribe, Empfang und Reconnect.
+- `BambuStatusParser`: nur tatsächlich vorhandene JSON-Felder auswerten; fehlende
+  Felder nicht als neue Werte interpretieren.
+- WLAN/Netzwerk bleibt eine eigene Komponente und gehört nicht in ein gemeinsames
+  `Esp`-Objekt.
 - `OpenSpoolManClient` kapselt die Kommunikation mit OpenSpoolMan.
-- Vier `AmsTray`-Objekte repraesentieren Tray 0 bis 3.
-- Traybezogene PN532-/NFC-Logik gehoert in bzw. hinter die Tray-Abstraktion.
-- Ein gemeinsamer Scheduler darf die vier Trays bedienen; Aktionen sollen nach Moeglichkeit ereignis-/statusgetrieben erfolgen und nicht durch unnoetiges Dauerpolling.
-- Event-Handler nach Moeglichkeit gekapselt und asynchron gestalten, soweit nanoFramework/API dies sinnvoll erlaubt.
+- Vier `AmsTray`-Objekte repräsentieren Tray 0 bis 3.
+- Traybezogene PN532-/NFC-Logik gehört in bzw. hinter die Tray-Abstraktion.
+- Aktionen möglichst ereignis- oder statusgetrieben statt unnötigem Dauerpolling.
+- Event-Handler nach Möglichkeit gekapselt und asynchron gestalten, soweit die
+  nanoFramework-API dies unterstützt.
 
 ### MQTT
 
-- Lokaler Bambu-MQTT-Zugang: TLS Port `8883`.
-- Benutzer: `bblp`.
-- Passwort: Printer LAN Access Code. Niemals hardcoden oder committen.
-- Report-Topic: `device/<SERIAL>/report`.
-- Requests werden ueber das passende `device/<SERIAL>/request`-Topic gesendet.
-- Standard-Telemetrieausgaben gering halten. Debug-Ausgaben nur zielgerichtet bzw. konfigurierbar aktivieren.
+- TLS-Port `8883`, Benutzer `bblp`.
+- Das Passwort ist der Printer LAN Access Code und darf niemals hardcodiert oder
+  committed werden.
+- Report: `device/<SERIAL>/report`.
+- Requests: `device/<SERIAL>/request`.
+- Standardtelemetrie gering halten; Debug-Ausgaben zielgerichtet und konfigurierbar.
 
-### NFC / Hardware
+### NFC und Hardware
 
 - Zielhardware: ESP32-S3 mit vier PN532-Lesern und NTAG215-Tags.
-- Zielanbindung fuer vier PN532: gemeinsamer SPI-Bus mit getrenntem SS/CS je Reader.
-- Kein I2C-Multiplexer.
-- Eventuell vorhandener Code fuer einen einzelnen PN532 per I2C ist Test-/Uebergangsstand und darf nicht als Zielarchitektur fuer vier Leser interpretiert werden.
-- Kein MIFARE-Classic-spezifisches Design fuer dieses Projekt einfuehren; Ziel-Tags sind NTAG215.
+- Gemeinsamer SPI-Bus mit getrenntem SS/CS je Reader.
+- Kein I2C-Multiplexer und kein neues MIFARE-Classic-Design.
+- Vorhandener Einzel-PN532-I2C-Code ist nur Übergangs-/Teststand.
 
-## Diagnose / Logging
+## Diagnose und Logging
 
-- Zentrale Trace-/Debug-Ausgabe bevorzugen (`TraceWriter` bzw. vorhandene zentrale Implementierung).
-- Debug-Queue begrenzen; keine unbeschraenkt wachsenden Queues.
-- Heartbeat soll bei entsprechender Implementierung freien Speicher sowie Queue-/Drop-Informationen kompakt anzeigen.
-- Keine hochfrequente Standard-Telemetrie ohne konkreten Diagnosezweck einfuehren.
+- Zentrale Trace-/Debug-Ausgabe verwenden (`TraceWriter` oder vorhandene zentrale
+  Implementierung).
+- Debug-Queues begrenzen; keine unbeschränkt wachsenden Queues.
+- Heartbeat kompakt um freien Speicher sowie Queue-/Drop-Informationen ergänzen,
+  sofern implementiert.
+- Keine hochfrequente Standardtelemetrie ohne konkreten Diagnosezweck.
 
-## C# / nanoFramework Coding-Regeln
+## C# und nanoFramework
 
-- `if`-Anweisungen immer mit `{ }` schreiben, auch bei nur einer Anweisung.
-- Bestehende Namespace- und Ordnerstruktur respektieren (`Ams`, `Config`, `Diagnostics`, `Hardware`, `Mqtt`, `Network`, `Nfc`, `OpenSpoolMan`).
-- Vor neuen NuGet-Paketen pruefen, ob sie mit der verwendeten nanoFramework-Version kompatibel sind.
-- Keine Desktop-.NET-APIs verwenden, die nanoFramework nicht unterstuetzt.
+- `if`-Anweisungen immer mit `{ }`, auch bei nur einer Anweisung.
+- Bestehende Namespace-/Ordnerstruktur respektieren (`Ams`, `Config`, `Diagnostics`,
+  `Hardware`, `Mqtt`, `Network`, `Nfc`, `OpenSpoolMan`).
+- Vor neuen NuGet-Paketen die nanoFramework-Kompatibilität prüfen.
+- Keine Desktop-.NET-APIs verwenden, die nanoFramework nicht unterstützt.
 
-## Test- und Entwicklungsumgebung
+## Tests und Validierung
 
-- Primaerer Testweg des Benutzers ist Visual Studio Debug.
-- Nicht standardmaessig Docker-Rebuild/Compose als ersten Testschritt verlangen, wenn die Aenderung im lokalen Visual-Studio-Debug pruefbar ist.
-- Bei AMSHelper-Aenderungen Projekt/NuGet-Referenzen und nanoFramework-Kompatibilitaet mitpruefen.
+- Für AMSHelper ist Visual-Studio-Debug der primäre Testweg.
+- Bei Webänderungen zusätzlich die betroffene Seite im Browser/DOM prüfen.
+- Bei Änderungen an Container-, MQTT- oder Laufzeitverhalten gezielt Docker-/Runtime-
+  Prüfungen ausführen; ein erfolgreicher Build allein gilt nicht als UI-Abnahme.
+- Bei AMSHelper-Änderungen Projekt-/NuGet-Referenzen und nanoFramework-Kompatibilität
+  prüfen.
 
-## Git-Regeln fuer Codex
+## Priorität bei Widersprüchen
 
-- Keine Force-Pushes.
-- Keine History-Rewrites ohne ausdruecklichen Auftrag.
-- Keine fremden oder lokalen Aenderungen entfernen, nur um einen sauberen Diff zu erhalten.
-- Vor einem Commit `git diff` und `git status` pruefen.
-- Commit-Nachrichten kurz und beschreibend halten.
-- Im Zweifel Aenderungen auf `feature/NewFiles` belassen; nicht ungefragt nach `main` mergen.
-
-## Prioritaet bei Widerspruechen
-
-1. Aktuelle ausdrueckliche Benutzeranweisung.
+1. Aktuelle ausdrückliche Benutzeranweisung.
 2. Diese `AGENTS.md`.
-3. Aktueller Code und vorhandene Projektdokumentation.
-4. Aeltere Annahmen oder fruehere Chat-Kontexte.
+3. Aktueller Code und aktuelle Projektdokumentation.
+4. Ältere Annahmen oder frühere Chat-Kontexte.
 
-Wenn Architektur und aktueller Code voneinander abweichen, die Abweichung zuerst benennen und nicht stillschweigend eine neue Architektur einfuehren.
+Wenn Architektur und aktueller Code abweichen, die Abweichung zuerst benennen und
+nicht stillschweigend eine neue Architektur einführen.

@@ -1,6 +1,6 @@
 # Projektarchitektur und Wartungsstrategie
 
-> Einstieg: [START.md](../START.md) · Entscheidungen: [Design-Entscheidungen](../design-entscheidungen.md)
+> Einstieg: [START.md](../START.md) · Entscheidungen: [Design](../../DESIGN.md)
 
 OpenSpoolMan wird als eigener Fork mit Bambu-Lab-Erweiterungen gepflegt. Eigene Funktionalität bleibt möglichst von Upstream-Code getrennt.
 
@@ -17,4 +17,4 @@ OpenSpoolMan wird als eigener Fork mit Bambu-Lab-Erweiterungen gepflegt. Eigene 
 
 Neue eigene Module werden großen Änderungen an Upstream-Dateien vorgezogen. Integration erfolgt möglichst über `app_custom.py`. Änderungen an Upstream-Templates bleiben klein. Bestehende eigene Module werden nicht ohne konkreten Grund umbenannt.
 
-Der aktuelle Code ist Quelle der Wahrheit für den Implementierungsstand; verbindliche Zielentscheidungen stehen in `docs/design-entscheidungen.md`.
+Der aktuelle Code ist Quelle der Wahrheit für den Implementierungsstand; verbindliche Zielentscheidungen stehen in `DESIGN.md`.

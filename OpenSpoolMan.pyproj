@@ -17,7 +17,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="**\*.py" Exclude=".venv\**;venv\**;env\**;__pycache__\**;data\**;logs\**;node_modules\**" />
-    <Content Include="templates\**\*;static\**\*;*.yaml;*.yml;requirements.txt;Dockerfile;README*" />
+    <Content Include="templates\**\*;static\**\*;docs\**\*;*.yaml;*.yml;requirements.txt;Dockerfile;README*" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include=".env\doc\" />
@@ -194,6 +194,13 @@
     <Folder Include=".env\Lib\site-packages\_pytest\_io\" />
     <Folder Include=".env\Lib\site-packages\_pytest\_py\" />
     <Folder Include="scripts\" />
+    <Folder Include="docs\" />
+    <Folder Include="docs\amshelper\" />
+    <Folder Include="docs\architektur\" />
+    <Folder Include="docs\bambu\" />
+    <Folder Include="docs\img\" />
+    <Folder Include="docs\img\amshelper\" />
+    <Folder Include="docs\referenz\" />
     <Folder Include="static\" />
     <Folder Include="static\css\" />
     <Folder Include="static\css\fonts\" />

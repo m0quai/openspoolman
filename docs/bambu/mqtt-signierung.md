@@ -1,6 +1,6 @@
 # Bambu MQTT, Zertifikate und Signierung
 
-> Einstieg: [START.md](../START.md) · Entscheidungen: [Design-Entscheidungen](../design-entscheidungen.md)
+> Einstieg: [START.md](../START.md) · Entscheidungen: [Design](../../DESIGN.md)
 
 Dieser Bereich ist sicherheitskritisch. Protokolldetails werden aus aktuellem Quellcode und bestätigten Tests abgeleitet, nicht aus Vermutungen.
 
