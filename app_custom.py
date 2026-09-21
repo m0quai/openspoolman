@@ -223,6 +223,7 @@ from config import EXTERNAL_SPOOL_AMS_ID, PRINTER_ID
 from __version__ import __build_number__, __version__
 import tools_3mf as _tools_3mf
 import filament_usage_tracker as _filament_usage_tracker
+from jobs_3mf import JOBS_3MF
 
 from logger import log as _log
 
@@ -446,7 +447,7 @@ _tools_3mf.setupPycurlConnection = _setup_pycurl_connection_for_large_3mf
 _original_download3mf_from_ftp = _tools_3mf.download3mfFromFTP
 
 
-def _download3mf_with_unique_suffix_fallback(filename, dest_file):
+def _download3mf_with_unique_suffix_fallback(filename, dest_file, progress_callback=None):
     """Resolve printer-side filename prefixes without guessing between matches.
 
     Bambu .bbl files may reference /sdcard/Kerstin.gcode.3mf while FTPS exposes
@@ -455,7 +456,7 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file):
     variants; otherwise a suffix match is accepted only when it is unique.
     """
     try:
-        return _original_download3mf_from_ftp(filename, dest_file)
+        return _original_download3mf_from_ftp(filename, dest_file, progress_callback)
     except Exception as original_error:
         expected_name = os.path.basename(str(filename or "").strip())
         if not expected_name.lower().endswith(".3mf"):
@@ -483,7 +484,7 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file):
             _log(
                 f"[3MF] Exakter FTPS-Root-Treffer fuer {expected_name!r}: {resolved_path}; erneuter Download."
             )
-            return _original_download3mf_from_ftp(resolved_path, dest_file)
+            return _original_download3mf_from_ftp(resolved_path, dest_file, progress_callback)
 
         matches = [
             name
@@ -497,7 +498,7 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file):
             _log(
                 f"[3MF] Eindeutiger FTPS-Suffix-Treffer fuer {expected_name!r}: {resolved_path}"
             )
-            return _original_download3mf_from_ftp(resolved_path, dest_file)
+            return _original_download3mf_from_ftp(resolved_path, dest_file, progress_callback)
 
         if len(matches) > 1:
             _log(
@@ -516,12 +517,20 @@ _filament_usage_tracker.download3mfFromFTP = _download3mf_with_unique_suffix_fal
 _original_download3mf_from_cloud = _tools_3mf.download3mfFromCloud
 
 
-def _download3mf_from_cloud_with_timeout(url, dest_file):
+def _download3mf_from_cloud_with_timeout(url, dest_file, progress_callback=None):
     """Download cloud 3MF files with bounded connect and transfer waits."""
     _log("Downloading 3MF file from cloud...")
-    response = _tools_3mf.requests.get(url, timeout=(5, 180))
+    response = _tools_3mf.requests.get(url, timeout=(5, 180), stream=True)
     response.raise_for_status()
-    dest_file.write(response.content)
+    total = int(response.headers.get("content-length") or 0)
+    downloaded = 0
+    for chunk in response.iter_content(chunk_size=1024 * 1024):
+        if not chunk:
+            continue
+        dest_file.write(chunk)
+        downloaded += len(chunk)
+        if progress_callback:
+            progress_callback(downloaded, total)
 
 
 _tools_3mf.download3mfFromCloud = _download3mf_from_cloud_with_timeout
@@ -641,6 +650,19 @@ def _printer_is_busy():
     return bool(state and str(state).upper() not in {"IDLE", "FINISH", "FAILED", "STOP"})
 
 
+def _printer_status_code():
+    state = str((getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}).get("gcode_state") or "OFFLINE").upper()
+    return {
+        "IDLE": "Ready",
+        "PREPARE": "Preparing",
+        "RUNNING": "Printing",
+        "PAUSE": "Paused",
+        "FINISH": "Finished",
+        "FAILED": "Failed",
+        "STOP": "Cancelled",
+    }.get(state, "Offline" if state == "OFFLINE" else state.title())
+
+
 @app.context_processor
 def inject_openspoolman_version():
     pending_nfc = False
@@ -655,6 +677,7 @@ def inject_openspoolman_version():
         "openspoolman_version": _load_openspoolman_version(),
         "openspoolman_build_number": _runtime_build_number,
         "printer_temperatures": _printer_temperature_status(),
+        "printer_status": _ui_text(_printer_status_code()),
         "printer_is_busy": _printer_is_busy(),
         "ams_operation_pending": mqtt_bambulab.is_any_ams_operation_pending(),
         "pending_nfc": pending_nfc,
@@ -749,12 +772,25 @@ def _recv_exact(sock, size):
 @app.get("/ams/state-generation")
 def ams_state_generation():
     temperatures = _printer_temperature_status()
+    print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
+    active_print_id = print_history_service.get_latest_running_print_id()
+    if active_print_id is None:
+        active_jobs = getattr(mqtt_bambulab, "ACTIVE_3MF_PRINTS", {})
+        if active_jobs:
+            active_print_id = next(reversed(active_jobs.values())).get("print_id")
     return jsonify({
         "generation": getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0),
         "hotend": temperatures.get("hotend"),
         "hotend_target": temperatures.get("hotend_target"),
         "bed": temperatures.get("bed"),
         "bed_target": temperatures.get("bed_target"),
+        "printer_state": print_state.get("gcode_state") or "OFFLINE",
+        "printer_status": _ui_text(_printer_status_code()),
+        "print_id": active_print_id,
+        "download": {
+            key: value for key, value in JOBS_3MF.get().items()
+            if key in {"job_key", "state", "percent", "bytes_downloaded", "bytes_total", "speed_bytes_per_second", "elapsed_seconds", "error"}
+        },
     })
 
 

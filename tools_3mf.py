@@ -61,7 +61,7 @@ def setupPycurlConnection(ftp_user, ftp_pass):
     c.setopt(c.FTP_SSL, c.FTPSSL_ALL)
     c.setopt(c.FTPSSLAUTH, c.FTPAUTH_TLS)
     c.setopt(c.CONNECTTIMEOUT, 5)
-    c.setopt(c.TIMEOUT, 30)
+    c.setopt(c.TIMEOUT, 180)
     return c
 
 
@@ -186,11 +186,19 @@ def resolve_local_print_3mf(source):
     return None
 
 
-def download3mfFromCloud(url, destFile):
+def download3mfFromCloud(url, destFile, progress_callback=None):
     log("Downloading 3MF file from cloud...")
-    response = requests.get(url)
+    response = requests.get(url, stream=True, timeout=(5, 180))
     response.raise_for_status()
-    destFile.write(response.content)
+    total = int(response.headers.get("content-length") or 0)
+    downloaded = 0
+    for chunk in response.iter_content(chunk_size=64 * 1024):
+        if not chunk:
+            continue
+        destFile.write(chunk)
+        downloaded += len(chunk)
+        if progress_callback:
+            progress_callback(downloaded, total)
 
 
 def _append_unique_path(paths, remote_path):
@@ -205,7 +213,7 @@ def _append_unique_path(paths, remote_path):
         paths.append(remote_path)
 
 
-def download3mfFromFTP(filename, destFile):
+def download3mfFromFTP(filename, destFile, progress_callback=None):
     log("Downloading 3MF file from FTP...")
     ftp_host = app_config.PRINTER_IP
     ftp_user = "bblp"
@@ -237,7 +245,13 @@ def download3mfFromFTP(filename, destFile):
 
     last_error = None
     reconnect_codes = {7, 28, 35, 52, 55, 56}
+    def configure_progress(connection):
+        if progress_callback:
+            connection.setopt(connection.NOPROGRESS, False)
+            connection.setopt(connection.XFERINFOFUNCTION, lambda _download_total, downloaded, _upload_total, _uploaded: progress_callback(downloaded, _download_total))
+
     c = setupPycurlConnection(ftp_user, ftp_pass)
+    configure_progress(c)
     try:
         for path_index, remote_path in enumerate(remote_paths, start=1):
             encoded_remote_path = urllib.parse.quote(remote_path)
@@ -263,6 +277,7 @@ def download3mfFromFTP(filename, destFile):
                             except Exception:
                                 pass
                             c = setupPycurlConnection(ftp_user, ftp_pass)
+                            configure_progress(c)
                         if attempt == 0 and err_code in reconnect_codes:
                             continue
                         if err_code == 9:
@@ -286,9 +301,18 @@ def download3mfFromFTP(filename, destFile):
     )
 
 
-def download3mfFromLocalFilesystem(path, destFile):
+def download3mfFromLocalFilesystem(path, destFile, progress_callback=None):
+    total = os.path.getsize(path) if os.path.exists(path) else 0
+    downloaded = 0
     with open(path, "rb") as src_file:
-        destFile.write(src_file.read())
+        while True:
+            chunk = src_file.read(64 * 1024)
+            if not chunk:
+                break
+            destFile.write(chunk)
+            downloaded += len(chunk)
+            if progress_callback:
+                progress_callback(downloaded, total)
 
 
 def getMetaDataFrom3mf(url):
@@ -404,3 +428,76 @@ def getMetaDataFrom3mf(url):
     except Exception as e:
         log(f"[3MF] Unerwarteter Fehler: {e}")
         return {}
+
+
+def getMetaDataFromLocal3mf(path: str, model_path: str | None = None) -> dict:
+    """Parse an already downloaded 3MF without starting another transfer."""
+    metadata = {
+        "model_path": model_path or path,
+        "file": os.path.basename(model_path or path),
+    }
+    try:
+        with zipfile.ZipFile(path, "r") as z:
+            slice_info_path = "Metadata/slice_info.config"
+            if slice_info_path not in z.namelist():
+                log(f"[3MF] '{slice_info_path}' fehlt im lokalen Archiv.")
+                return {}
+
+            with z.open(slice_info_path) as slice_info_file:
+                tree = ET.parse(slice_info_file)
+                root = tree.getroot()
+                for meta in root.findall(".//plate/metadata"):
+                    if meta.attrib.get("key") == "index":
+                        metadata["plateID"] = meta.attrib.get("value", "")
+
+                usage = {}
+                filaments = {}
+                filament_id = 1
+                for plate in root.findall(".//plate"):
+                    for filament in plate.findall(".//filament"):
+                        used_g = filament.attrib.get("used_g")
+                        usage[filament_id] = used_g
+                        filaments[filament_id] = {
+                            "id": filament_id,
+                            "tray_info_idx": filament.attrib.get("tray_info_idx"),
+                            "type": filament.attrib.get("type"),
+                            "color": filament.attrib.get("color"),
+                            "used_g": used_g,
+                            "used_m": filament.attrib.get("used_m"),
+                        }
+                        filament_id += 1
+                metadata["filaments"] = filaments
+                metadata["usage"] = usage
+
+            if not metadata.get("plateID"):
+                log("[3MF] Keine Plate-ID in lokalem slice_info.config gefunden.")
+                return {}
+
+            metadata["image"] = time.strftime("%Y%m%d%H%M%S") + ".png"
+            image_path = "Metadata/plate_" + metadata["plateID"] + ".png"
+            if image_path in z.namelist():
+                os.makedirs(os.path.join(os.getcwd(), "static", "prints"), exist_ok=True)
+                with z.open(image_path) as source_file:
+                    with open(os.path.join(os.getcwd(), "static", "prints", metadata["image"]), "wb") as target_file:
+                        target_file.write(source_file.read())
+            else:
+                metadata["image"] = ""
+
+            gcode_path = "Metadata/plate_" + metadata["plateID"] + ".gcode"
+            metadata["gcode_path"] = gcode_path
+            if gcode_path in z.namelist():
+                with z.open(gcode_path) as gcode_file:
+                    metadata["filamentOrder"] = get_filament_order(gcode_file)
+
+            log(
+                f"[3MF] Lokale Metadaten OK: file={metadata.get('file')!r}, "
+                f"plate={metadata.get('plateID')!r}, filaments={len(metadata.get('filaments', {}))}"
+            )
+            return metadata
+    except zipfile.BadZipFile:
+        log("[3MF] Die lokale Datei ist kein gültiges 3MF/ZIP-Archiv.")
+    except ET.ParseError:
+        log("[3MF] XML im lokalen 3MF konnte nicht gelesen werden.")
+    except Exception as exc:
+        log(f"[3MF] Fehler beim lokalen Parsen: {exc}")
+    return {}

@@ -303,7 +303,7 @@ class FilamentUsageTracker:
       except (TypeError, ValueError):
         self._mc_remaining_time_minutes = None
 
-    if command == "project_file":
+    if command == "project_file" and not print_obj.get("_metadata_job_queued"):
       self._handle_print_start(print_obj)
 
     if command == "push_status":
@@ -339,7 +339,7 @@ class FilamentUsageTracker:
     log("[filament-tracker] Print start")
 
     model_url = print_obj.get("url")
-    model_path = self._retrieve_model(model_url)
+    model_path = print_obj.get("local_model_path") or self._retrieve_model(model_url)
 
     if model_path is None:
       log("Failed to retrieve model. Print will not be tracked.")
@@ -424,7 +424,7 @@ class FilamentUsageTracker:
 
     self._handle_layer_change(0)
 
-  def start_local_print_from_metadata(self, metadata: dict | None) -> None:
+  def start_local_print_from_metadata(self, metadata: dict | None, local_model_path: str | None = None) -> None:
     if not metadata:
       return
     model_path = metadata.get("model_path", "").replace("local:", "")
@@ -450,6 +450,7 @@ class FilamentUsageTracker:
     }
     
     fake_print["url"] = model_url
+    fake_print["local_model_path"] = local_model_path or metadata.get("local_model_path")
 
     self._handle_print_start(fake_print)
 
@@ -922,6 +923,15 @@ class FilamentUsageTracker:
 
   def _attempt_print_resume(self, task_id, subtask_id, model_url=None, print_obj=None) -> None:
     print_obj = print_obj or {}
+    try:
+      from jobs_3mf import JOBS_3MF
+      job_key = f"{task_id or ''}:{subtask_id or ''}"
+      job_state = JOBS_3MF.get(job_key).get("state")
+      if job_state in {"queued", "resolving", "downloading", "processing"}:
+        log(f"[filament-tracker] Resume wartet auf zentralen 3MF-Worker: {job_key}")
+        return
+    except Exception as worker_error:
+      log(f"[filament-tracker] 3MF-Workerstatus nicht verfügbar: {worker_error}")
     if self.print_id is None:
       self.print_id = get_latest_running_print_id()
     if self.print_id is None:

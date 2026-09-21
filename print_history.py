@@ -183,6 +183,20 @@ def insert_print(file_name: str, print_type: str, image_file: str = None, print_
     conn.close()
     return print_id
 
+
+def ensure_layer_tracking(print_id: int, status: str = "PREPARING") -> None:
+    """Create the lightweight tracking row before 3MF metadata is ready."""
+    if print_id is None:
+        return
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute(
+        "INSERT INTO print_layer_tracking (print_id, status) VALUES (?, ?) "
+        "ON CONFLICT(print_id) DO UPDATE SET status = excluded.status",
+        (print_id, status),
+    )
+    conn.commit()
+    conn.close()
+
 def update_print_image(print_id: int, image_file: str) -> None:
     if print_id is None or not image_file:
         return
