@@ -648,6 +648,8 @@ def _current_printer_status_payload():
         "printer_state": print_state.get("gcode_state") or "OFFLINE",
         "printer_status": _ui_text(_printer_status_code()),
         "print_id": active_print_id,
+        "temperatures": _printer_temperature_status(),
+        "ams_environment": _ams_environment_status(),
         "download": {
             key: value for key, value in JOBS_3MF.get().items()
             if key in {"job_key", "state", "percent", "bytes_downloaded", "bytes_total", "speed_bytes_per_second", "elapsed_seconds", "error"}
@@ -684,6 +686,22 @@ def _printer_temperature_status():
     }
 
 
+def _ams_environment_status():
+    metrics = []
+    for index, ams in enumerate((getattr(mqtt_bambulab, "LAST_AMS_CONFIG", {}) or {}).get("ams", []) or []):
+        raw_humidity = ams.get("humidity_raw")
+        humidity = f"{raw_humidity}%" if raw_humidity not in (None, "", 0, "0") else None
+        temperature = ams.get("temp")
+        if humidity is None and temperature in (None, "", "0", "0.0", 0, 0.0):
+            continue
+        metrics.append({
+            "label": chr(ord("A") + index),
+            "humidity": humidity,
+            "temperature": temperature if temperature not in (None, "", "0", "0.0", 0, 0.0) else None,
+        })
+    return metrics
+
+
 def _printer_is_busy():
     state = (getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}).get("gcode_state")
     return bool(state and str(state).upper() not in {"IDLE", "FINISH", "FAILED", "STOP"})
@@ -716,6 +734,7 @@ def inject_openspoolman_version():
         "openspoolman_version": _load_openspoolman_version(),
         "openspoolman_build_number": _runtime_build_number,
         "printer_temperatures": _printer_temperature_status(),
+        "printer_ams_environment": _ams_environment_status(),
         "printer_status": _ui_text(_printer_status_code()),
         "mqtt_connected": mqtt_bambulab.isMqttClientConnected(),
         "PRINTER_ID": PRINTER_ID,

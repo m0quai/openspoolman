@@ -1,8 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="container py-4">
-  <h1 class="mb-4 text-center">{{ _('Home') }}</h1>
-
   <div class="row justify-content-center g-3" id="printer-status-page">
     <div class="col-12 col-md-8 col-xl-6">
       <div class="card shadow-sm">
@@ -18,6 +16,22 @@
             <dd class="col-sm-7" id="home-mqtt-status">{{ _('Verbunden') if mqtt_connected|default(false) else _('Nicht verbunden') }}</dd>
             <dt class="col-sm-5">{{ _('Druckerstatus') }}</dt>
             <dd class="col-sm-7 fw-semibold" id="home-printer-status">{{ printer_status }}</dd>
+            <dt class="col-sm-5">{{ _('Humidity') }}</dt>
+            <dd class="col-sm-7" id="home-humidity">
+              {% if printer_ams_environment %}
+                {% for ams in printer_ams_environment %}{% if not loop.first %} · {% endif %}AMS {{ ams.label }}: {{ ams.humidity or '–' }}{% endfor %}
+              {% else %}–{% endif %}
+            </dd>
+            <dt class="col-sm-5">{{ _('Temp:') }}</dt>
+            <dd class="col-sm-7" id="home-ams-temperature">
+              {% if printer_ams_environment %}
+                {% for ams in printer_ams_environment %}{% if not loop.first %} · {% endif %}AMS {{ ams.label }}: {{ ams.temperature or '–' }}°C{% endfor %}
+              {% else %}–{% endif %}
+            </dd>
+            <dt class="col-sm-5">{{ _('Hotend') }}</dt>
+            <dd class="col-sm-7" id="home-hotend">{% if printer_temperatures.hotend is not none %}{{ printer_temperatures.hotend|round|int }}°C{% else %}–{% endif %}{% if printer_temperatures.hotend_target is not none %} / {{ printer_temperatures.hotend_target|round|int }}°C{% endif %}</dd>
+            <dt class="col-sm-5">{{ _('Bed') }}</dt>
+            <dd class="col-sm-7" id="home-bed">{% if printer_temperatures.bed is not none %}{{ printer_temperatures.bed|round|int }}°C{% else %}–{% endif %}{% if printer_temperatures.bed_target is not none %} / {{ printer_temperatures.bed_target|round|int }}°C{% endif %}</dd>
             <dt class="col-sm-5">{{ _('Print ID') }}</dt>
             <dd class="col-sm-7" id="home-print-id">{% if active_print_id %}#{{ active_print_id }}{% else %}–{% endif %}</dd>
           </dl>
@@ -35,6 +49,10 @@
   const mqttBadge = document.getElementById('home-mqtt-badge');
   const mqttStatus = document.getElementById('home-mqtt-status');
   const printerStatus = document.getElementById('home-printer-status');
+  const humidity = document.getElementById('home-humidity');
+  const amsTemperature = document.getElementById('home-ams-temperature');
+  const hotend = document.getElementById('home-hotend');
+  const bed = document.getElementById('home-bed');
   const printId = document.getElementById('home-print-id');
   const downloadStatus = document.getElementById('home-3mf-status');
   const loadingLabel = {{ _('3MF wird geladen')|tojson }};
@@ -50,6 +68,12 @@
       mqttBadge.classList.toggle('text-bg-danger', !data.mqtt_connected);
     }
     if (printerStatus) printerStatus.textContent = data.printer_status || '';
+    const metrics = data.ams_environment || [];
+    if (humidity) humidity.textContent = metrics.length ? metrics.map(item => `AMS ${item.label}: ${item.humidity || '–'}`).join(' · ') : '–';
+    if (amsTemperature) amsTemperature.textContent = metrics.length ? metrics.map(item => `AMS ${item.label}: ${item.temperature || '–'}°C`).join(' · ') : '–';
+    const temperatures = data.temperatures || {};
+    if (hotend) hotend.textContent = temperatures.hotend === null || temperatures.hotend === undefined ? '–' : `${Math.round(Number(temperatures.hotend))}°C${temperatures.hotend_target === null || temperatures.hotend_target === undefined ? '' : ` / ${Math.round(Number(temperatures.hotend_target))}°C`}`;
+    if (bed) bed.textContent = temperatures.bed === null || temperatures.bed === undefined ? '–' : `${Math.round(Number(temperatures.bed))}°C${temperatures.bed_target === null || temperatures.bed_target === undefined ? '' : ` / ${Math.round(Number(temperatures.bed_target))}°C`}`;
     if (printId) printId.textContent = data.print_id ? `#${data.print_id}` : '–';
 
     const download = data.download || {};
