@@ -22,13 +22,27 @@ from config import (
 )
 from messages import GET_VERSION, PUSH_ALL, AMS_FILAMENT_SETTING
 from spoolman_service import spendFilaments, setActiveTray, fetchSpools, clear_active_spool_for_tray
+from spool_repository import record_consumption
 from tools_3mf import getMetaDataFrom3mf
 import time
 import threading
 import copy
+from datetime import datetime
 from collections.abc import Mapping
 from logger import application_log_file, append_to_rotating_file, log
-from print_history import insert_print, insert_filament_usage, ensure_layer_tracking, update_print_image, update_layer_tracking
+from print_history import (
+  insert_print,
+  insert_filament_usage,
+  ensure_layer_tracking,
+  update_print_image,
+  update_layer_tracking,
+  find_open_print_for_printer_job,
+  get_filament_usage_for_reconciliation,
+  mark_print_reconciled,
+  set_estimated_duration_if_missing,
+  update_printer_job_status,
+  update_latest_printer_job_status,
+)
 from filament_usage_tracker import FilamentUsageTracker
 from jobs_3mf import JOBS_3MF
 MQTT_CLIENT = {}  # Global variable storing MQTT Client
@@ -62,6 +76,7 @@ PRINTER_STATE_LAST = {}
 PENDING_PRINT_METADATA = {}
 ACTIVE_3MF_PRINTS = {}
 FILAMENT_TRACKER = FilamentUsageTracker()
+_COMPLETION_RECONCILE_LOCK = threading.Lock()
 LOG_FILE = application_log_file("mqtt.log")
 def getPrinterModel():
     global PRINTER_ID
@@ -268,6 +283,86 @@ def _queue_3mf_job(print_data):
   return ACTIVE_3MF_PRINTS[job_key]
 
 
+def _reconcile_completed_printer_job(print_data: dict) -> None:
+  """Recover a completed job after OpenSpoolMan was offline during its finish."""
+  state = str(print_data.get("gcode_state") or "").upper()
+  try:
+    percent = float(print_data.get("mc_percent"))
+  except (TypeError, ValueError):
+    percent = None
+  if percent is None or percent < 100 or state not in {"FINISH", "IDLE"}:
+    return
+
+  candidate = find_open_print_for_printer_job(
+    print_data.get("subtask_name"),
+    print_data.get("gcode_file"),
+    print_data.get("url"),
+  )
+  if not candidate or not _COMPLETION_RECONCILE_LOCK.acquire(blocking=False):
+    return
+  try:
+    print_id = int(candidate["id"])
+    usage_rows = get_filament_usage_for_reconciliation(print_id)
+    updates = []
+    for row in usage_rows:
+      expected_length = row.get("estimated_length")
+      if expected_length is None:
+        expected_length = row.get("length_used") or row.get("spoolman_length_used") or 0.0
+      expected_length = max(float(expected_length or 0.0), 0.0)
+      current_length = row.get("spoolman_length_used")
+      if current_length is None:
+        current_length = row.get("calculated_length") or row.get("length_used") or 0.0
+      current_length = max(float(current_length or 0.0), 0.0)
+      missing_length = max(expected_length - current_length, 0.0)
+      if missing_length > 0.01:
+        spool_id = row.get("spool_id")
+        if spool_id is None:
+          log(
+            f"[filament-tracker] Abschluss-Recovery wartet: Print {print_id}, "
+            f"Fach {row.get('ams_slot')} ohne Spool-Zuordnung"
+          )
+          return
+        try:
+          record_consumption(
+            int(spool_id),
+            length_mm=missing_length,
+            occurred_at=candidate.get("predicted_end_time"),
+          )
+        except Exception as exc:
+          log(
+            f"[filament-tracker] Abschluss-Recovery fehlgeschlagen: Print {print_id}, "
+            f"Spool {spool_id}, {missing_length:.2f}mm, Fehler={exc!r}"
+          )
+          return
+        log(
+          f"[filament-tracker] Abschluss-Recovery gebucht: Print {print_id}, "
+          f"Spool {spool_id}, Differenz={missing_length:.2f}mm"
+        )
+
+      expected_grams = row.get("estimated_grams")
+      current_grams = float(row.get("grams_used") or 0.0)
+      final_grams = float(expected_grams) if expected_grams is not None else current_grams
+      updates.append({"id": row["id"], "grams_used": final_grams, "length_used": expected_length})
+
+    # The MQTT packet arrival time is not the printer's completion time. Prefer
+    # the calculated end time captured from mc_remaining_time; only use the
+    # receipt time when no calculated end time exists at all.
+    completion_time = candidate.get("predicted_end_time")
+    if not completion_time:
+      log(
+        f"[filament-tracker] Abschluss-Recovery wartet: Print {print_id} "
+        "hat keine errechnete Endzeit; Empfangszeit wird nicht verwendet"
+      )
+      return
+    mark_print_reconciled(print_id, updates, completion_time)
+    log(
+      f"[filament-tracker] Abschluss-Recovery abgeschlossen: Print {print_id}, "
+      f"Druckerstatus={state}/{percent:.0f}%, errechnetes_ende={completion_time}"
+    )
+  finally:
+    _COMPLETION_RECONCILE_LOCK.release()
+
+
 def _mask_serial(serial: str | None, keep_chars: int = 3) -> str:
   if not serial:
     return ""
@@ -356,10 +451,31 @@ def processMessage(data):
   global LAST_AMS_CONFIG, PRINTER_STATE, PRINTER_STATE_LAST, PENDING_PRINT_METADATA
 
    # Prepare AMS spending estimation
-  if "print" in data:    
+  if "print" in data:
     update_dict(PRINTER_STATE, data)
     current_print = data.get("print", {})
+    status_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     active_job = ACTIVE_3MF_PRINTS.get(_job_key(current_print))
+    if active_job and current_print.get("mc_remaining_time") is not None:
+      try:
+        remaining_minutes = float(current_print.get("mc_remaining_time"))
+      except (TypeError, ValueError):
+        remaining_minutes = None
+      if remaining_minutes is not None and remaining_minutes > 0:
+        set_estimated_duration_if_missing(active_job["print_id"], remaining_minutes)
+    try:
+      current_percent = float(current_print.get("mc_percent"))
+    except (TypeError, ValueError):
+      current_percent = None
+    if active_job:
+      update_printer_job_status(active_job["print_id"], percent=current_percent, status_at=status_at)
+    else:
+      update_latest_printer_job_status(
+        (current_print.get("subtask_name"), current_print.get("gcode_file"), current_print.get("url")),
+        percent=current_percent,
+        status_at=status_at,
+      )
+    _reconcile_completed_printer_job(current_print)
     if active_job:
       state = str(current_print.get("gcode_state") or "").upper()
       status = {

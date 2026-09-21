@@ -1,7 +1,5 @@
 {% extends 'base.html' %}
 
-{% from 'fragments/ams_metrics.html' import humidity_display with context %}
-
 {% block content %}
 <div class="row">
   {% for ams in ams_data %}
@@ -11,7 +9,6 @@
         {% set ams_key = ams.id %}
         {% set ams_label = ams_labels.get(ams_key|string) or ams_labels.get(ams_key) or "AMS" %}
         <h5 class="mb-0">{{ ams_label }}</h5>
-        {{ humidity_display(ams) }}
       </div>
       <div class="card-body">
         <div class="row">
@@ -32,14 +29,6 @@
     <div class="card shadow-sm printer-card">
       <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">{% if PRINTER_NAME %}{{ PRINTER_NAME }}{% elif PRINTER_MODEL %}{{ PRINTER_MODEL.get('devicename') or PRINTER_MODEL.get('model') or _('Printer') }}{% else %}{{ _('Printer') }}{% endif %}</h5>
-        <div class="d-flex align-items-center gap-3">
-          <div class="text-muted small">
-          {{ _('Hotend') }}: <span id="printer-hotend" class="fw-semibold">{% if printer_temperatures.hotend is not none %}{{ printer_temperatures.hotend|round|int }}{% else %}-{% endif %}</span>°C
-          <span id="printer-hotend-target-wrapper"{% if printer_temperatures.hotend_target is none %} class="d-none"{% endif %}> / <span id="printer-hotend-target">{% if printer_temperatures.hotend_target is not none %}{{ printer_temperatures.hotend_target|round|int }}{% endif %}</span>°C</span>
-          &nbsp; {{ _('Bed') }}: <span id="printer-bed" class="fw-semibold">{% if printer_temperatures.bed is not none %}{{ printer_temperatures.bed|round|int }}{% else %}-{% endif %}</span>°C
-          <span id="printer-bed-target-wrapper"{% if printer_temperatures.bed_target is none %} class="d-none"{% endif %}> / <span id="printer-bed-target">{% if printer_temperatures.bed_target is not none %}{{ printer_temperatures.bed_target|round|int }}{% endif %}</span>°C</span>
-          </div>
-        </div>
       </div>
       <div class="card-body">
         <div id="printer-job-status" class="small text-body-secondary mb-3 text-start">
@@ -57,7 +46,7 @@
           <i class="bi bi-tags me-1"></i> {{ _('NFC-Tags') }}
         </a>
         {% endif %}
-        <form method="post" action="{{ url_for('refresh_ams') }}" class="d-inline">
+        <form method="post" action="{{ url_for('refresh_ams') }}" class="d-inline" onsubmit="this.querySelector('button').disabled = true;">
           <button type="submit" class="btn btn-sm btn-primary rounded-pill px-2 py-1"{% if printer_is_busy or ams_operation_pending %} disabled title="{{ _('AMS-Aktionen sind momentan deaktiviert') }}"{% endif %}>
             <i class="bi bi-arrow-clockwise me-1"></i> {{ _('AMS aktualisieren') }}
           </button>

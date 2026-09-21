@@ -25,12 +25,14 @@ def record_consumption(
     *,
     weight_grams: float | None = None,
     length_mm: float | None = None,
+    occurred_at: str | None = None,
 ) -> bool:
     """Record one usage event in the inventory backend."""
     return _spoolman_api.consumeSpool(
         spool_id,
         use_weight=weight_grams,
         use_length=length_mm,
+        occurred_at=occurred_at,
     )
 
 

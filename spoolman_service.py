@@ -252,6 +252,7 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
         tray_type_clean = (tray_data["tray_type"] or "").strip()
 
       if "last_used" in spool:
+        tray_data["last_used_iso"] = spool.get("last_used")
         try:
             dt = datetime.strptime(spool["last_used"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=ZoneInfo("UTC"))
         except ValueError:
@@ -261,6 +262,7 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
         tray_data["last_used"] = local_time.strftime("%d.%m.%Y %H:%M")
       else:
           tray_data["last_used"] = "-"
+          tray_data.pop("last_used_iso", None)
 
       if "multi_color_hexes" in spool["filament"]:
         tray_data["spool_color"] = spool["filament"]["multi_color_hexes"]
@@ -387,6 +389,7 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
       "spool_sub_brand",
       "remaining_weight",
       "last_used",
+      "last_used_iso",
       "spool_color",
       "spool_color_orientation",
       "tray_sub_brand",

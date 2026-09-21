@@ -5,6 +5,7 @@ import builtins
 import socket
 import ssl
 import struct
+import threading
 from pathlib import Path
 from datetime import datetime
 
@@ -224,8 +225,13 @@ from __version__ import __build_number__, __version__
 import tools_3mf as _tools_3mf
 import filament_usage_tracker as _filament_usage_tracker
 from jobs_3mf import JOBS_3MF
+from ui_formatting import format_ui_datetime
 
 from logger import log as _log
+
+_AMS_REFRESH_LOCK = threading.Lock()
+_AMS_REFRESH_LAST_REQUEST = 0.0
+_AMS_REFRESH_MIN_INTERVAL_SECONDS = 5.0
 
 # Bambu's mc_percent is the printer's authoritative completion value.  The
 # upstream history view derives progress from layer counts, which can differ
@@ -257,6 +263,16 @@ def _render_template_with_printer_progress(template_name, *args, **kwargs):
                 if print_entry.get("id") == active_print_id and print_entry.get("layer_tracking"):
                     print_entry["layer_tracking"]["progress_percent"] = percent
                     break
+        print_ids = [entry.get("id") for entry in kwargs.get("prints", []) or [] if entry.get("id") is not None]
+        tracking_rows = print_history_service.get_layer_tracking_for_prints(print_ids)
+        for print_entry in kwargs.get("prints", []) or []:
+            tracking = print_entry.get("layer_tracking")
+            row = tracking_rows.get(print_entry.get("id"))
+            if tracking is not None and row is not None:
+                tracking["estimated_duration_minutes"] = row.get("estimated_duration_minutes")
+                tracking["printer_percent"] = row.get("printer_percent")
+                tracking["last_status_at"] = row.get("last_status_at")
+                tracking["last_usage_event_at"] = row.get("last_usage_event_at")
     return _original_app_render_template(template_name, *args, **kwargs)
 
 _openspoolman_app_module.render_template = _render_template_with_printer_progress
@@ -278,6 +294,18 @@ _UI_TRANSLATIONS["de"].update({
 _UI_TRANSLATIONS["en"].update({
     "Deutsch oder Englisch für die Benutzeroberfläche": "German or English for the user interface", "Ein LAN Access-Code ist gespeichert. Leer lassen, um ihn beizubehalten.": "A LAN access code is saved. Leave empty to keep it.", "Angemeldet": "Signed in", "als": "as", "Lokale IP": "Local IP", "Verbunden": "Connected", "Nicht verbunden": "Not connected", "Status:": "Status:", "Zurück": "Back", "Spule zuordnen": "Assign spool", "Keine unbekannten NFC-Tags vorhanden.": "No unknown NFC tags found.", "No Image": "No image", "Success!": "Success!", "Keine Historie vorhanden.": "No history available.", "Clear": "Clear", "Fill": "Fill", "Assign": "Assign", "Back": "Back", "Error": "Error", "Livebild": "Live view", "Humidity": "Humidity", "Full": "Full", "Remaining:": "Remaining:", "Last used:": "Last used:", "Unbekannter NFC-Tag": "Unknown NFC tag", "Spule auswählen ...": "Select spool ...", "Spule ändern": "Change spool", "Eintrag löschen": "Delete entry", "Eintrag aus der History ausblenden": "Hide history entry", "Keine Spule zugeordnet": "No spool assigned", "gedruckt": "printed", "erwartet": "expected", "Druck-ID": "Print ID", "Druck": "Print", "Schichten": "Layers", "Abgerechnet": "Billed", "Fortschritt": "Progress", "Restgewicht:": "Remaining weight:", "Restlänge:": "Remaining length:", "Düsentemperatur:": "Nozzle temperature:", "in SpoolMan anzeigen": "view in SpoolMan", "Registriert:": "Registered:", "Zuletzt verwendet:": "Last used:"
 })
+_UI_TRANSLATIONS["de"]["Last print"] = "Letzter Druck"
+_UI_TRANSLATIONS["en"]["Last print"] = "Last print"
+_UI_TRANSLATIONS["de"]["(geschätzt)"] = "(geschätzt)"
+_UI_TRANSLATIONS["en"]["(geschätzt)"] = "(estimated)"
+_UI_TRANSLATIONS["de"].update({"Finished": "Abgeschlossen", "Completed": "Abgeschlossen", "Failed": "Fehlgeschlagen", "Cancelled": "Abgebrochen", "Aborted": "Abgebrochen", "Running": "Druck läuft"})
+_UI_TRANSLATIONS["en"].update({"Finished": "Finished", "Completed": "Completed", "Failed": "Failed", "Cancelled": "Cancelled", "Aborted": "Aborted", "Running": "Printing"})
+_UI_TRANSLATIONS["de"]["Ready"] = "Bereit"
+_UI_TRANSLATIONS["en"]["Ready"] = "Ready"
+_UI_TRANSLATIONS["de"].update({"Last status": "Letzter Status", "Last booking": "Letzte Buchung"})
+_UI_TRANSLATIONS["en"].update({"Last status": "Last status", "Last booking": "Last booking"})
+_UI_TRANSLATIONS["de"].update({"Letzter Druck": "Letzter Druck", "Letzter Status": "Letzter Status", "Letzte Buchung": "Letzte Buchung"})
+_UI_TRANSLATIONS["en"].update({"Letzter Druck": "Last print", "Letzter Status": "Last status", "Letzte Buchung": "Last booking"})
 
 # The external module is the authoritative source; the legacy inline map
 # above is retained only for compatibility with older local checkouts.
@@ -311,6 +339,7 @@ def inject_ui_language():
         "current_language": _ui_language(),
         "available_languages": _ui_languages(),
         "language_metadata": _ui_language_metadata(),
+        "format_datetime": lambda value: format_ui_datetime(value, _ui_language()),
     }
 
 @app.post("/language")
@@ -624,7 +653,10 @@ def open_bambu_setup_when_mqtt_is_offline():
 @app.route("/home")
 def home_status():
     """Show the connected printer and its current connection/job status."""
-    return render_template("home_status.html")
+    return render_template(
+        "home_status.html",
+        last_print=print_history_service.get_latest_print_summary(),
+    )
 
 
 @app.route("/ams")
@@ -648,6 +680,7 @@ def _current_printer_status_payload():
         "printer_state": print_state.get("gcode_state") or "OFFLINE",
         "printer_status": _ui_text(_printer_status_code()),
         "print_id": active_print_id,
+        "last_print": print_history_service.get_latest_print_summary(),
         "temperatures": _printer_temperature_status(),
         "ams_environment": _ams_environment_status(),
         "download": {
@@ -714,7 +747,9 @@ def _printer_status_code():
         "PREPARE": "Preparing",
         "RUNNING": "Printing",
         "PAUSE": "Paused",
-        "FINISH": "Finished",
+        # FINISH describes the last print job, not a busy printer. The
+        # printer itself is ready once Bambu reports FINISH.
+        "FINISH": "Ready",
         "FAILED": "Failed",
         "STOP": "Cancelled",
     }.get(state, "Offline" if state == "OFFLINE" else state.title())
@@ -775,7 +810,12 @@ def inventory():
             "spool": spool,
             "prints": print_history_service.get_spool_print_usage(spool_id),
         })
-    return render_template("inventory.html", inventory_rows=inventory_rows)
+    show_status_column = any(bool(item["spool"].get("archived")) for item in inventory_rows)
+    return render_template(
+        "inventory.html",
+        inventory_rows=inventory_rows,
+        show_status_column=show_status_column,
+    )
 
 @app.route("/livecam/stream")
 def livecam_stream():
@@ -858,34 +898,50 @@ def ams_state_generation():
 def refresh_ams():
     """Read a fresh AMS state without writing filament settings to the printer."""
     import time
+    global _AMS_REFRESH_LAST_REQUEST
     import mqtt_bambulab
     from messages import PUSH_ALL
+    target_endpoint = request.form.get("next_endpoint")
+    if target_endpoint not in {"home", "home_status"}:
+        target_endpoint = "home"
 
     if not mqtt_bambulab.isMqttClientConnected():
         return redirect(url_for(
-            "home",
+            target_endpoint,
             success_message="AMS konnte nicht aktualisiert werden: MQTT ist nicht verbunden."
         ))
 
-    before_generation = getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0)
+    now = time.monotonic()
+    if now - _AMS_REFRESH_LAST_REQUEST < _AMS_REFRESH_MIN_INTERVAL_SECONDS:
+        _log("AMS-AKTUALISIERUNG: doppelte Statusabfrage verworfen (Cooldown)")
+        return redirect(url_for(target_endpoint))
+    if not _AMS_REFRESH_LOCK.acquire(blocking=False):
+        _log("AMS-AKTUALISIERUNG: doppelte Statusabfrage verworfen (laufende Abfrage)")
+        return redirect(url_for(target_endpoint))
 
-    if not mqtt_bambulab.publish(mqtt_bambulab.getMqttClient(), PUSH_ALL):
-        return redirect(url_for(
-            "home",
-            success_message="AMS-Abfrage konnte nicht gesendet werden."
-        ))
-    mqtt_bambulab.FORCE_AMS_STATUS_LOG = True
-    # PUSH_ALL is deliberately read-only.  Do not call setActiveSpool here:
-    # that sends ams_filament_setting and changes the printer state.
-    _log("AMS-AKTUALISIERUNG: Statusabfrage gesendet")
+    _AMS_REFRESH_LAST_REQUEST = now
+    try:
+        before_generation = getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0)
 
-    deadline = time.monotonic() + 3.0
-    while time.monotonic() < deadline:
-        time.sleep(0.10)
-        if getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0) > before_generation:
-            return redirect(url_for("home"))
+        if not mqtt_bambulab.publish(mqtt_bambulab.getMqttClient(), PUSH_ALL):
+            return redirect(url_for(
+                target_endpoint,
+                success_message="AMS-Abfrage konnte nicht gesendet werden."
+            ))
+        mqtt_bambulab.FORCE_AMS_STATUS_LOG = True
+        # PUSH_ALL is deliberately read-only.  Do not call setActiveSpool here:
+        # that sends ams_filament_setting and changes the printer state.
+        _log("AMS-AKTUALISIERUNG: Statusabfrage gesendet")
 
-    return redirect(url_for("home"))
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            time.sleep(0.10)
+            if getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0) > before_generation:
+                return redirect(url_for(target_endpoint))
+
+        return redirect(url_for(target_endpoint))
+    finally:
+        _AMS_REFRESH_LOCK.release()
 
 
 def _custom_tray_clear():
@@ -944,8 +1000,9 @@ app.view_functions["tray_clear"] = _custom_tray_clear
 @app.before_request
 def _block_mutating_tray_actions_while_pending():
     """Reject direct assignment URLs until the preceding tray operation is stable."""
-    if request.endpoint == "refresh_ams" and _printer_is_busy():
-        return render_template("error.html", exception="AMS-Aktionen sind während eines Drucks deaktiviert.")
+    # refresh_ams only sends the read-only PUSH_ALL request.  It must remain
+    # available while printing so Home can refresh the printer/job status;
+    # mutating tray actions below remain blocked while the printer is busy.
     if request.endpoint not in {"fill", "tray_load", "assign_bambu_spool"}:
         return None
 

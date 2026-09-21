@@ -4,39 +4,65 @@
   <div class="row justify-content-center g-3" id="printer-status-page">
     <div class="col-12 col-md-8 col-xl-6">
       <div class="card shadow-sm">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header">
           <h2 class="h5 mb-0" id="home-printer-name">{{ PRINTER_NAME or PRINTER_MODEL.get('devicename') or PRINTER_MODEL.get('model') or PRINTER_ID }}</h2>
-          <span id="home-mqtt-badge" class="badge rounded-pill {% if mqtt_connected|default(false) %}text-bg-success{% else %}text-bg-danger{% endif %}">
-            {{ _('Verbunden') if mqtt_connected|default(false) else _('Nicht verbunden') }}
-          </span>
         </div>
         <div class="card-body">
           <dl class="row mb-0">
-            <dt class="col-sm-5">{{ _('MQTT') }}</dt>
+            <dt class="col-sm-5 fw-normal">{{ _('MQTT') }}</dt>
             <dd class="col-sm-7" id="home-mqtt-status">{{ _('Verbunden') if mqtt_connected|default(false) else _('Nicht verbunden') }}</dd>
-            <dt class="col-sm-5">{{ _('Druckerstatus') }}</dt>
-            <dd class="col-sm-7 fw-semibold" id="home-printer-status">{{ printer_status }}</dd>
-            <dt class="col-sm-5">{{ _('Humidity') }}</dt>
+            <dt class="col-sm-5 fw-normal">{{ _('Druckerstatus') }}</dt>
+            <dd class="col-sm-7" id="home-printer-status">{{ printer_status }}</dd>
+            <dt class="col-sm-5 fw-normal">{{ _('Humidity') }}</dt>
             <dd class="col-sm-7" id="home-humidity">
               {% if printer_ams_environment %}
-                {% for ams in printer_ams_environment %}{% if not loop.first %} · {% endif %}AMS {{ ams.label }}: {{ ams.humidity or '–' }}{% endfor %}
+                {{ printer_ams_environment[0].humidity or '–' }}
               {% else %}–{% endif %}
             </dd>
-            <dt class="col-sm-5">{{ _('Temp:') }}</dt>
+            <dt class="col-sm-5 fw-normal">{{ _('Temperature') }}</dt>
             <dd class="col-sm-7" id="home-ams-temperature">
               {% if printer_ams_environment %}
-                {% for ams in printer_ams_environment %}{% if not loop.first %} · {% endif %}AMS {{ ams.label }}: {{ ams.temperature or '–' }}°C{% endfor %}
+                {{ printer_ams_environment[0].temperature or '–' }}°C
               {% else %}–{% endif %}
             </dd>
-            <dt class="col-sm-5">{{ _('Hotend') }}</dt>
+            <dt class="col-sm-5 fw-normal">{{ _('Hotend') }}</dt>
             <dd class="col-sm-7" id="home-hotend">{% if printer_temperatures.hotend is not none %}{{ printer_temperatures.hotend|round|int }}°C{% else %}–{% endif %}{% if printer_temperatures.hotend_target is not none %} / {{ printer_temperatures.hotend_target|round|int }}°C{% endif %}</dd>
-            <dt class="col-sm-5">{{ _('Bed') }}</dt>
+            <dt class="col-sm-5 fw-normal">{{ _('Bed') }}</dt>
             <dd class="col-sm-7" id="home-bed">{% if printer_temperatures.bed is not none %}{{ printer_temperatures.bed|round|int }}°C{% else %}–{% endif %}{% if printer_temperatures.bed_target is not none %} / {{ printer_temperatures.bed_target|round|int }}°C{% endif %}</dd>
-            <dt class="col-sm-5">{{ _('Print ID') }}</dt>
-            <dd class="col-sm-7" id="home-print-id">{% if active_print_id %}#{{ active_print_id }}{% else %}–{% endif %}</dd>
           </dl>
+          <div class="border-top mt-3 pt-3" id="home-last-print"{% if not last_print %} hidden{% endif %}>
+            <div class="fw-semibold">{{ _('Last print') }}</div>
+            <dl class="row mb-0 mt-2">
+              <dt class="col-sm-5 fw-normal">{{ _('Print ID') }}</dt>
+              <dd class="col-sm-7 mb-1"><a id="home-last-print-link" href="{% if last_print %}{{ url_for('print_history', print_id=last_print.id, _anchor='print_' ~ last_print.id) }}{% else %}#{% endif %}">{% if last_print %}#{{ last_print.id }}{% else %}–{% endif %}</a></dd>
+              <dt class="col-sm-5 fw-normal">{{ _('Status') }}</dt>
+              <dd class="col-sm-7 mb-1" id="home-last-print-status">{% if last_print %}{{ _({'COMPLETED':'Finished','ABORTED':'Aborted','FAILED':'Failed','RUNNING':'Running'}.get(last_print.status, last_print.status or 'Unknown')) }}{% else %}–{% endif %}</dd>
+              <dt class="col-sm-5 fw-normal">{{ _('Auftrag') }}</dt>
+              <dd class="col-sm-7 mb-0" id="home-last-print-name">{% if last_print %}{{ last_print.file_name }}{% else %}–{% endif %}</dd>
+              <dt class="col-sm-5 fw-normal">{{ _('Progress') }}</dt>
+              <dd class="col-sm-7 mb-1" id="home-last-print-progress">{% if last_print and last_print.printer_percent is not none %}{{ '%.0f'|format(last_print.printer_percent) }}%{% elif last_print and last_print.total_layers %}{{ '%.0f'|format((last_print.layers_printed or 0) * 100 / last_print.total_layers) }}%{% else %}–{% endif %}</dd>
+              <dt class="col-sm-5 fw-normal">{{ _('Layers') }}</dt>
+              <dd class="col-sm-7 mb-1" id="home-last-print-layers">{% if last_print and last_print.total_layers %}{{ last_print.layers_printed or 0 }} / {{ last_print.total_layers }}{% else %}–{% endif %}</dd>
+              <dt class="col-sm-5 fw-normal">{{ _('Consumed') }}</dt>
+              <dd class="col-sm-7 mb-1" id="home-last-print-consumed">{% if last_print and last_print.filament_grams_billed is not none %}{{ '%.2f'|format(last_print.filament_grams_billed) }} g{% else %}–{% endif %}</dd>
+              <dt class="col-sm-5 fw-normal">{{ _('Last status') }}</dt>
+              <dd class="col-sm-7 mb-1" id="home-last-print-status-at">{% if last_print and last_print.last_status_at %}{{ format_datetime(last_print.last_status_at) }}{% else %}–{% endif %}</dd>
+              <dt class="col-sm-5 fw-normal">{{ _('Last booking') }}</dt>
+              <dd class="col-sm-7 mb-0" id="home-last-print-usage-at">{% if last_print and (last_print.last_usage_event_at or last_print.predicted_end_time) %}{{ format_datetime(last_print.last_usage_event_at or last_print.predicted_end_time) }}{% if not last_print.last_usage_event_at %} {{ _('(geschätzt)') }}{% endif %}{% else %}–{% endif %}</dd>
+            </dl>
+          </div>
           <div id="home-3mf-status" class="small text-body-secondary mt-3 d-none"></div>
         </div>
+        {% if mqtt_connected|default(false) %}
+        <div class="card-footer text-center">
+          <form method="post" action="{{ url_for('refresh_ams') }}" class="d-inline" onsubmit="this.querySelector('button').disabled = true;">
+            <input type="hidden" name="next_endpoint" value="home_status">
+            <button type="submit" class="btn btn-sm btn-primary rounded-pill px-3">
+              <i class="bi bi-arrow-clockwise me-1"></i> {{ _('Jetzt aktualisieren') }}
+            </button>
+          </form>
+        </div>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -46,35 +72,58 @@
 (() => {
   const endpoint = {{ url_for('home_state')|tojson }};
   const name = document.getElementById('home-printer-name');
-  const mqttBadge = document.getElementById('home-mqtt-badge');
   const mqttStatus = document.getElementById('home-mqtt-status');
   const printerStatus = document.getElementById('home-printer-status');
   const humidity = document.getElementById('home-humidity');
   const amsTemperature = document.getElementById('home-ams-temperature');
   const hotend = document.getElementById('home-hotend');
   const bed = document.getElementById('home-bed');
-  const printId = document.getElementById('home-print-id');
+  const lastPrint = document.getElementById('home-last-print');
+  const lastPrintLink = document.getElementById('home-last-print-link');
+  const lastPrintStatus = document.getElementById('home-last-print-status');
+  const lastPrintName = document.getElementById('home-last-print-name');
+  const lastPrintProgress = document.getElementById('home-last-print-progress');
+  const lastPrintLayers = document.getElementById('home-last-print-layers');
+  const lastPrintConsumed = document.getElementById('home-last-print-consumed');
+  const lastPrintStatusAt = document.getElementById('home-last-print-status-at');
+  const lastPrintUsageAt = document.getElementById('home-last-print-usage-at');
   const downloadStatus = document.getElementById('home-3mf-status');
   const loadingLabel = {{ _('3MF wird geladen')|tojson }};
   const processingLabel = {{ _('3MF wird verarbeitet')|tojson }};
   const errorLabel = {{ _('3MF konnte nicht geladen werden')|tojson }};
+  const estimatedLabel = {{ _('(geschätzt)')|tojson }};
 
   function update(data) {
     if (name && data.printer_name) name.textContent = data.printer_name;
     if (mqttStatus) mqttStatus.textContent = data.mqtt_status || '';
-    if (mqttBadge) {
-      mqttBadge.textContent = data.mqtt_status || '';
-      mqttBadge.classList.toggle('text-bg-success', !!data.mqtt_connected);
-      mqttBadge.classList.toggle('text-bg-danger', !data.mqtt_connected);
-    }
     if (printerStatus) printerStatus.textContent = data.printer_status || '';
     const metrics = data.ams_environment || [];
-    if (humidity) humidity.textContent = metrics.length ? metrics.map(item => `AMS ${item.label}: ${item.humidity || '–'}`).join(' · ') : '–';
-    if (amsTemperature) amsTemperature.textContent = metrics.length ? metrics.map(item => `AMS ${item.label}: ${item.temperature || '–'}°C`).join(' · ') : '–';
+    if (humidity) humidity.textContent = metrics.length ? (metrics[0].humidity || '–') : '–';
+    if (amsTemperature) amsTemperature.textContent = metrics.length ? `${metrics[0].temperature || '–'}°C` : '–';
     const temperatures = data.temperatures || {};
     if (hotend) hotend.textContent = temperatures.hotend === null || temperatures.hotend === undefined ? '–' : `${Math.round(Number(temperatures.hotend))}°C${temperatures.hotend_target === null || temperatures.hotend_target === undefined ? '' : ` / ${Math.round(Number(temperatures.hotend_target))}°C`}`;
     if (bed) bed.textContent = temperatures.bed === null || temperatures.bed === undefined ? '–' : `${Math.round(Number(temperatures.bed))}°C${temperatures.bed_target === null || temperatures.bed_target === undefined ? '' : ` / ${Math.round(Number(temperatures.bed_target))}°C`}`;
-    if (printId) printId.textContent = data.print_id ? `#${data.print_id}` : '–';
+    if (lastPrint && data.last_print) {
+      const item = data.last_print;
+      lastPrint.hidden = false;
+      if (lastPrintLink) {
+        lastPrintLink.textContent = `#${item.id}`;
+        lastPrintLink.href = `/print_history?print_id=${encodeURIComponent(item.id)}#print_${encodeURIComponent(item.id)}`;
+      }
+      if (lastPrintStatus) {
+        const statusLabels = { COMPLETED: {{ _('Finished')|tojson }}, ABORTED: {{ _('Aborted')|tojson }}, FAILED: {{ _('Failed')|tojson }}, RUNNING: {{ _('Running')|tojson }} };
+        lastPrintStatus.textContent = statusLabels[item.status] || item.status || '';
+      }
+      if (lastPrintName) lastPrintName.textContent = item.file_name || '';
+      if (lastPrintProgress) lastPrintProgress.textContent = item.printer_percent != null ? `${Math.round(Number(item.printer_percent))}%` : (item.total_layers ? `${Math.round(Number(item.layers_printed || 0) * 100 / Number(item.total_layers))}%` : '–');
+      if (lastPrintLayers) lastPrintLayers.textContent = item.total_layers ? `${item.layers_printed || 0} / ${item.total_layers}` : '–';
+      if (lastPrintConsumed) lastPrintConsumed.textContent = item.filament_grams_billed != null ? `${Number(item.filament_grams_billed).toFixed(2)} g` : '–';
+      if (lastPrintStatusAt) lastPrintStatusAt.textContent = formatUiDateTime(item.last_status_at);
+      if (lastPrintUsageAt) {
+        const bookingAt = item.last_usage_event_at || item.predicted_end_time;
+        lastPrintUsageAt.textContent = bookingAt ? formatUiDateTime(bookingAt) + (item.last_usage_event_at ? '' : ` ${estimatedLabel}`) : '–';
+      }
+    }
 
     const download = data.download || {};
     if (!downloadStatus) return;
@@ -89,6 +138,16 @@
     } else {
       downloadStatus.classList.add('d-none');
     }
+  }
+
+  function formatUiDateTime(value) {
+    if (!value) return '–';
+    const date = new Date(String(value).replace(' ', 'T'));
+    if (Number.isNaN(date.getTime())) return value;
+    const isGerman = {{ current_language|tojson }} === 'de';
+    return new Intl.DateTimeFormat(isGerman ? 'de-DE' : 'en-US', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: !isGerman
+    }).format(date);
   }
 
   async function refresh() {
