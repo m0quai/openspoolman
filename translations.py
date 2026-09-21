@@ -16,6 +16,7 @@ UI_TRANSLATIONS = {
     },
     "de": {
         "Home": "Home",
+        "AMS": "AMS",
         "History": "Historie",
         "LiveCam": "LiveCam",
         "Inventory": "Inventar",
@@ -221,6 +222,7 @@ UI_TRANSLATIONS = {
     },
     "en": {
         "Home": "Home",
+        "AMS": "AMS",
         "History": "History",
         "LiveCam": "LiveCam",
         "Inventory": "Inventory",

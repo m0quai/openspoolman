@@ -219,7 +219,7 @@ from flask import jsonify, redirect, request, url_for, render_template, send_fro
 import mqtt_bambulab
 import spool_repository as spool_data
 import print_history as print_history_service
-from config import EXTERNAL_SPOOL_AMS_ID, PRINTER_ID
+from config import EXTERNAL_SPOOL_AMS_ID, PRINTER_ID, PRINTER_NAME
 from __version__ import __build_number__, __version__
 import tools_3mf as _tools_3mf
 import filament_usage_tracker as _filament_usage_tracker
@@ -621,6 +621,45 @@ def open_bambu_setup_when_mqtt_is_offline():
         return redirect(url_for("bambu_cloud.index"))
 
 
+@app.route("/home")
+def home_status():
+    """Show the connected printer and its current connection/job status."""
+    return render_template("home_status.html")
+
+
+@app.route("/ams")
+def ams():
+    """Keep the AMS tray dashboard available under its explicit menu name."""
+    return _openspoolman_app_module.home()
+
+
+def _current_printer_status_payload():
+    connected = bool(mqtt_bambulab.isMqttClientConnected())
+    print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
+    active_print_id = print_history_service.get_latest_running_print_id()
+    if active_print_id is None:
+        active_jobs = getattr(mqtt_bambulab, "ACTIVE_3MF_PRINTS", {})
+        if active_jobs:
+            active_print_id = next(reversed(active_jobs.values())).get("print_id")
+    return {
+        "printer_name": PRINTER_NAME or (getattr(mqtt_bambulab, "getPrinterModel", lambda: {})() or {}).get("devicename") or PRINTER_ID,
+        "mqtt_connected": connected,
+        "mqtt_status": _ui_text("Verbunden" if connected else "Nicht verbunden"),
+        "printer_state": print_state.get("gcode_state") or "OFFLINE",
+        "printer_status": _ui_text(_printer_status_code()),
+        "print_id": active_print_id,
+        "download": {
+            key: value for key, value in JOBS_3MF.get().items()
+            if key in {"job_key", "state", "percent", "bytes_downloaded", "bytes_total", "speed_bytes_per_second", "elapsed_seconds", "error"}
+        },
+    }
+
+
+@app.get("/home/state")
+def home_state():
+    return jsonify(_current_printer_status_payload())
+
+
 def _load_openspoolman_version():
     from pathlib import Path
     import re
@@ -678,6 +717,8 @@ def inject_openspoolman_version():
         "openspoolman_build_number": _runtime_build_number,
         "printer_temperatures": _printer_temperature_status(),
         "printer_status": _ui_text(_printer_status_code()),
+        "mqtt_connected": mqtt_bambulab.isMqttClientConnected(),
+        "PRINTER_ID": PRINTER_ID,
         "printer_is_busy": _printer_is_busy(),
         "ams_operation_pending": mqtt_bambulab.is_any_ams_operation_pending(),
         "pending_nfc": pending_nfc,
