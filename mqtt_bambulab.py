@@ -70,6 +70,18 @@ AMS_STATUS_QUERY_INTERVAL = 2
 ACTIVE_SPOOL_LOOKUP_ATTEMPTS = 5
 ACTIVE_SPOOL_LOOKUP_INTERVAL = 0.4
 
+# Bambu frequently publishes sparse AMS status updates while RFID/material
+# reading is in progress.  These fields are required before a tray update may
+# be interpreted as an explicit empty state.
+_AMS_STATUS_FIELDS = (
+  "tray_uuid",
+  "tray_type",
+  "tray_sub_brands",
+  "tray_color",
+  "tray_info_idx",
+  "setting_id",
+)
+
 PRINTER_STATE = {}
 PRINTER_STATE_LAST = {}
 
@@ -927,6 +939,77 @@ def clear_ams_tray_assignment(ams_id, tray_id):
 
   return True
 
+
+def _merge_ams_status(incoming_ams):
+  """Merge sparse AMS MQTT updates into the last known complete snapshot.
+
+  During RFID/material reads the printer sends tray objects such as
+  ``{"id": "3"}`` or omits trays entirely.  Replacing the complete snapshot
+  with that payload makes a still-loaded tray look empty and used to delete
+  the OpenSpoolMan ``active_tray`` assignment.  Fields explicitly present in
+  a complete update still replace the cached values, including explicit empty
+  values after a real Clear operation.
+  """
+  previous_ams = {
+    str(ams.get("id")): ams
+    for ams in (LAST_AMS_CONFIG.get("ams", []) or [])
+    if isinstance(ams, dict) and ams.get("id") is not None
+  }
+  merged_ams = []
+
+  for incoming in incoming_ams or []:
+    if not isinstance(incoming, dict):
+      continue
+    ams_id = str(incoming.get("id"))
+    previous = previous_ams.get(ams_id, {})
+    merged = copy.deepcopy(previous)
+    for key, value in incoming.items():
+      if key != "tray":
+        merged[key] = copy.deepcopy(value)
+
+    previous_trays = {
+      str(tray.get("id")): tray
+      for tray in (previous.get("tray", []) or [])
+      if isinstance(tray, dict) and tray.get("id") is not None
+    }
+    incoming_trays = incoming.get("tray")
+    if isinstance(incoming_trays, list):
+      merged_trays = dict(previous_trays)
+      for incoming_tray in incoming_trays:
+        if not isinstance(incoming_tray, dict) or incoming_tray.get("id") is None:
+          continue
+        tray_id = str(incoming_tray.get("id"))
+        current = copy.deepcopy(previous_trays.get(tray_id, {}))
+        current.update(copy.deepcopy(incoming_tray))
+        current["_ams_update_complete"] = all(
+          field in incoming_tray for field in _AMS_STATUS_FIELDS
+        )
+        merged_trays[tray_id] = current
+
+      # Keep the printer's order where possible, while retaining trays omitted
+      # by a sparse packet.
+      ordered_ids = [
+        str(tray.get("id"))
+        for tray in incoming_trays
+        if isinstance(tray, dict) and tray.get("id") is not None
+      ]
+      ordered_ids.extend(tray_id for tray_id in merged_trays if tray_id not in ordered_ids)
+      merged["tray"] = [merged_trays[tray_id] for tray_id in ordered_ids]
+    elif "tray" not in incoming:
+      merged["tray"] = copy.deepcopy(previous.get("tray", []))
+
+    merged_ams.append(merged)
+
+  # A sparse packet can omit the entire AMS object or an AMS module. Keep the
+  # last known module in that case instead of turning the UI into an empty AMS.
+  seen_ids = {str(ams.get("id")) for ams in merged_ams}
+  merged_ams.extend(
+    copy.deepcopy(ams)
+    for ams_id, ams in previous_ams.items()
+    if ams_id not in seen_ids
+  )
+  return merged_ams
+
 # Inspired by https://github.com/Donkie/Spoolman/issues/217#issuecomment-2303022970
 def on_message(client, userdata, msg):
   global LAST_AMS_CONFIG, LAST_AMS_CONFIG_GENERATION, LAST_LOGGED_AMS_STATE, FORCE_AMS_STATUS_LOG, PRINTER_STATE, PRINTER_STATE_LAST, PENDING_PRINT_METADATA, PRINTER_MODEL, PENDING_EXTERNAL_OPERATION, PENDING_PA_PROFILE_COMMANDS
@@ -1138,10 +1221,14 @@ def on_message(client, userdata, msg):
 
     # Save ams spool data
     if "print" in data and "ams" in data["print"] and "ams" in data["print"]["ams"]:
-      LAST_AMS_CONFIG["ams"] = copy.deepcopy(data["print"]["ams"]["ams"])
+      LAST_AMS_CONFIG["ams"] = _merge_ams_status(data["print"]["ams"]["ams"])
       for ams in LAST_AMS_CONFIG["ams"]:
         for tray in ams.get("tray", []):
-          if not str(tray.get("tray_uuid") or "").strip() and not any(str(tray.get(field) or "").strip() for field in ("tray_type", "tray_sub_brands")):
+          if (
+            tray.get("_ams_update_complete", False)
+            and not str(tray.get("tray_uuid") or "").strip()
+            and not any(str(tray.get(field) or "").strip() for field in ("tray_type", "tray_sub_brands"))
+          ):
             LAST_CONFIRMED_AMS_FILAMENT_SETTINGS.pop(_ams_tray_key(ams.get("id"), tray.get("id")), None)
       # Do not apply ACK/cache values before evaluating physical AMS status.
       # The printer may echo the requested Fill values even when the tray is empty.
@@ -1185,7 +1272,7 @@ def on_message(client, userdata, msg):
           assigned_spool = next((spool for spool in spool_list if spool.get("extra", {}).get("active_tray") == active_tray_key), None)
           # Bambu's explicit "no spool" state (empty fields, often zero UUID)
           # is authoritative even without an OSM Clear button action.
-          if tray["ams_empty"] and assigned_spool:
+          if tray["ams_empty"] and assigned_spool and tray.get("_ams_update_complete", False):
             clear_active_spool_for_tray(ams["id"], tray.get("id"))
             assigned_spool = None
           loading_status = str(tray.get("tray_status") or tray.get("status") or "").lower()
