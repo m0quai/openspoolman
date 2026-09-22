@@ -419,17 +419,16 @@ def spendFilaments(printdata):
   else:
     ams_mapping = [EXTERNAL_SPOOL_ID]
 
-  """
-  "ams_mapping": [
-            1,
-            0,
-            -1,
-            -1,
-            -1,
-            1,
-            0
-        ],
-  """
+  # Example AMS mapping received from the printer:
+  # "ams_mapping": [
+  #            1,
+  #            0,
+  #            -1,
+  #            -1,
+  #            -1,
+  #            1,
+  #            0
+  #        ],
   tray_id = EXTERNAL_SPOOL_ID
   ams_id = EXTERNAL_SPOOL_AMS_ID
   
