@@ -131,7 +131,7 @@ def getPrinterModel():
     }
 
 def identify_ams_model_from_module(module: dict[str, Any]) -> str | None:
-    """Guess the AMS variant that a version module represents."""
+    # Guess the AMS variant that a version module represents.
 
     product_name = (module.get("product_name") or "").strip().lower()
     module_name = (module.get("name") or "").strip().lower()
@@ -149,7 +149,7 @@ def identify_ams_model_from_module(module: dict[str, Any]) -> str | None:
 
 
 def identify_ams_models_from_modules(modules: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-  """Return per-module metadata, including the detected model when available."""
+  # Return per-module metadata, including the detected model when available.
 
   results: dict[str, dict[str, Any]] = {}
   for module in modules or []:
@@ -178,7 +178,7 @@ def extract_ams_id_from_module_name(name: str) -> int | None:
 
 
 def identify_ams_models_by_id(modules: Iterable[dict[str, Any]]) -> dict[str, str]:
-  """Return the detected AMS model per numeric AMS ID (module suffix)."""
+  # Return the detected AMS model per numeric AMS ID (module suffix).
 
   results: dict[str, str] = {}
   for module in modules or []:
@@ -296,7 +296,7 @@ def _queue_3mf_job(print_data):
 
 
 def _reconcile_completed_printer_job(print_data: dict) -> None:
-  """Recover a completed job after OpenSpoolMan was offline during its finish."""
+  # Recover a completed job after OpenSpoolMan was offline during its finish.
   state = str(print_data.get("gcode_state") or "").upper()
   try:
     percent = float(print_data.get("mc_percent"))
@@ -685,7 +685,7 @@ def _ams_tray_key(ams_id, tray_id):
   return (str(ams_id), str(tray_id))
 
 def is_ams_tray_operation_pending(ams_id, tray_id):
-  """Return whether a tray is still changing and must reject new actions."""
+  # Return whether a tray is still changing and must reject new actions.
   key = _ams_tray_key(ams_id, tray_id)
   aliases = {key}
   if str(ams_id) == str(EXTERNAL_SPOOL_AMS_ID):
@@ -702,7 +702,7 @@ def is_ams_tray_operation_pending(ams_id, tray_id):
   return False
 
 def is_any_ams_operation_pending():
-  """Return whether any tray is waiting for a stable AMS result."""
+  # Return whether any tray is waiting for a stable AMS result.
   return bool(
     PENDING_AMS_FILAMENT_SETTINGS
     or PENDING_AMS_STATUS_CONFIRMATIONS
@@ -711,12 +711,11 @@ def is_any_ams_operation_pending():
   )
 
 def _find_active_spool_for_tray(ams_id, tray_id):
-  """Find the current Spoolman assignment after an AMS write.
-
-  Spoolman persists the active-tray tag before the printer answers, but the
-  MQTT response can arrive before the subsequent API read sees that write.
-  Retry a few times instead of dropping the profile update permanently.
-  """
+  # Find the current Spoolman assignment after an AMS write.
+  #
+  #   Spoolman persists the active-tray tag before the printer answers, but the
+  #   MQTT response can arrive before the subsequent API read sees that write.
+  #   Retry a few times instead of dropping the profile update permanently.
   lookup_tray_id = EXTERNAL_SPOOL_ID if str(ams_id) == str(EXTERNAL_SPOOL_AMS_ID) and str(tray_id) == "255" else tray_id
   active_key = json.dumps(f"{PRINTER_ID}_{ams_id}_{lookup_tray_id}")
   for attempt in range(ACTIVE_SPOOL_LOOKUP_ATTEMPTS):
@@ -735,7 +734,7 @@ def _find_active_spool_for_tray(ams_id, tray_id):
   return None
 
 def _send_pa_profile_selection(client, ams_id, tray_id, cali_idx, filament_id="", persist=True):
-  """Serialize PA-profile commands so one tray cannot receive duplicates."""
+  # Serialize PA-profile commands so one tray cannot receive duplicates.
   pa_tray_id = 255 if str(ams_id) == str(EXTERNAL_SPOOL_AMS_ID) and str(tray_id) == str(EXTERNAL_SPOOL_ID) else tray_id
   key = _ams_tray_key(ams_id, pa_tray_id)
   if key in PENDING_PA_PROFILE_COMMANDS:
@@ -767,7 +766,7 @@ def _send_pa_profile_selection(client, ams_id, tray_id, cali_idx, filament_id=""
   return True
 
 def _extra_text(value):
-  """Return a Spoolman extra value without JSON quote wrappers."""
+  # Return a Spoolman extra value without JSON quote wrappers.
   try:
     parsed = json.loads(value) if isinstance(value, str) else value
     return str(parsed).strip() if parsed is not None else ""
@@ -775,7 +774,7 @@ def _extra_text(value):
     return str(value or "").strip()
 
 def _persist_confirmed_pa_profile(ams_id, tray_id, cali_idx, reported_filament_id):
-  """Save a confirmed Bambu PA index only for the matching active filament."""
+  # Save a confirmed Bambu PA index only for the matching active filament.
   try:
     index = int(cali_idx)
   except (TypeError, ValueError):
@@ -812,12 +811,11 @@ def _repeat_ams_status_query(label, confirmation_key, attempt=1):
     timer.start()
 
 def _remember_confirmed_ams_filament_setting(print_reply):
-  """Persist the last printer-acknowledged material setting in memory.
-
-  P1/P1S third-party trays use an all-zero RFID UUID. After a successful
-  ams_filament_setting write the printer may publish sparse status data with
-  empty tray_type/tray_info_idx even though the setting was accepted.
-  """
+  # Persist the last printer-acknowledged material setting in memory.
+  #
+  #   P1/P1S third-party trays use an all-zero RFID UUID. After a successful
+  #   ams_filament_setting write the printer may publish sparse status data with
+  #   empty tray_type/tray_info_idx even though the setting was accepted.
   global LAST_CONFIRMED_AMS_FILAMENT_SETTINGS, LAST_AMS_CONFIG
 
   try:
@@ -852,12 +850,11 @@ def _remember_confirmed_ams_filament_setting(print_reply):
     log(f"[AMS-CACHE] Could not remember confirmed filament setting: {exc!r}")
 
 def _apply_confirmed_ams_filament_settings(ams_data):
-  """Restore confirmed material fields omitted by sparse P1/P1S status packets.
-
-  Non-empty values reported by the printer always win. Empty/missing material
-  values on a non-RFID tray fall back to the last successful write. A successful
-  explicit Clear stores empty values and therefore clears this fallback as well.
-  """
+  # Restore confirmed material fields omitted by sparse P1/P1S status packets.
+  #
+  #   Non-empty values reported by the printer always win. Empty/missing material
+  #   values on a non-RFID tray fall back to the last successful write. A successful
+  #   explicit Clear stores empty values and therefore clears this fallback as well.
   for ams in ams_data or []:
     ams_id = str(ams.get("id"))
     for tray in ams.get("tray", []) or []:
@@ -884,13 +881,12 @@ def _apply_confirmed_ams_filament_settings(ams_data):
           tray[field] = copy.deepcopy(confirmed_value)
 
 def clear_ams_tray_assignment(ams_id, tray_id):
-  """Clear the material assignment on the printer and in the local AMS cache.
-
-  The P1/P1S can publish sparse/stale tray values after a write.  Therefore a
-  successful Clear must invalidate the confirmed-material cache immediately so
-  the OpenSpoolMan header does not continue to show the previous material while
-  we wait for the printer's next status packet.
-  """
+  # Clear the material assignment on the printer and in the local AMS cache.
+  #
+  #   The P1/P1S can publish sparse/stale tray values after a write.  Therefore a
+  #   successful Clear must invalidate the confirmed-material cache immediately so
+  #   the OpenSpoolMan header does not continue to show the previous material while
+  #   we wait for the printer's next status packet.
   global LAST_CONFIRMED_AMS_FILAMENT_SETTINGS, LAST_AMS_CONFIG
 
   if not MQTT_CLIENT:
@@ -941,15 +937,14 @@ def clear_ams_tray_assignment(ams_id, tray_id):
 
 
 def _merge_ams_status(incoming_ams):
-  """Merge sparse AMS MQTT updates into the last known complete snapshot.
-
-  During RFID/material reads the printer sends tray objects such as
-  ``{"id": "3"}`` or omits trays entirely.  Replacing the complete snapshot
-  with that payload makes a still-loaded tray look empty and used to delete
-  the OpenSpoolMan ``active_tray`` assignment.  Fields explicitly present in
-  a complete update still replace the cached values, including explicit empty
-  values after a real Clear operation.
-  """
+  # Merge sparse AMS MQTT updates into the last known complete snapshot.
+  #
+  #   During RFID/material reads the printer sends tray objects such as
+  #   ``{"id": "3"}`` or omits trays entirely.  Replacing the complete snapshot
+  #   with that payload makes a still-loaded tray look empty and used to delete
+  #   the OpenSpoolMan ``active_tray`` assignment.  Fields explicitly present in
+  #   a complete update still replace the cached values, including explicit empty
+  #   values after a real Clear operation.
   previous_ams = {
     str(ams.get("id")): ams
     for ams in (LAST_AMS_CONFIG.get("ams", []) or [])
@@ -1513,10 +1508,9 @@ def isMqttClientConnected():
 
 
 def reconfigure_printer(printer_id, access_code, printer_ip, wait_seconds=12):
-  """Apply a selected cloud printer and reconnect MQTT immediately.
-
-  Returns True when the new MQTT session is connected within wait_seconds.
-  """
+  # Apply a selected cloud printer and reconnect MQTT immediately.
+  #
+  #   Returns True when the new MQTT session is connected within wait_seconds.
   global PRINTER_ID, PRINTER_CODE, PRINTER_IP, MQTT_CLIENT, MQTT_CLIENT_CONNECTED
   PRINTER_ID = (printer_id or "").upper()
   PRINTER_CODE = access_code or ""

@@ -52,7 +52,7 @@ def getSpoolById(spool_id):
   return response.json()
 
 def patchFilamentExtra(filament_id, old_extra, new_values):
-  """Persist Bambu profile identifiers on the filament record."""
+  # Persist Bambu profile identifiers on the filament record.
   extra = dict(old_extra or {})
   extra.pop("pa_filament_id", None)
   for key, value in new_values.items():

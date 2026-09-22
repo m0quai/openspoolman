@@ -126,7 +126,7 @@ def recover_model(task_id, subtask_id):
   return str(model_path), gcode_file_name, current_layer, ams_mapping
 
 def _restore_thumbnail(model_path: str, print_id: int) -> None:
-  """Extract a missing print thumbnail from the persisted 3MF checkpoint."""
+  # Extract a missing print thumbnail from the persisted 3MF checkpoint.
   try:
     existing_image = get_print_image(print_id)
     if existing_image and (Path(__file__).resolve().parent / "static" / "prints" / existing_image).is_file():
@@ -179,9 +179,8 @@ def _parse_gcode(gcode: str) -> list[GCodeOperation]:
 
 
 def evaluate_gcode(gcode: str) -> dict:
-  """
-  Evaluate the gcode and return the filament usage (in mm) per layer.
-  """
+  #
+  # Evaluate the gcode and return the filament usage (in mm) per layer.
   operations = _parse_gcode(gcode)
 
   current_layer = 0
@@ -566,10 +565,9 @@ class FilamentUsageTracker:
     clear_checkpoint()
 
   def _mm_to_grams(self, length_mm: float, diameter_mm: float, density_g_per_cm3: float) -> float:
-    """
-    Convert filament length in mm to grams.
-    Formula: grams = (π * (diameter/2)^2 * length_mm / 1000) * density
-    """
+    #
+    # Convert filament length in mm to grams.
+    # Formula: grams = (π * (diameter/2)^2 * length_mm / 1000) * density
     radius_cm = (diameter_mm / 2) / 10  # Convert mm to cm
     volume_cm3 = math.pi * radius_cm * radius_cm * (length_mm / 10)
     grams = volume_cm3 * density_g_per_cm3
@@ -871,7 +869,7 @@ class FilamentUsageTracker:
     return None
 
   def _get_spool_data(self, spool_id: int):
-    """Get full spool data including filament information."""
+    # Get full spool data including filament information.
     for spool in fetchSpools():
       if spool.get("id") == spool_id:
         return spool
@@ -886,12 +884,11 @@ class FilamentUsageTracker:
 
   @staticmethod
   def _active_ams_tray(print_obj: dict) -> int | None:
-    """Return the physical AMS tray currently selected by the printer.
-
-    ``vt_tray.id=254`` is the separate external-spool channel and must not be
-    used as the active AMS mapping.  Only a real AMS tray index (0..15) is
-    accepted here.
-    """
+    # Return the physical AMS tray currently selected by the printer.
+    #
+    #     ``vt_tray.id=254`` is the separate external-spool channel and must not be
+    #     used as the active AMS mapping.  Only a real AMS tray index (0..15) is
+    #     accepted here.
     ams = print_obj.get("ams") or {}
     value = ams.get("tray_tar")
     try:
@@ -901,7 +898,7 @@ class FilamentUsageTracker:
     return tray if 0 <= tray < 16 else None
 
   def _apply_current_ams_tray(self, print_obj: dict) -> None:
-    """Use the printer's current physical tray for pending layer usage."""
+    # Use the printer's current physical tray for pending layer usage.
     if self.active_model is None:
       return
     tray = self._active_ams_tray(print_obj)

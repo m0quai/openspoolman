@@ -1,7 +1,7 @@
-"""User-interface translations for OpenSpoolMan.
-
-Keep visible labels in this module so templates and routes do not contain
-duplicated language dictionaries."""
+# User-interface translations for OpenSpoolMan.
+#
+# Keep visible labels in this module so templates and routes do not contain
+# duplicated language dictionaries.
 
 UI_TRANSLATIONS = {
     "_init": {

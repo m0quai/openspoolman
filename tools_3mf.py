@@ -431,7 +431,7 @@ def getMetaDataFrom3mf(url):
 
 
 def getMetaDataFromLocal3mf(path: str, model_path: str | None = None) -> dict:
-    """Parse an already downloaded 3MF without starting another transfer."""
+    # Parse an already downloaded 3MF without starting another transfer.
     metadata = {
         "model_path": model_path or path,
         "file": os.path.basename(model_path or path),

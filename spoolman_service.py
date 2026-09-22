@@ -21,9 +21,8 @@ SPOOLMAN_SETTINGS = {}
 
 
 def clear_active_spool_for_tray(ams_id: int, tray_id: int) -> None:
-  """
-  Remove any SpoolMan spool that is currently tagged with the given tray UID.
-  """
+  #
+  # Remove any SpoolMan spool that is currently tagged with the given tray UID.
   target = json.dumps(trayUid(ams_id, tray_id))
   for spool in fetchSpools(cached=True):
     extras = spool.get("extra") or {}

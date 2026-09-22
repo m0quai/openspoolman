@@ -58,7 +58,7 @@ def _cert_id(cert, pem):
 
 
 def sign_message_json(message):
-    """Return the exact signed MQTT wire JSON for a top-level print command."""
+    # Return the exact signed MQTT wire JSON for a top-level print command.
     if not certificate_is_valid():
         raise ValueError("No valid signing certificate/key/user-id")
     if not isinstance(message, dict) or "print" not in message:
@@ -84,5 +84,5 @@ def sign_message_json(message):
 
 
 def sign_message(message):
-    """Compatibility helper for callers that still expect a dict."""
+    # Compatibility helper for callers that still expect a dict.
     return json.loads(sign_message_json(message))

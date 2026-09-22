@@ -22,7 +22,7 @@ def mqtt_menu_context():
 
 
 def _write_config_env(values):
-    """Update only supplied keys and preserve the rest of config.env."""
+    # Update only supplied keys and preserve the rest of config.env.
     lines = CONFIG_ENV.read_text(encoding="utf-8").splitlines() if CONFIG_ENV.exists() else []
     remaining = dict(values)
     output = []
@@ -51,7 +51,7 @@ def _active_access_code(mode=None):
 
 
 def _apply_runtime_connection(mode, printer_id=None, printer_ip=None, printer_name=None):
-    """Apply persisted mode/credentials to the running debugger process."""
+    # Apply persisted mode/credentials to the running debugger process.
     mode = _normalize_connection_mode(mode)
     printer_id = (printer_id if printer_id is not None else app_config.PRINTER_ID) or ""
     printer_ip = (printer_ip if printer_ip is not None else app_config.PRINTER_IP) or ""
@@ -74,7 +74,7 @@ def _apply_runtime_connection(mode, printer_id=None, printer_ip=None, printer_na
 
 
 def _apply_printer(device, printer_ip):
-    """Keep the existing online/cloud printer selection behavior."""
+    # Keep the existing online/cloud printer selection behavior.
     dev_id = (device.get("dev_id") or "").strip().upper()
     access_code = (device.get("dev_access_code") or "").strip()
     name = (device.get("name") or device.get("dev_product_name") or dev_id).strip()

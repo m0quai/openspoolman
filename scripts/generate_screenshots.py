@@ -31,7 +31,7 @@ class ScreenshotJob:
 
 
 def parse_viewport(raw_viewport: str | tuple[int, int] | list[int]) -> tuple[int, int]:
-    """Parse a viewport specification from CLI, pytest, or config options."""
+    # Parse a viewport specification from CLI, pytest, or config options.
 
     if isinstance(raw_viewport, (tuple, list)) and len(raw_viewport) == 2:
         return int(raw_viewport[0]), int(raw_viewport[1])
@@ -44,7 +44,7 @@ def parse_viewport(raw_viewport: str | tuple[int, int] | list[int]) -> tuple[int
 
 
 def load_config(config_path: str | os.PathLike | None = None) -> dict[str, Any]:
-    """Load the screenshot configuration JSON (defaults to scripts/screenshot_config.json)."""
+    # Load the screenshot configuration JSON (defaults to scripts/screenshot_config.json).
 
     if config_path is None:
         config_path = Path(__file__).with_name("screenshot_config.json")
@@ -61,7 +61,7 @@ def _device_viewport(device: dict[str, Any]) -> tuple[int, int]:
 
 
 def _rewrite_output_path(output: str, device: str, target_devices: list[str], output_dir: str | None) -> str:
-    """Rewrite the output path to include the device prefix and optional directory."""
+    # Rewrite the output path to include the device prefix and optional directory.
 
     path = Path(output)
 
@@ -80,7 +80,7 @@ def build_jobs(
     output_dir: str | None = None,
     default_max_height: int | None = None,
 ) -> list[ScreenshotJob]:
-    """Build the set of screenshots to capture from the JSON configuration."""
+    # Build the set of screenshots to capture from the JSON configuration.
 
     device_defs = config.get("devices") or {}
     if not device_defs:

@@ -13,16 +13,15 @@ _APPLICATION_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def application_log_file(filename: str) -> str:
-    """Return a log path that works from the repository and in Docker."""
+    # Return a log path that works from the repository and in Docker.
     return os.path.join(_APPLICATION_ROOT, "logs", filename)
 
 
 def append_to_rotating_file(file_path: str, text: str, max_size: int = 1_048_576, max_files: int = 5) -> None:
-    """
-    Appends the given text with a timestamp to a rotating log file.
-    If the file exceeds the maximum size, it is renamed with a timestamp, and a new file is created.
-    If the maximum number of log files is reached, the oldest file matching the exact naming pattern is deleted.
-    """
+    #
+    # Appends the given text with a timestamp to a rotating log file.
+    # If the file exceeds the maximum size, it is renamed with a timestamp, and a new file is created.
+    # If the maximum number of log files is reached, the oldest file matching the exact naming pattern is deleted.
     directory, base_filename = os.path.split(file_path)
     base_filename = os.path.splitext(base_filename)[0]
     os.makedirs(directory, exist_ok=True)
@@ -108,13 +107,12 @@ def _uid_suffix(uid) -> str:
 
 
 def _format_ams_console_message(text):
-    """Collapse verbose Bambu tray diagnostics into one Spoolman-centric line.
-
-    Raw Bambu tray color/remain values are intentionally hidden. Spoolman is
-    authoritative for the assigned spool and remaining amount. A real RFID UID
-    is retained only as a final debug suffix; the all-zero non-RFID UID is not
-    displayed.
-    """
+    # Collapse verbose Bambu tray diagnostics into one Spoolman-centric line.
+    #
+    #     Raw Bambu tray color/remain values are intentionally hidden. Spoolman is
+    #     authoritative for the assigned spool and remaining amount. A real RFID UID
+    #     is retained only as a final debug suffix; the all-zero non-RFID UID is not
+    #     displayed.
     global _pending_ams_tray, _pending_ams_uid
 
     # app_custom currently translates the raw Bambu humidity into one of these
@@ -195,9 +193,8 @@ def _format_ams_console_message(text):
 
 
 def log_with_timestamp(*args, sep=" ", end="\n", file=None, flush=True) -> None:
-    """
-    Print a message with a leading timestamp, preserving the standard print API.
-    """
+    #
+    # Print a message with a leading timestamp, preserving the standard print API.
     global _live_line_open
     if _live_line_open:
         builtins.print()
@@ -220,6 +217,6 @@ log = log_with_timestamp
 
 
 def mark_live_line_open() -> None:
-    """Mark that a live progress indicator currently occupies the line."""
+    # Mark that a live progress indicator currently occupies the line.
     global _live_line_open
     _live_line_open = True

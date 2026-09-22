@@ -1,8 +1,7 @@
-"""Single-flight background processing for printer 3MF files.
-
-The MQTT callback only queues work here.  The worker owns the transfer and
-publishes a small, synchronized status object for the web UI.
-"""
+# Single-flight background processing for printer 3MF files.
+#
+# The MQTT callback only queues work here.  The worker owns the transfer and
+# publishes a small, synchronized status object for the web UI.
 
 from __future__ import annotations
 

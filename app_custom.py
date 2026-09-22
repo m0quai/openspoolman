@@ -1,4 +1,4 @@
-"""Custom OpenSpoolMan entry point; keeps local extensions outside upstream app.py."""
+# Custom OpenSpoolMan entry point; keeps local extensions outside upstream app.py.
 import os
 import logging
 import builtins
@@ -369,7 +369,7 @@ app.register_blueprint(ams_nfc_bp)
 
 @app.get("/print-images/<path:filename>")
 def print_image(filename):
-    """Serve print thumbnails from the persistent runtime location."""
+    # Serve print thumbnails from the persistent runtime location.
     image_dir = os.path.join(app.root_path, "static", "prints")
     image_path = os.path.join(image_dir, filename)
     if not os.path.isfile(image_path):
@@ -384,7 +384,7 @@ def print_image(filename):
 _original_mqtt_log = mqtt_bambulab.log
 
 def _ams_console_empty_status(ams_letter, tray_number):
-    """Describe an unassigned tray without the ambiguous '---' marker."""
+    # Describe an unassigned tray without the ambiguous '---' marker.
     try:
         ams_id = ord(ams_letter) - ord("A")
         tray_id = int(tray_number) - 1
@@ -477,13 +477,12 @@ _original_download3mf_from_ftp = _tools_3mf.download3mfFromFTP
 
 
 def _download3mf_with_unique_suffix_fallback(filename, dest_file, progress_callback=None):
-    """Resolve printer-side filename prefixes without guessing between matches.
-
-    Bambu .bbl files may reference /sdcard/Kerstin.gcode.3mf while FTPS exposes
-    the same job as /ItsLitho_Kerstin.gcode.3mf. Try the normal resolver first.
-    If that fails, inspect the FTPS root. An exact filename wins over suffix
-    variants; otherwise a suffix match is accepted only when it is unique.
-    """
+    # Resolve printer-side filename prefixes without guessing between matches.
+    #
+    #     Bambu .bbl files may reference /sdcard/Kerstin.gcode.3mf while FTPS exposes
+    #     the same job as /ItsLitho_Kerstin.gcode.3mf. Try the normal resolver first.
+    #     If that fails, inspect the FTPS root. An exact filename wins over suffix
+    #     variants; otherwise a suffix match is accepted only when it is unique.
     try:
         return _original_download3mf_from_ftp(filename, dest_file, progress_callback)
     except Exception as original_error:
@@ -547,7 +546,7 @@ _original_download3mf_from_cloud = _tools_3mf.download3mfFromCloud
 
 
 def _download3mf_from_cloud_with_timeout(url, dest_file, progress_callback=None):
-    """Download cloud 3MF files with bounded connect and transfer waits."""
+    # Download cloud 3MF files with bounded connect and transfer waits.
     _log("Downloading 3MF file from cloud...")
     response = _tools_3mf.requests.get(url, timeout=(5, 180), stream=True)
     response.raise_for_status()
@@ -571,7 +570,7 @@ _METADATA_RETRY_TIMEOUT_SECONDS = 240
 
 
 def _metadata_source_with_filename(source):
-    """Replace Bambu's pathless FTP URL with its accompanying 3MF filename."""
+    # Replace Bambu's pathless FTP URL with its accompanying 3MF filename.
     from urllib.parse import urlparse
 
     parsed = urlparse(str(source or ""))
@@ -604,7 +603,7 @@ def _metadata_is_complete(metadata):
 
 
 def _get_metadata_from_3mf_with_retry(source):
-    """Load complete print metadata with bounded retries for transient failures."""
+    # Load complete print metadata with bounded retries for transient failures.
     import time
 
     source = _metadata_source_with_filename(source)
@@ -652,7 +651,7 @@ def open_bambu_setup_when_mqtt_is_offline():
 
 @app.route("/home")
 def home_status():
-    """Show the connected printer and its current connection/job status."""
+    # Show the connected printer and its current connection/job status.
     return render_template(
         "home_status.html",
         last_print=print_history_service.get_latest_print_summary(),
@@ -661,7 +660,7 @@ def home_status():
 
 @app.route("/ams")
 def ams():
-    """Keep the AMS tray dashboard available under its explicit menu name."""
+    # Keep the AMS tray dashboard available under its explicit menu name.
     return _openspoolman_app_module.home()
 
 
@@ -795,7 +794,7 @@ def livecam():
 
 @app.route("/inventory")
 def inventory():
-    """Show the Spoolman inventory together with print consumption history."""
+    # Show the Spoolman inventory together with print consumption history.
     inventory_rows = []
     try:
         spools = spool_data.list_spools(include_archived=True)
@@ -819,7 +818,7 @@ def inventory():
 
 @app.route("/livecam/stream")
 def livecam_stream():
-    """Relay the P1S TLS/JPEG camera protocol as a browser-compatible MJPEG stream."""
+    # Relay the P1S TLS/JPEG camera protocol as a browser-compatible MJPEG stream.
     from config import PRINTER_IP, PRINTER_CODE
 
     def frame_stream():
@@ -896,7 +895,7 @@ def ams_state_generation():
 
 @app.post("/refresh-ams")
 def refresh_ams():
-    """Read a fresh AMS state without writing filament settings to the printer."""
+    # Read a fresh AMS state without writing filament settings to the printer.
     import time
     global _AMS_REFRESH_LAST_REQUEST
     import mqtt_bambulab
@@ -999,7 +998,7 @@ app.view_functions["tray_clear"] = _custom_tray_clear
 
 @app.before_request
 def _block_mutating_tray_actions_while_pending():
-    """Reject direct assignment URLs until the preceding tray operation is stable."""
+    # Reject direct assignment URLs until the preceding tray operation is stable.
     # refresh_ams only sends the read-only PUSH_ALL request.  It must remain
     # available while printing so Home can refresh the printer/job status;
     # mutating tray actions below remain blocked while the printer is busy.
@@ -1037,7 +1036,7 @@ _original_builtin_print = builtins.print
 _original_upstream_log = getattr(_openspoolman_app_module, "log", None)
 
 def _quiet_upstream_log(*args, **kwargs):
-    """Suppress the verbose raw AMS command dump from upstream app.py."""
+    # Suppress the verbose raw AMS command dump from upstream app.py.
     if args and isinstance(args[0], dict):
         print_data = args[0].get("print")
         if isinstance(print_data, dict) and print_data.get("command") == "ams_filament_setting":
@@ -1050,7 +1049,7 @@ if _original_upstream_log is not None:
     _openspoolman_app_module.log = _quiet_upstream_log
 
 def _quiet_upstream_ams_print(*args, **kwargs):
-    """Suppress legacy AMS detail dumps emitted by upstream app.py."""
+    # Suppress legacy AMS detail dumps emitted by upstream app.py.
     text = " ".join(str(arg) for arg in args).lstrip()
     if text.startswith("[OpenSpoolMan] AMS Fill v2:") or text.startswith("{'print':"):
         return None

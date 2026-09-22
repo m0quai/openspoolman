@@ -1,4 +1,4 @@
-"""Locale-aware formatting helpers shared by routes, templates and scripts."""
+# Locale-aware formatting helpers shared by routes, templates and scripts.
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 
 
 class UiDateFormatter:
-    """Format stored OpenSpoolMan timestamps consistently for the UI."""
+    # Format stored OpenSpoolMan timestamps consistently for the UI.
 
     _FORMATS = {
         "de": "%d.%m.%Y %H:%M",

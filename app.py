@@ -362,11 +362,10 @@ def spoolman_compatible_spool_info(spool_id):
 
 @app.post("/tray_clear")
 def tray_clear():
-  """Remove only the OpenSpoolMan/Spoolman assignment for a tray.
-
-  This deliberately does not send AMS_FILAMENT_SETTING to the printer, so the
-  material/color configured in Bambu remains untouched.
-  """
+  # Remove only the OpenSpoolMan/Spoolman assignment for a tray.
+  #
+  #   This deliberately does not send AMS_FILAMENT_SETTING to the printer, so the
+  #   material/color configured in Bambu remains untouched.
   ams_id = request.form.get("ams")
   tray_id = request.form.get("tray")
 
@@ -415,14 +414,13 @@ def tray_load():
     return render_template('error.html', exception=str(e))
 
 def _resolve_bambu_profile_ids(spool_data):
-  """Resolve Bambu filament/profile IDs for AMS writes.
-
-  Preference:
-  1. Valid IDs already stored in Spoolman extra fields.
-  2. Known Bambu profile mapping derived from the printer/profile data.
-
-  Legacy numeric placeholders such as "12345" are deliberately ignored.
-  """
+  # Resolve Bambu filament/profile IDs for AMS writes.
+  #
+  #   Preference:
+  #   1. Valid IDs already stored in Spoolman extra fields.
+  #   2. Known Bambu profile mapping derived from the printer/profile data.
+  #
+  #   Legacy numeric placeholders such as "12345" are deliberately ignored.
   filament = spool_data.get("filament", {}) or {}
   extra = filament.get("extra", {}) or {}
   vendor = ((filament.get("vendor") or {}).get("name") or "").strip().upper()
