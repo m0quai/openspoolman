@@ -1,0 +1,10 @@
+* text=auto eol=crlf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.zip binary
+*.7z binary
+*.pdf binary

@@ -41,6 +41,7 @@ Keine Force-Pushes und keine History-Rewrites ohne ausdrücklichen Auftrag.
 - Kommentare im Source-Code immer mit `#` beziehungsweise dem jeweiligen
   sprachüblichen Kommentarzeichen schreiben; Triple-Quote-Strings nicht als
   Kommentare verwenden.
+- Textdateien werden mit Windows-Zeilenenden (`CRLF`) gespeichert und beendet.
 
 ## OpenSpoolMan
 
