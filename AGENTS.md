@@ -38,6 +38,10 @@ Nach Änderungen:
 
 Keine Force-Pushes und keine History-Rewrites ohne ausdrücklichen Auftrag.
 
+- Kommentare im Source-Code immer mit `#` beziehungsweise dem jeweiligen
+  sprachüblichen Kommentarzeichen schreiben; Triple-Quote-Strings nicht als
+  Kommentare verwenden.
+
 ## OpenSpoolMan
 
 - OpenSpoolMan wird als eigener Fork gepflegt; Upstream ist `drndos/openspoolman`.
