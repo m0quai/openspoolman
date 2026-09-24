@@ -3,6 +3,7 @@ import json
 import math
 import os
 import re
+import shutil
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
@@ -92,6 +93,27 @@ def _file_sha256(path: Path) -> str:
   return digest.hexdigest()
 
 
+def archive_checkpoint_model(
+    model_path: str,
+    model_file_name: str | None = None,
+    task_id=None,
+    subtask_id=None,
+) -> Path:
+  """Keep a completed download under its original, sanitized 3MF filename."""
+  source = Path(model_path)
+  checkpoint_name = _safe_checkpoint_model_name(model_file_name, task_id, subtask_id)
+  destination = _checkpoint_dir() / checkpoint_name
+  temporary = destination.with_suffix(destination.suffix + ".part")
+  with source.open("rb") as source_stream, temporary.open("wb") as target_stream:
+    shutil.copyfileobj(source_stream, target_stream, length=1024 * 1024)
+  temporary.replace(destination)
+  log(
+    f"[filament-tracker] 3MF archiviert: job={task_id}:{subtask_id}, "
+    f"quelle={str(source)!r}, datei={checkpoint_name!r}, bytes={destination.stat().st_size}"
+  )
+  return destination
+
+
 def save_checkpoint(
     *,
     model_path: str,
@@ -102,12 +124,13 @@ def save_checkpoint(
     gcode_file_name: str,
     model_file_name: str | None = None,
 ) -> None:
-  source = Path(model_path)
-  checkpoint_name = _safe_checkpoint_model_name(model_file_name, task_id, subtask_id)
-  destination = _checkpoint_dir() / checkpoint_name
-  temporary = destination.with_suffix(destination.suffix + ".part")
-  temporary.write_bytes(source.read_bytes())
-  temporary.replace(destination)
+  destination = archive_checkpoint_model(
+    model_path,
+    model_file_name=model_file_name,
+    task_id=task_id,
+    subtask_id=subtask_id,
+  )
+  checkpoint_name = destination.name
 
   metadata = {
     "task_id": task_id,
