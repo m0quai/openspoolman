@@ -1041,24 +1041,58 @@ class FilamentUsageTracker:
     return tray if 0 <= tray < 16 else None
 
   def _apply_current_ams_tray(self, print_obj: dict) -> None:
-    # Use the printer's current physical tray for pending layer usage.
+    # Keep the logical filament mapped to the physical tray the printer is
+    # currently using.  During AMS runout recovery, Bambu can switch to another
+    # tray that is not present in the original 3MF mapping.
     if self.active_model is None:
       return
     tray = self._active_ams_tray(print_obj)
     if tray is None:
       return
-    if self.using_ams and any(value is not None for value in (self.ams_mapping or [])):
+
+    mapping = list(self.ams_mapping or [])
+    if tray in mapping:
       return
 
-    filament_indexes = set(self._pending_usage_mm) | set(self._total_usage_mm_per_filament)
-    filament_index = min(filament_indexes) if filament_indexes else 0
-    mapping = list(self.ams_mapping or [])
+    layer = print_obj.get("layer_num", self.current_layer)
+    try:
+      layer_usage = self.active_model.get(int(layer), {}) if layer is not None else {}
+    except (TypeError, ValueError):
+      layer_usage = {}
+    active_indexes = []
+    for index in layer_usage:
+      try:
+        logical_index = int(index)
+      except (TypeError, ValueError):
+        continue
+      if logical_index >= 0:
+        active_indexes.append(logical_index)
+
+    if len(active_indexes) == 1:
+      filament_index = active_indexes[0]
+    else:
+      # When the active layer contains multiple logical filaments, only remap
+      # if the model has exactly one filament mapped to a physical AMS tray.
+      mapped_indexes = [
+        index for index, mapped_tray in enumerate(mapping)
+        if mapped_tray is not None and mapped_tray != EXTERNAL_SPOOL_ID
+      ]
+      if len(mapped_indexes) != 1:
+        log(
+          f"[filament-tracker] AMS tray changed to {tray}, but active filament is ambiguous; "
+          f"layer={layer!r}, candidates={active_indexes}, mapping={mapping}"
+        )
+        return
+      filament_index = mapped_indexes[0]
+
     while len(mapping) <= filament_index:
       mapping.append(None)
-    if mapping[filament_index] == tray and self.using_ams:
-      return
+    previous_tray = mapping[filament_index]
     mapping[filament_index] = tray
-    log(f"[filament-tracker] AMS mapping from current status: filament {filament_index} -> tray {tray}")
+    log(
+      f"[filament-tracker] AMS tray switch detected: filament={filament_index}, "
+      f"tray={previous_tray} -> {tray}; remapping usage to the active spool"
+    )
     self.apply_ams_mapping(mapping)
 
   def _attempt_print_resume(self, task_id, subtask_id, model_url=None, print_obj=None) -> None:
