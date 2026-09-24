@@ -366,6 +366,26 @@ class FilamentUsageTracker:
     self.print_metadata = metadata
     self.print_id = incoming_id
 
+  def begin_pending_print(self, metadata: dict | None) -> None:
+    # Bind the newly created history row immediately, before the 3MF worker
+    # finishes.  Never let a previous model/checkpoint leak into the new job.
+    metadata = metadata or {}
+    incoming_id = metadata.get("print_id")
+    if incoming_id is None:
+      return
+    if self.print_id != incoming_id:
+      self.set_print_metadata(metadata)
+      self.active_model = None
+      self.ams_mapping = metadata.get("ams_mapping") or None
+      self.using_ams = bool(self.ams_mapping and self.ams_mapping[0] != EXTERNAL_SPOOL_ID)
+      self.current_layer = None
+      self.spent_layers = set()
+      self.cumulative_grams_used = {}
+      self.cumulative_length_used = {}
+      self._reset_layer_tracking_state()
+    else:
+      self.print_metadata = metadata
+
   def on_message(self, message: dict) -> None:
     if "print" not in message:
       return
