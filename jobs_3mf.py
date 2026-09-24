@@ -120,15 +120,30 @@ class Job3MFManager:
                     callback = status["callback"]
                 started = time.time()
                 self._update(job_key, state="resolving", started_at=started)
+                log(f"[3MF] Worker gestartet: job={job_key}, source={source!r}")
+                download_started = time.monotonic()
                 with tempfile.NamedTemporaryFile(suffix=".3mf", delete=False) as temp_file:
                     local_path = temp_file.name
                     self._update(job_key, state="downloading", local_path=local_path)
                     remote_path = self._download(source, temp_file, job_key)
 
+                download_seconds = time.monotonic() - download_started
+                download_bytes = os.path.getsize(local_path)
+                log(
+                    f"[3MF] Download abgeschlossen: job={job_key}, "
+                    f"pfad={remote_path or source!r}, bytes={download_bytes}, "
+                    f"dauer={download_seconds:.2f}s"
+                )
                 self._update(job_key, state="processing", remote_path=remote_path or source)
+                parse_started = time.monotonic()
                 metadata = tools_3mf.getMetaDataFromLocal3mf(local_path, remote_path or source)
                 if not metadata:
                     raise RuntimeError("3MF-Metadaten konnten nicht gelesen werden")
+                parse_seconds = time.monotonic() - parse_started
+                log(
+                    f"[3MF] Verarbeitung abgeschlossen: job={job_key}, "
+                    f"dauer={parse_seconds:.2f}s, gesamt={time.time() - started:.2f}s"
+                )
                 self._update(job_key, state="ready", percent=100 if self.get(job_key).get("bytes_total") else None)
                 callback(job_key, local_path, metadata, None)
             except Exception as exc:
