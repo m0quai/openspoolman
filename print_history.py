@@ -228,6 +228,19 @@ def get_latest_running_print_id() -> int | None:
     return int(row[0]) if row else None
 
 
+def get_latest_active_print_id() -> int | None:
+    # PREPARING and PAUSED are active jobs too.  History must keep refreshing
+    # before the 3MF is available and while the printer is paused.
+    conn = sqlite3.connect(db_config["db_path"])
+    row = conn.execute(
+        "SELECT print_id FROM print_layer_tracking "
+        "WHERE status IN ('PREPARING', 'RUNNING', 'PAUSED') "
+        "ORDER BY print_id DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    return int(row[0]) if row else None
+
+
 def find_latest_print_id(file_name: str | None) -> int | None:
     # Find the newest history entry for a printer-reported file/subtask name.
     if not file_name:
@@ -450,10 +463,38 @@ def insert_filament_usage(
 
     conn = sqlite3.connect(db_config["db_path"])
     cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO filament_usage (print_id, filament_type, color, grams_used, ams_slot, estimated_grams, length_used, estimated_length, calculated_length, physical_ams_slot)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (print_id, filament_type, color, grams_used, ams_slot, estimated_grams, length_used, estimated_length, length_used, physical_ams_slot))
+    # The first row can be created provisionally from the currently active
+    # tray before the 3MF is ready.  Enrich that row instead of inserting a
+    # duplicate once the real metadata has been parsed.
+    cursor.execute(
+        """UPDATE filament_usage
+           SET filament_type = ?,
+               color = ?,
+               grams_used = ?,
+               estimated_grams = ?,
+               length_used = ?,
+               estimated_length = ?,
+               calculated_length = ?,
+               physical_ams_slot = COALESCE(?, physical_ams_slot)
+           WHERE print_id = ? AND ams_slot = ?""",
+        (
+            filament_type,
+            color,
+            grams_used,
+            estimated_grams,
+            length_used,
+            estimated_length,
+            length_used,
+            physical_ams_slot,
+            print_id,
+            ams_slot,
+        ),
+    )
+    if cursor.rowcount == 0:
+        cursor.execute('''
+            INSERT INTO filament_usage (print_id, filament_type, color, grams_used, ams_slot, estimated_grams, length_used, estimated_length, calculated_length, physical_ams_slot)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (print_id, filament_type, color, grams_used, ams_slot, estimated_grams, length_used, estimated_length, length_used, physical_ams_slot))
     conn.commit()
     conn.close()
 
