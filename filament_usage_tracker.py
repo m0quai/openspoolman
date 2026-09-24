@@ -171,11 +171,14 @@ def recover_model(task_id, subtask_id):
 
   checkpoint_task_id = metadata.get("task_id")
   checkpoint_subtask_id = metadata.get("subtask_id")
-  task_matches = _same_job_id(checkpoint_task_id, task_id)
-  subtask_matches = _same_job_id(checkpoint_subtask_id, subtask_id)
-  if not task_matches and not subtask_matches:
+  comparable_ids = []
+  if task_id not in (None, ""):
+    comparable_ids.append(_same_job_id(checkpoint_task_id, task_id))
+  if subtask_id not in (None, ""):
+    comparable_ids.append(_same_job_id(checkpoint_subtask_id, subtask_id))
+  if not comparable_ids or not all(comparable_ids):
     log(
-      f"[filament-tracker] Checkpoint gehört zu anderem Job: "
+      f"[filament-tracker] Checkpoint gehört zu anderem oder nicht eindeutigem Job: "
       f"{checkpoint_task_id}:{checkpoint_subtask_id} != {task_id}:{subtask_id}"
     )
     clear_checkpoint(preserve_models=True)
