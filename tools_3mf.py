@@ -15,6 +15,9 @@ from urllib.parse import urlparse
 from logger import log
 
 
+_BBL_PATH_CACHE = {}
+
+
 def parse_ftp_listing(line):
     parts = line.split(maxsplit=8)
     if len(parts) < 9:
@@ -65,19 +68,20 @@ def setupPycurlConnection(ftp_user, ftp_pass):
     return c
 
 
-def _ftp_read(remote_path, directory=False):
+def _ftp_read(remote_path, directory=False, connection=None):
     buffer = io.BytesIO()
-    c = setupPycurlConnection("bblp", app_config.PRINTER_CODE)
+    c = connection or setupPycurlConnection("bblp", app_config.PRINTER_CODE)
+    owns_connection = connection is None
     try:
         encoded = urllib.parse.quote(remote_path if remote_path.startswith('/') else '/' + remote_path)
         c.setopt(c.URL, f"ftps://{app_config.PRINTER_IP}{encoded}")
         c.setopt(c.WRITEDATA, buffer)
-        if directory:
-            c.setopt(c.DIRLISTONLY, True)
+        c.setopt(c.DIRLISTONLY, bool(directory))
         c.perform()
         return buffer.getvalue()
     finally:
-        c.close()
+        if owns_connection:
+            c.close()
 
 
 def _current_print_context():
@@ -110,29 +114,48 @@ def _normalize_printer_3mf_path(path):
 def _find_bbl_for_subtask(subtask_name):
     if not subtask_name:
         return None
+    started = time.monotonic()
+    connection = setupPycurlConnection("bblp", app_config.PRINTER_CODE)
     try:
-        names = _ftp_read("/cache/", directory=True).decode("utf-8", errors="replace").splitlines()
+        names = _ftp_read("/cache/", directory=True, connection=connection).decode(
+            "utf-8", errors="replace"
+        ).splitlines()
+        bbl_names = [name.strip() for name in names if name.strip().lower().endswith(".bbl")]
+        log(f"[3MF] Suche BBL fuer Subtask '{subtask_name}' unter {len(bbl_names)} BBL-Dateien.")
+        for name in reversed(bbl_names):
+            try:
+                raw = _ftp_read(f"/cache/{name}", connection=connection)
+                job = json.loads(raw.decode("utf-8", errors="replace"))
+            except Exception:
+                continue
+            if str(job.get("subtask_name") or "").strip() == str(subtask_name).strip():
+                log(
+                    f"[3MF] Passende BBL gefunden: /cache/{name} "
+                    f"nach {time.monotonic() - started:.2f}s"
+                )
+                return name, job
     except Exception as exc:
         log(f"[3MF] BBL-Verzeichnis konnte nicht gelesen werden: {exc}")
         return None
-
-    bbl_names = [name.strip() for name in names if name.strip().lower().endswith(".bbl")]
-    log(f"[3MF] Suche BBL fuer Subtask '{subtask_name}' unter {len(bbl_names)} BBL-Dateien.")
-    for name in reversed(bbl_names):
-        try:
-            raw = _ftp_read(f"/cache/{name}")
-            job = json.loads(raw.decode("utf-8", errors="replace"))
-        except Exception:
-            continue
-        if str(job.get("subtask_name") or "").strip() == str(subtask_name).strip():
-            log(f"[3MF] Passende BBL gefunden: /cache/{name}")
-            return name, job
-    log(f"[3MF] Keine passende BBL fuer Subtask '{subtask_name}' gefunden.")
+    finally:
+        connection.close()
+    log(
+        f"[3MF] Keine passende BBL fuer Subtask '{subtask_name}' gefunden "
+        f"nach {time.monotonic() - started:.2f}s."
+    )
     return None
 
 
 def _resolved_bbl_3mf_for_current_job():
     context = _current_print_context()
+    cache_key = (
+        str(context.get("task_id") or ""),
+        str(context.get("subtask_id") or ""),
+        str(context.get("subtask_name") or ""),
+    )
+    if cache_key in _BBL_PATH_CACHE:
+        return _BBL_PATH_CACHE[cache_key]
+
     match = _find_bbl_for_subtask(context.get("subtask_name"))
     if not match:
         return None
@@ -142,6 +165,7 @@ def _resolved_bbl_3mf_for_current_job():
     resolved = _normalize_printer_3mf_path(file_path)
     log(f"[3MF] BBL /cache/{bbl_name}: file path={file_path!r} -> FTP={resolved!r}")
     if resolved and resolved.lower().endswith(".3mf"):
+        _BBL_PATH_CACHE[cache_key] = resolved
         return resolved
     return None
 
@@ -231,15 +255,14 @@ def download3mfFromFTP(filename, destFile, progress_callback=None):
         _append_unique_path(remote_paths, filename)
     else:
         base_name = os.path.basename(filename)
-        _append_unique_path(remote_paths, f"/cache/{base_name}")
 
-        # project_file/gcode_file can contain only a display name such as
-        # Kerstin.gcode.3mf while the real file on the printer has another name.
-        # Resolve the current Bambu job through its matching .bbl before trying
-        # broad root/sdcard guesses.
+        # Resolve the authoritative path from the matching .bbl first.  The
+        # display filename often does not exist in /cache and used to cost a
+        # full timeout before the real path was attempted.
         bbl_resolved = _resolved_bbl_3mf_for_current_job()
         _append_unique_path(remote_paths, bbl_resolved)
 
+        _append_unique_path(remote_paths, f"/cache/{base_name}")
         _append_unique_path(remote_paths, f"/{base_name}")
         _append_unique_path(remote_paths, f"/sdcard/{base_name}")
 
@@ -282,6 +305,8 @@ def download3mfFromFTP(filename, destFile, progress_callback=None):
                             continue
                         if err_code == 9:
                             log(f"[3MF] Zugriff verweigert: {remote_path}")
+                        elif err_code == 78:
+                            log(f"[3MF] Pfadkandidat nicht vorhanden: {remote_path}")
                         else:
                             log(f"[3MF] FTP Fehler {err_code} fuer {remote_path}: {exc}")
                         break
@@ -476,9 +501,10 @@ def getMetaDataFromLocal3mf(path: str, model_path: str | None = None) -> dict:
             metadata["image"] = time.strftime("%Y%m%d%H%M%S") + ".png"
             image_path = "Metadata/plate_" + metadata["plateID"] + ".png"
             if image_path in z.namelist():
-                os.makedirs(os.path.join(os.getcwd(), "static", "prints"), exist_ok=True)
+                image_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "prints")
+                os.makedirs(image_dir, exist_ok=True)
                 with z.open(image_path) as source_file:
-                    with open(os.path.join(os.getcwd(), "static", "prints", metadata["image"]), "wb") as target_file:
+                    with open(os.path.join(image_dir, metadata["image"]), "wb") as target_file:
                         target_file.write(source_file.read())
             else:
                 metadata["image"] = ""
