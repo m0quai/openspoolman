@@ -1,6 +1,8 @@
+import hashlib
 import json
 import math
 import os
+import re
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
@@ -27,7 +29,7 @@ from logger import log
 
 
 CHECKPOINT_DIR = Path(__file__).resolve().parent / "data" / "checkpoint"
-CHECKPOINT_VERSION = 3
+CHECKPOINT_VERSION = 4
 LAYER_TRACKING_STATUS_RUNNING = "RUNNING"
 LAYER_TRACKING_STATUS_COMPLETED = "COMPLETED"
 LAYER_TRACKING_STATUS_ABORTED = "ABORTED"
@@ -58,32 +60,82 @@ def _get_checkpoint_metadata() -> dict:
   if not metadata_path.exists():
     return {}
   try:
-    return json.loads(metadata_path.read_text())
-  except Exception:
+    return json.loads(metadata_path.read_text(encoding="utf-8"))
+  except Exception as exc:
+    log(f"[filament-tracker] Ungültige Checkpoint-Metadaten werden ignoriert: {exc!r}")
     return {}
 
 
 def _save_checkpoint_metadata(metadata: dict) -> None:
   _checkpoint_dir()
-  _checkpoint_metadata_path().write_text(json.dumps(metadata))
+  metadata_path = _checkpoint_metadata_path()
+  temp_path = metadata_path.with_suffix(".json.tmp")
+  temp_path.write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
+  temp_path.replace(metadata_path)
 
 
-def save_checkpoint(*, model_path: str, current_layer: int, task_id, subtask_id, ams_mapping, gcode_file_name: str) -> None:
-  dest = _checkpoint_dir() / "model.3mf"
-  dest.write_bytes(Path(model_path).read_bytes())
-
-  existing = _get_checkpoint_metadata()
-  existing["task_id"] = task_id
-  existing["subtask_id"] = subtask_id
-  existing["current_layer"] = current_layer
-  existing["ams_mapping"] = ams_mapping
-  existing["gcode_file_name"] = gcode_file_name
-  existing["checkpoint_version"] = CHECKPOINT_VERSION
-  _save_checkpoint_metadata(existing)
+def _safe_checkpoint_model_name(source_name: str | None, task_id=None, subtask_id=None) -> str:
+  # Preserve the original 3MF name, but never allow path traversal.
+  raw_name = os.path.basename(str(source_name or "").replace("\\", "/")).strip()
+  if not raw_name.lower().endswith(".3mf"):
+    fallback = "-".join(str(value) for value in (task_id, subtask_id) if value not in (None, ""))
+    raw_name = f"{fallback or 'print'}.3mf"
+  safe_name = re.sub(r"[^A-Za-z0-9._() -]+", "_", raw_name).strip(" .")
+  return safe_name or "print.3mf"
 
 
-def clear_checkpoint() -> None:
-  if CHECKPOINT_DIR.exists():
+def _file_sha256(path: Path) -> str:
+  digest = hashlib.sha256()
+  with path.open("rb") as source:
+    for chunk in iter(lambda: source.read(1024 * 1024), b""):
+      digest.update(chunk)
+  return digest.hexdigest()
+
+
+def save_checkpoint(
+    *,
+    model_path: str,
+    current_layer: int,
+    task_id,
+    subtask_id,
+    ams_mapping,
+    gcode_file_name: str,
+    model_file_name: str | None = None,
+) -> None:
+  source = Path(model_path)
+  checkpoint_name = _safe_checkpoint_model_name(model_file_name, task_id, subtask_id)
+  destination = _checkpoint_dir() / checkpoint_name
+  temporary = destination.with_suffix(destination.suffix + ".part")
+  temporary.write_bytes(source.read_bytes())
+  temporary.replace(destination)
+
+  metadata = {
+    "task_id": task_id,
+    "subtask_id": subtask_id,
+    "current_layer": current_layer,
+    "ams_mapping": ams_mapping,
+    "gcode_file_name": gcode_file_name,
+    "model_file_name": checkpoint_name,
+    "model_size": destination.stat().st_size,
+    "model_sha256": _file_sha256(destination),
+    "checkpoint_version": CHECKPOINT_VERSION,
+  }
+  _save_checkpoint_metadata(metadata)
+  log(
+    f"[filament-tracker] Checkpoint gespeichert: job={task_id}:{subtask_id}, "
+    f"datei={checkpoint_name!r}, bytes={metadata['model_size']}"
+  )
+
+
+def clear_checkpoint(*, preserve_models: bool = True) -> None:
+  # Completed/stale model files may remain for diagnostics.  Removing metadata
+  # makes them ineligible for automatic recovery.
+  metadata_path = CHECKPOINT_DIR / "metadata.json"
+  if metadata_path.exists():
+    metadata_path.unlink()
+  for part_file in CHECKPOINT_DIR.glob("*.part") if CHECKPOINT_DIR.exists() else []:
+    part_file.unlink()
+  if not preserve_models and CHECKPOINT_DIR.exists():
     for item in CHECKPOINT_DIR.iterdir():
       if item.is_file():
         item.unlink()
@@ -95,35 +147,70 @@ def clear_checkpoint() -> None:
 
 def update_checkpoint_layer(layer: int) -> None:
   metadata = _get_checkpoint_metadata()
+  if not metadata:
+    return
   metadata["current_layer"] = layer
   _save_checkpoint_metadata(metadata)
 
 
+def _same_job_id(left, right) -> bool:
+  if left in (None, "") or right in (None, ""):
+    return False
+  return str(left) == str(right)
+
+
 def recover_model(task_id, subtask_id):
   metadata = _get_checkpoint_metadata()
+  if not metadata:
+    return None
+
+  if metadata.get("checkpoint_version") != CHECKPOINT_VERSION:
+    log("[filament-tracker] Alter Checkpoint wird nicht verwendet.")
+    clear_checkpoint(preserve_models=True)
+    return None
 
   checkpoint_task_id = metadata.get("task_id")
   checkpoint_subtask_id = metadata.get("subtask_id")
-
-  if checkpoint_task_id is None or checkpoint_subtask_id is None:
+  task_matches = _same_job_id(checkpoint_task_id, task_id)
+  subtask_matches = _same_job_id(checkpoint_subtask_id, subtask_id)
+  if not task_matches and not subtask_matches:
+    log(
+      f"[filament-tracker] Checkpoint gehört zu anderem Job: "
+      f"{checkpoint_task_id}:{checkpoint_subtask_id} != {task_id}:{subtask_id}"
+    )
+    clear_checkpoint(preserve_models=True)
     return None
 
-  ids_missing = checkpoint_task_id in (None, "", 0, "0") and checkpoint_subtask_id in (None, "", 0, "0")
-  if not ids_missing and (checkpoint_task_id != task_id or checkpoint_subtask_id != subtask_id):
+  model_file_name = metadata.get("model_file_name")
+  if not model_file_name or os.path.basename(model_file_name) != model_file_name:
+    clear_checkpoint(preserve_models=True)
+    return None
+  model_path = _checkpoint_dir() / model_file_name
+  if not model_path.is_file():
+    clear_checkpoint(preserve_models=True)
     return None
 
-  model_path = _checkpoint_dir() / "model.3mf"
-  if not model_path.exists():
+  expected_size = metadata.get("model_size")
+  expected_hash = metadata.get("model_sha256")
+  if expected_size is None or int(expected_size) != model_path.stat().st_size:
+    log("[filament-tracker] Checkpoint-Größe stimmt nicht; Datei wird nicht verwendet.")
+    clear_checkpoint(preserve_models=True)
+    return None
+  if not expected_hash or _file_sha256(model_path) != expected_hash:
+    log("[filament-tracker] Checkpoint-Prüfsumme stimmt nicht; Datei wird nicht verwendet.")
+    clear_checkpoint(preserve_models=True)
     return None
 
   current_layer = metadata.get("current_layer")
-  ams_mapping = metadata.get("ams_mapping")
-  gcode_file_name = metadata.get("gcode_file_name")
-
   if current_layer is None:
     return None
+  return (
+    str(model_path),
+    metadata.get("gcode_file_name"),
+    current_layer,
+    metadata.get("ams_mapping"),
+  )
 
-  return str(model_path), gcode_file_name, current_layer, ams_mapping
 
 def _restore_thumbnail(model_path: str, print_id: int) -> None:
   # Extract a missing print thumbnail from the persisted 3MF checkpoint.
@@ -352,9 +439,14 @@ class FilamentUsageTracker:
       ams_mapping = [current_tray]
       log(f"[filament-tracker] AMS mapping from current tray: filament 0 -> tray {current_tray}")
     gcode_file_name = print_obj.get("param")
+    model_file_name = (
+      print_obj.get("model_file_name")
+      or os.path.basename(str(model_url or model_path).replace("\\", "/"))
+    )
     self._start_layer_tracking_for_model(
       model_path=model_path,
       gcode_file_name=gcode_file_name,
+      model_file_name=model_file_name,
       use_ams=use_ams,
       ams_mapping=ams_mapping,
       task_id=print_obj.get("task_id"),
@@ -369,6 +461,7 @@ class FilamentUsageTracker:
       self,
       model_path: str,
       gcode_file_name: str | None,
+      model_file_name: str | None,
       use_ams: bool,
       ams_mapping: list[int] | None,
       task_id,
@@ -414,6 +507,7 @@ class FilamentUsageTracker:
       subtask_id=subtask_id,
       ams_mapping=self.ams_mapping,
       gcode_file_name=gcode_file_name,
+      model_file_name=model_file_name,
     )
 
     try:
@@ -446,6 +540,7 @@ class FilamentUsageTracker:
       "ams_mapping": ams_mapping,
       "task_id": metadata.get("task_id"),
       "subtask_id": metadata.get("subtask_id"),
+      "model_file_name": metadata.get("file"),
     }
     
     fake_print["url"] = model_url
@@ -939,26 +1034,25 @@ class FilamentUsageTracker:
         f"resolved_print_id={self.print_id}"
       )
     checkpoint_metadata = _get_checkpoint_metadata()
-    model_url = model_url or checkpoint_metadata.get("model_url")
-    previous_version = checkpoint_metadata.get("checkpoint_version", 0)
-    if previous_version != CHECKPOINT_VERSION:
-      checkpoint_metadata["checkpoint_version"] = CHECKPOINT_VERSION
-      _save_checkpoint_metadata(checkpoint_metadata)
-      log(f"[filament-tracker] Checkpoint metadata version {previous_version} -> {CHECKPOINT_VERSION}")
+    previous_version = checkpoint_metadata.get("checkpoint_version")
+    if checkpoint_metadata and previous_version != CHECKPOINT_VERSION:
+      log(
+        f"[filament-tracker] Checkpoint-Version {previous_version!r} ist veraltet; "
+        "Metadaten werden verworfen, die 3MF bleibt nur zur Diagnose liegen."
+      )
+      clear_checkpoint(preserve_models=True)
+      checkpoint_metadata = {}
+    # Never take the source URL from an unverified/old checkpoint.
+    if checkpoint_metadata and (
+      _same_job_id(checkpoint_metadata.get("task_id"), task_id)
+      or _same_job_id(checkpoint_metadata.get("subtask_id"), subtask_id)
+    ):
+      model_url = model_url or checkpoint_metadata.get("model_url")
     log(
       f"[filament-tracker] Resume diagnostics: print_id={self.print_id}, "
-      f"checkpoint_version={checkpoint_metadata.get('checkpoint_version', 0)}, "
+      f"checkpoint_version={checkpoint_metadata.get('checkpoint_version')!r}, "
       f"model_url_present={bool(model_url)}"
     )
-    if previous_version < CHECKPOINT_VERSION and model_url:
-      log(f"[filament-tracker] Legacy checkpoint detected; reloading 3MF from {model_url!r}")
-      refreshed = getMetaDataFrom3mf(model_url)
-      if refreshed.get("model_path"):
-        log(f"[filament-tracker] 3MF reload complete: model_path={refreshed['model_path']!r}, image={refreshed.get('image')!r}")
-      else:
-        log("[filament-tracker] 3MF reload returned no model_path")
-    elif previous_version < CHECKPOINT_VERSION:
-      log("[filament-tracker] Legacy checkpoint detected, but no 3MF source URL is available")
     result = recover_model(task_id, subtask_id)
     if result is None:
       log(
@@ -991,6 +1085,7 @@ class FilamentUsageTracker:
       self._start_layer_tracking_for_model(
         model_path=model_path,
         gcode_file_name=print_obj.get("param"),
+        model_file_name=os.path.basename(str(model_url or model_path).replace("\\", "/")),
         use_ams=use_ams,
         ams_mapping=ams_mapping if use_ams else None,
         task_id=task_id,
