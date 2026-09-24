@@ -288,6 +288,9 @@ def _ensure_provisional_filament_usage(job, print_data):
     return
   mapping_value = _active_tray_mapping(print_data)
   spool = _spool_for_mapping(mapping_value)
+  signature = (mapping_value, (spool or {}).get("id"))
+  if job.get("provisional_signature") == signature:
+    return
   filament = (spool or {}).get("filament") or {}
   filament_type = filament.get("material") or filament.get("name") or ""
   color = filament.get("color_hex") or ""
@@ -311,6 +314,7 @@ def _ensure_provisional_filament_usage(job, print_data):
   metadata = job.setdefault("print_metadata", {})
   metadata["ams_mapping"] = [mapping_value]
   metadata["use_ams"] = mapping_value != EXTERNAL_SPOOL_ID
+  job["provisional_signature"] = signature
 
 
 def _on_3mf_job_complete(job_key, local_path, metadata, error):
@@ -601,6 +605,9 @@ def processMessage(data):
     if active_job:
       update_printer_job_status(active_job["print_id"], percent=current_percent, status_at=status_at)
       state = str(current_print.get("gcode_state") or "").upper()
+      if incoming_print.get("command") == "project_file" and incoming_print.get("gcode_state") is None:
+        state = "PREPARE"
+        PRINTER_STATE.setdefault("print", {})["gcode_state"] = "PREPARE"
       status = {
         "PREPARE": "PREPARING",
         "RUNNING": "RUNNING",
