@@ -406,6 +406,15 @@ def _queue_3mf_job(print_data):
   return job
 
 
+def get_active_3mf_print_id():
+  with _ACTIVE_3MF_PRINTS_LOCK:
+    items = list(ACTIVE_3MF_PRINTS.items())
+  for job_key, job in reversed(items):
+    if JOBS_3MF.get(job_key).get("state") in {"queued", "resolving", "downloading", "processing"}:
+      return job.get("print_id")
+  return None
+
+
 def _reconcile_completed_printer_job(print_data: dict) -> None:
   # Recover a completed job after OpenSpoolMan was offline during its finish.
   state = str(print_data.get("gcode_state") or "").upper()
