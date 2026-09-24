@@ -68,17 +68,54 @@ def setupPycurlConnection(ftp_user, ftp_pass):
     return c
 
 
+def _curl_diagnostics(connection):
+    result = {}
+    fields = {
+        "dns_s": pycurl.NAMELOOKUP_TIME,
+        "connect_s": pycurl.CONNECT_TIME,
+        "tls_s": pycurl.APPCONNECT_TIME,
+        "pretransfer_s": pycurl.PRETRANSFER_TIME,
+        "first_byte_s": pycurl.STARTTRANSFER_TIME,
+        "total_s": pycurl.TOTAL_TIME,
+        "bytes": pycurl.SIZE_DOWNLOAD,
+        "average_bytes_per_second": pycurl.SPEED_DOWNLOAD,
+    }
+    for name, option in fields.items():
+        try:
+            value = connection.getinfo(option)
+            result[name] = round(float(value), 3)
+        except Exception:
+            result[name] = None
+    return result
+
+
 def _ftp_read(remote_path, directory=False, connection=None):
     buffer = io.BytesIO()
     c = connection or setupPycurlConnection("bblp", app_config.PRINTER_CODE)
     owns_connection = connection is None
+    operation = "Verzeichnis lesen" if directory else "Datei lesen"
+    started = time.monotonic()
+    log(f"[3MF][FTP] {operation} gestartet: {remote_path}")
     try:
         encoded = urllib.parse.quote(remote_path if remote_path.startswith('/') else '/' + remote_path)
         c.setopt(c.URL, f"ftps://{app_config.PRINTER_IP}{encoded}")
         c.setopt(c.WRITEDATA, buffer)
         c.setopt(c.DIRLISTONLY, bool(directory))
         c.perform()
-        return buffer.getvalue()
+        payload = buffer.getvalue()
+        log(
+            f"[3MF][FTP] {operation} abgeschlossen: {remote_path}, "
+            f"bytes={len(payload)}, dauer={time.monotonic() - started:.3f}s, "
+            f"curl={_curl_diagnostics(c)}"
+        )
+        return payload
+    except Exception as exc:
+        log(
+            f"[3MF][FTP] {operation} fehlgeschlagen: {remote_path}, "
+            f"dauer={time.monotonic() - started:.3f}s, fehler={exc!r}, "
+            f"curl={_curl_diagnostics(c)}"
+        )
+        raise
     finally:
         if owns_connection:
             c.close()
@@ -238,11 +275,11 @@ def _append_unique_path(paths, remote_path):
 
 
 def download3mfFromFTP(filename, destFile, progress_callback=None):
-    log("Downloading 3MF file from FTP...")
     ftp_host = app_config.PRINTER_IP
     ftp_user = "bblp"
     ftp_pass = app_config.PRINTER_CODE
     local_path = destFile.name
+    overall_started = time.monotonic()
 
     filename = str(filename or "").strip()
     if not filename:
@@ -250,76 +287,160 @@ def download3mfFromFTP(filename, destFile, progress_callback=None):
     if filename.startswith("/sdcard/"):
         filename = "/" + filename[len("/sdcard/"):]
 
+    log(
+        f"[3MF][FTP] Download-Auflösung gestartet: quelle={filename!r}, "
+        f"host={ftp_host}, connect_timeout=5s, transfer_timeout=180s"
+    )
     remote_paths = []
     if filename.startswith("/") and filename.lower().endswith(".3mf"):
         _append_unique_path(remote_paths, filename)
+        log(f"[3MF][FTP] MQTT lieferte direkten 3MF-Pfad: {filename}")
     else:
         base_name = os.path.basename(filename)
-
-        # Resolve the authoritative path from the matching .bbl first.  The
-        # display filename often does not exist in /cache and used to cost a
-        # full timeout before the real path was attempted.
+        resolve_started = time.monotonic()
         bbl_resolved = _resolved_bbl_3mf_for_current_job()
+        log(
+            f"[3MF][FTP] BBL-Pfadauflösung beendet: ergebnis={bbl_resolved!r}, "
+            f"dauer={time.monotonic() - resolve_started:.3f}s"
+        )
         _append_unique_path(remote_paths, bbl_resolved)
-
         _append_unique_path(remote_paths, f"/cache/{base_name}")
         _append_unique_path(remote_paths, f"/{base_name}")
         _append_unique_path(remote_paths, f"/sdcard/{base_name}")
 
+    log(f"[3MF][FTP] Pfadkandidaten in Reihenfolge: {remote_paths!r}")
     last_error = None
     reconnect_codes = {7, 28, 35, 52, 55, 56}
-    def configure_progress(connection):
+    progress_state = {
+        "path": None,
+        "attempt": 0,
+        "started": None,
+        "last_log": 0.0,
+        "last_bytes": 0,
+        "first_data": False,
+    }
+
+    def transfer_progress(_download_total, downloaded, _upload_total, _uploaded):
+        total = int(_download_total or 0)
+        done = int(downloaded or 0)
+        now = time.monotonic()
+        if done > 0 and not progress_state["first_data"]:
+            progress_state["first_data"] = True
+            log(
+                f"[3MF][FTP] Erste Nutzdaten empfangen: pfad={progress_state['path']}, "
+                f"versuch={progress_state['attempt']}, bytes={done}, "
+                f"nach={now - progress_state['started']:.3f}s"
+            )
+        if now - progress_state["last_log"] >= 5.0 or (total and done >= total):
+            elapsed = max(now - progress_state["started"], 0.001)
+            interval_elapsed = max(now - progress_state["last_log"], 0.001)
+            interval_bytes = max(done - progress_state["last_bytes"], 0)
+            percent = round(done * 100 / total, 1) if total else None
+            log(
+                f"[3MF][FTP] Transfer läuft: pfad={progress_state['path']}, "
+                f"versuch={progress_state['attempt']}, bytes={done}/{total or '?'}, "
+                f"prozent={percent if percent is not None else '?'}, "
+                f"mittel={done / elapsed:.0f}B/s, intervall={interval_bytes / interval_elapsed:.0f}B/s, "
+                f"dauer={elapsed:.1f}s"
+            )
+            progress_state["last_log"] = now
+            progress_state["last_bytes"] = done
         if progress_callback:
-            connection.setopt(connection.NOPROGRESS, False)
-            connection.setopt(connection.XFERINFOFUNCTION, lambda _download_total, downloaded, _upload_total, _uploaded: progress_callback(downloaded, _download_total))
+            progress_callback(done, total)
+        return 0
+
+    def configure_progress(connection):
+        connection.setopt(connection.NOPROGRESS, False)
+        connection.setopt(connection.XFERINFOFUNCTION, transfer_progress)
 
     c = setupPycurlConnection(ftp_user, ftp_pass)
     configure_progress(c)
+    log("[3MF][FTP] libcurl-Handle erstellt; TLS/FTPS wird beim ersten Request aufgebaut.")
     try:
         for path_index, remote_path in enumerate(remote_paths, start=1):
             encoded_remote_path = urllib.parse.quote(remote_path)
             url = f"ftps://{ftp_host}{encoded_remote_path}"
-            log(f"[3MF] FTP Download ({path_index}/{len(remote_paths)}): {remote_path}")
+            log(
+                f"[3MF][FTP] Pfadkandidat gestartet: "
+                f"{path_index}/{len(remote_paths)} {remote_path}"
+            )
 
-            for attempt in range(2):
-                with open(local_path, "wb") as f:
+            for attempt in range(1, 3):
+                attempt_started = time.monotonic()
+                progress_state.update({
+                    "path": remote_path,
+                    "attempt": attempt,
+                    "started": attempt_started,
+                    "last_log": attempt_started,
+                    "last_bytes": 0,
+                    "first_data": False,
+                })
+                log(
+                    f"[3MF][FTP] Transfer-Versuch gestartet: pfad={remote_path}, "
+                    f"versuch={attempt}/2"
+                )
+                with open(local_path, "wb") as output_file:
                     try:
                         c.setopt(c.URL, url)
-                        c.setopt(c.WRITEDATA, f)
+                        c.setopt(c.WRITEDATA, output_file)
                         c.perform()
-                        if os.path.getsize(local_path) <= 0:
+                        file_size = os.path.getsize(local_path)
+                        if file_size <= 0:
                             raise RuntimeError(f"FTP lieferte eine leere Datei: {remote_path}")
-                        log(f"[3MF] FTP Download erfolgreich: {remote_path}")
+                        log(
+                            f"[3MF][FTP] Transfer erfolgreich: pfad={remote_path}, "
+                            f"bytes={file_size}, versuch={attempt}/2, "
+                            f"dauer={time.monotonic() - attempt_started:.3f}s, "
+                            f"gesamt={time.monotonic() - overall_started:.3f}s, "
+                            f"curl={_curl_diagnostics(c)}"
+                        )
                         return remote_path
                     except pycurl.error as exc:
                         last_error = exc
                         err_code = exc.args[0]
+                        log(
+                            f"[3MF][FTP] Transfer-Versuch fehlgeschlagen: "
+                            f"pfad={remote_path}, versuch={attempt}/2, code={err_code}, "
+                            f"dauer={time.monotonic() - attempt_started:.3f}s, "
+                            f"lokale_bytes={os.path.getsize(local_path) if os.path.exists(local_path) else 0}, "
+                            f"curl={_curl_diagnostics(c)}, fehler={exc!r}"
+                        )
                         if err_code in reconnect_codes:
                             try:
                                 c.close()
                             except Exception:
                                 pass
+                            log(
+                                f"[3MF][FTP] Verbindung wird nach Fehler {err_code} "
+                                f"für {remote_path} neu aufgebaut."
+                            )
                             c = setupPycurlConnection(ftp_user, ftp_pass)
                             configure_progress(c)
-                        if attempt == 0 and err_code in reconnect_codes:
+                        if attempt == 1 and err_code in reconnect_codes:
                             continue
                         if err_code == 9:
-                            log(f"[3MF] Zugriff verweigert: {remote_path}")
+                            log(f"[3MF][FTP] Zugriff verweigert: {remote_path}")
                         elif err_code == 78:
-                            log(f"[3MF] Pfadkandidat nicht vorhanden: {remote_path}")
-                        else:
-                            log(f"[3MF] FTP Fehler {err_code} fuer {remote_path}: {exc}")
+                            log(f"[3MF][FTP] Pfadkandidat nicht vorhanden: {remote_path}")
                         break
                     except Exception as exc:
                         last_error = exc
-                        log(f"[3MF] FTP Fehler fuer {remote_path}: {exc}")
+                        log(
+                            f"[3MF][FTP] Transfer abgebrochen: pfad={remote_path}, "
+                            f"versuch={attempt}/2, dauer={time.monotonic() - attempt_started:.3f}s, "
+                            f"fehler={exc!r}"
+                        )
                         break
     finally:
         if c is not None:
             try:
                 c.close()
-            except Exception:
-                pass
+                log(
+                    f"[3MF][FTP] libcurl-Handle geschlossen; "
+                    f"Gesamtdauer={time.monotonic() - overall_started:.3f}s"
+                )
+            except Exception as close_error:
+                log(f"[3MF][FTP] Fehler beim Schließen des Handles: {close_error!r}")
 
     raise RuntimeError(
         f"3MF-Datei konnte nicht vom Drucker geladen werden; letzter Fehler: {last_error}"
