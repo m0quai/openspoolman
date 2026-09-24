@@ -646,9 +646,7 @@ def _current_printer_status_payload():
     print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
     active_print_id = print_history_service.get_latest_active_print_id()
     if active_print_id is None:
-        active_jobs = getattr(mqtt_bambulab, "ACTIVE_3MF_PRINTS", {})
-        if active_jobs:
-            active_print_id = next(reversed(active_jobs.values())).get("print_id")
+        active_print_id = mqtt_bambulab.get_active_3mf_print_id()
     return {
         "printer_name": PRINTER_NAME or (getattr(mqtt_bambulab, "getPrinterModel", lambda: {})() or {}).get("devicename") or PRINTER_ID,
         "mqtt_connected": connected,
@@ -851,9 +849,7 @@ def ams_state_generation():
     print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
     active_print_id = print_history_service.get_latest_active_print_id()
     if active_print_id is None:
-        active_jobs = getattr(mqtt_bambulab, "ACTIVE_3MF_PRINTS", {})
-        if active_jobs:
-            active_print_id = next(reversed(active_jobs.values())).get("print_id")
+        active_print_id = mqtt_bambulab.get_active_3mf_print_id()
     return jsonify({
         "generation": getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0),
         "hotend": temperatures.get("hotend"),
