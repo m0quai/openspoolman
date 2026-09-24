@@ -400,6 +400,8 @@ class FilamentUsageTracker:
     if incoming_id is None:
       return
     if self.print_id != incoming_id:
+      # A new printer job supersedes any previous recovery checkpoint.
+      clear_checkpoint()
       self.set_print_metadata(metadata)
       self.active_model = None
       self.ams_mapping = metadata.get("ams_mapping") or None
