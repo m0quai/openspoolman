@@ -53,7 +53,7 @@ from print_history import (
   update_filament_spool,
   update_filament_physical_slot,
 )
-from filament_usage_tracker import FilamentUsageTracker
+from filament_usage_tracker import FilamentUsageTracker, archive_checkpoint_model
 from jobs_3mf import JOBS_3MF
 MQTT_CLIENT = {}  # Global variable storing MQTT Client
 MQTT_CLIENT_CONNECTED = False
@@ -366,7 +366,22 @@ def _on_3mf_job_complete(job_key, local_path, metadata, error):
 
   current_state = str((PRINTER_STATE.get("print") or {}).get("gcode_state") or "").upper()
   if current_state in {"FINISH", "FAILED", "STOP", "IDLE"}:
-    log(f"[3MF] Metadaten ergänzt; Tracker wird bei abgeschlossenem Job nicht neu gestartet: {current_state}")
+    archived_path = archive_checkpoint_model(
+      local_path,
+      model_file_name=metadata.get("file") or metadata.get("subtask_name"),
+      task_id=metadata.get("task_id"),
+      subtask_id=metadata.get("subtask_id"),
+    )
+    try:
+      if os.path.abspath(local_path) != os.path.abspath(str(archived_path)):
+        os.remove(local_path)
+    except OSError as exc:
+      log(f"[3MF] Temporäre Datei konnte nach Archivierung nicht entfernt werden: {exc!r}")
+    metadata["local_model_path"] = str(archived_path)
+    log(
+      f"[3MF] Metadaten ergänzt; Tracker wird bei abgeschlossenem Job nicht neu gestartet: "
+      f"{current_state}; archiv={str(archived_path)!r}"
+    )
   elif metadata.get("print_type") == "local":
     FILAMENT_TRACKER.start_local_print_from_metadata(metadata, local_path)
   else:
