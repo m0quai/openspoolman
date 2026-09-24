@@ -150,9 +150,9 @@ def save_checkpoint(
   )
 
 
-def clear_checkpoint(*, preserve_models: bool = True) -> None:
-  # Completed/stale model files may remain for diagnostics.  Removing metadata
-  # makes them ineligible for automatic recovery.
+def clear_checkpoint(*, preserve_models: bool = False) -> None:
+  # Remove the model files as well once the checkpoint is no longer active.
+  # Recovery paths that must retain a verified model can opt in explicitly.
   metadata_path = CHECKPOINT_DIR / "metadata.json"
   if metadata_path.exists():
     metadata_path.unlink()
@@ -189,7 +189,7 @@ def recover_model(task_id, subtask_id):
 
   if metadata.get("checkpoint_version") != CHECKPOINT_VERSION:
     log("[filament-tracker] Alter Checkpoint wird nicht verwendet.")
-    clear_checkpoint(preserve_models=True)
+    clear_checkpoint(preserve_models=False)
     return None
 
   checkpoint_task_id = metadata.get("task_id")
@@ -204,27 +204,27 @@ def recover_model(task_id, subtask_id):
       f"[filament-tracker] Checkpoint gehört zu anderem oder nicht eindeutigem Job: "
       f"{checkpoint_task_id}:{checkpoint_subtask_id} != {task_id}:{subtask_id}"
     )
-    clear_checkpoint(preserve_models=True)
+    clear_checkpoint(preserve_models=False)
     return None
 
   model_file_name = metadata.get("model_file_name")
   if not model_file_name or os.path.basename(model_file_name) != model_file_name:
-    clear_checkpoint(preserve_models=True)
+    clear_checkpoint(preserve_models=False)
     return None
   model_path = _checkpoint_dir() / model_file_name
   if not model_path.is_file():
-    clear_checkpoint(preserve_models=True)
+    clear_checkpoint(preserve_models=False)
     return None
 
   expected_size = metadata.get("model_size")
   expected_hash = metadata.get("model_sha256")
   if expected_size is None or int(expected_size) != model_path.stat().st_size:
     log("[filament-tracker] Checkpoint-Größe stimmt nicht; Datei wird nicht verwendet.")
-    clear_checkpoint(preserve_models=True)
+    clear_checkpoint(preserve_models=False)
     return None
   if not expected_hash or _file_sha256(model_path) != expected_hash:
     log("[filament-tracker] Checkpoint-Prüfsumme stimmt nicht; Datei wird nicht verwendet.")
-    clear_checkpoint(preserve_models=True)
+    clear_checkpoint(preserve_models=False)
     return None
 
   current_layer = metadata.get("current_layer")
@@ -1086,7 +1086,7 @@ class FilamentUsageTracker:
         f"[filament-tracker] Checkpoint-Version {previous_version!r} ist veraltet; "
         "Metadaten werden verworfen, die 3MF bleibt nur zur Diagnose liegen."
       )
-      clear_checkpoint(preserve_models=True)
+      clear_checkpoint(preserve_models=False)
       checkpoint_metadata = {}
     # Never take the source URL from an unverified/old checkpoint.
     if checkpoint_metadata and (
