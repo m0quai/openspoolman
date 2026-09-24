@@ -237,6 +237,10 @@ _AMS_REFRESH_MIN_INTERVAL_SECONDS = 5.0
 # upstream history view derives progress from layer counts, which can differ
 # noticeably for jobs with variable layer durations.  Enrich the rendered
 # history data in the custom entry point without modifying app.py.
+_openspoolman_app_module.LAYER_TRACKING_STATUS_DISPLAY.update({
+    "PREPARING": ("Preparing", "info"),
+    "PAUSED": ("Paused", "secondary"),
+})
 _original_app_render_template = _openspoolman_app_module.render_template
 
 def _render_template_with_printer_progress(template_name, *args, **kwargs):
@@ -253,7 +257,7 @@ def _render_template_with_printer_progress(template_name, *args, **kwargs):
             kwargs["active_print_id"] = requested_print_id
         print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
         raw_percent = print_state.get("mc_percent")
-        active_print_id = print_history_service.get_latest_running_print_id()
+        active_print_id = print_history_service.get_latest_active_print_id()
         try:
             percent = max(0, min(100, int(float(raw_percent)))) if raw_percent is not None else None
         except (TypeError, ValueError):
@@ -603,40 +607,13 @@ def _metadata_is_complete(metadata):
 
 
 def _get_metadata_from_3mf_with_retry(source):
-    # Load complete print metadata with bounded retries for transient failures.
-    import time
-
+    # A complete transfer must never be repeated merely because parsing was
+    # incomplete.  The central worker downloads once and parses its local file.
     source = _metadata_source_with_filename(source)
-    deadline = time.monotonic() + _METADATA_RETRY_TIMEOUT_SECONDS
-    attempts = len(_METADATA_RETRY_DELAYS) + 1
-    last_metadata = {}
-
-    for attempt in range(1, attempts + 1):
-        last_metadata = _original_get_metadata_from_3mf(source) or {}
-        if _metadata_is_complete(last_metadata):
-            if attempt > 1:
-                _log(f"[3MF] Metadaten nach Versuch {attempt}/{attempts} vollstaendig geladen.")
-            return last_metadata
-
-        if attempt >= attempts:
-            break
-
-        delay = _METADATA_RETRY_DELAYS[attempt - 1]
-        if time.monotonic() + delay >= deadline:
-            _log("[3MF] Metadaten-Retry wegen erreichtem Gesamt-Timeout beendet.")
-            break
-
-        _log(
-            f"[3MF] Metadaten nach Versuch {attempt}/{attempts} unvollstaendig; "
-            f"neuer Versuch in {delay} Sekunden."
-        )
-        time.sleep(delay)
-
-    _log(
-        f"[3MF] Metadaten nach {attempt} Versuch(en) innerhalb von "
-        f"{_METADATA_RETRY_TIMEOUT_SECONDS} Sekunden nicht vollstaendig."
-    )
-    return last_metadata
+    metadata = _original_get_metadata_from_3mf(source) or {}
+    if not _metadata_is_complete(metadata):
+        _log("[3MF] Metadaten unvollständig; kein automatischer Komplett-Download-Retry.")
+    return metadata
 
 
 _tools_3mf.getMetaDataFrom3mf = _get_metadata_from_3mf_with_retry
@@ -667,7 +644,7 @@ def ams():
 def _current_printer_status_payload():
     connected = bool(mqtt_bambulab.isMqttClientConnected())
     print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
-    active_print_id = print_history_service.get_latest_running_print_id()
+    active_print_id = print_history_service.get_latest_active_print_id()
     if active_print_id is None:
         active_jobs = getattr(mqtt_bambulab, "ACTIVE_3MF_PRINTS", {})
         if active_jobs:
@@ -775,7 +752,7 @@ def inject_openspoolman_version():
         "printer_is_busy": _printer_is_busy(),
         "ams_operation_pending": mqtt_bambulab.is_any_ams_operation_pending(),
         "pending_nfc": pending_nfc,
-        "active_print_id": print_history_service.get_latest_running_print_id(),
+        "active_print_id": print_history_service.get_latest_active_print_id(),
         "spoolman_public_url": _SPOOLMAN_PUBLIC_BASE_URL,
     }
 
@@ -872,7 +849,7 @@ def _recv_exact(sock, size):
 def ams_state_generation():
     temperatures = _printer_temperature_status()
     print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
-    active_print_id = print_history_service.get_latest_running_print_id()
+    active_print_id = print_history_service.get_latest_active_print_id()
     if active_print_id is None:
         active_jobs = getattr(mqtt_bambulab, "ACTIVE_3MF_PRINTS", {})
         if active_jobs:
