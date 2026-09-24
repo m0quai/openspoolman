@@ -295,17 +295,18 @@ def _ensure_provisional_filament_usage(job, print_data):
   filament_type = filament.get("material") or filament.get("name") or ""
   color = filament.get("color_hex") or ""
   physical_slot = mapping_value if mapping_value != EXTERNAL_SPOOL_ID else None
-  insert_filament_usage(
-    job["print_id"],
-    filament_type,
-    color,
-    0.0,
-    1,
-    estimated_grams=None,
-    length_used=0.0,
-    estimated_length=None,
-    physical_ams_slot=physical_slot,
-  )
+  if not job.get("metadata_ready"):
+    insert_filament_usage(
+      job["print_id"],
+      filament_type,
+      color,
+      0.0,
+      1,
+      estimated_grams=None,
+      length_used=0.0,
+      estimated_length=None,
+      physical_ams_slot=physical_slot,
+    )
   if spool and spool.get("id") is not None:
     update_filament_spool(job["print_id"], 1, int(spool["id"]))
   if physical_slot is not None:
@@ -328,9 +329,12 @@ def _on_3mf_job_complete(job_key, local_path, metadata, error):
     log(f"[3MF] Job {job_key} fehlgeschlagen: {error}")
     return
 
-  metadata = dict(metadata or {})
-  metadata.update(job.get("print_metadata") or {})
+  parsed_metadata = dict(metadata or {})
+  metadata = dict(job.get("print_metadata") or {})
+  metadata.update(parsed_metadata)
   metadata["print_id"] = job["print_id"]
+  with _ACTIVE_3MF_PRINTS_LOCK:
+    job["metadata_ready"] = True
   metadata["local_model_path"] = local_path
   metadata["complete"] = True
   PENDING_PRINT_METADATA = metadata
