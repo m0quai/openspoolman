@@ -258,6 +258,8 @@ def _render_template_with_printer_progress(template_name, *args, **kwargs):
         print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
         raw_percent = print_state.get("mc_percent")
         active_print_id = print_history_service.get_latest_active_print_id()
+        if requested_print_id is None and active_print_id is not None:
+            kwargs["active_print_id"] = active_print_id
         try:
             percent = max(0, min(100, int(float(raw_percent)))) if raw_percent is not None else None
         except (TypeError, ValueError):
