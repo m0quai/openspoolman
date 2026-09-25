@@ -1,24 +1,10 @@
-import os
 import sqlite3
-import os
 from datetime import datetime
 from pathlib import Path
+from config import DATABASE_PATH
+from database import connect_database
 
-DEFAULT_DB_NAME = "3d_printer_logs.db"
-DB_ENV_VAR = "OPENSPOOLMAN_PRINT_HISTORY_DB"
-
-
-def _default_db_path() -> Path:
-    # Resolve the print history database path, allowing an env override.
-
-    env_path = os.getenv(DB_ENV_VAR)
-    if env_path:
-        return Path(env_path).expanduser().resolve()
-
-    return Path(__file__).resolve().parent / "data" / DEFAULT_DB_NAME
-
-
-db_config = {"db_path": str(_default_db_path())}  # Configuration for database location
+db_config = {"db_path": str(DATABASE_PATH)}  # Compatibility for existing callers.
 
 
 def printer_state_to_history_status(state: str | None, print_error=None) -> str | None:
@@ -58,7 +44,7 @@ def create_database() -> None:
     db_path = Path(db_config["db_path"])
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(db_path)
+    conn = connect_database(db_path)
     cursor = conn.cursor()
 
     cursor.execute('''
@@ -198,7 +184,7 @@ def insert_print(file_name: str, print_type: str, image_file: str = None, print_
     if print_date is None:
         print_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     cursor = conn.cursor()
     cursor.execute('''
         INSERT INTO prints (print_date, file_name, print_type, image_file)
@@ -218,7 +204,7 @@ def ensure_layer_tracking(print_id: int, status: str = "PREPARING") -> None:
     # Create the lightweight tracking row before 3MF metadata is ready.
     if print_id is None:
         return
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.execute(
         "INSERT INTO print_layer_tracking (print_id, status) VALUES (?, ?) "
         "ON CONFLICT(print_id) DO UPDATE SET status = excluded.status",
@@ -230,7 +216,7 @@ def ensure_layer_tracking(print_id: int, status: str = "PREPARING") -> None:
 def update_print_image(print_id: int, image_file: str) -> None:
     if print_id is None or not image_file:
         return
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.execute("UPDATE prints SET image_file = ? WHERE id = ?", (image_file, print_id))
     conn.commit()
     conn.close()
@@ -238,13 +224,13 @@ def update_print_image(print_id: int, image_file: str) -> None:
 def get_print_image(print_id: int) -> str | None:
     if print_id is None:
         return None
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     row = conn.execute("SELECT image_file FROM prints WHERE id = ?", (print_id,)).fetchone()
     conn.close()
     return row[0] if row and row[0] else None
 
 def get_latest_running_print_id() -> int | None:
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     row = conn.execute(
         "SELECT print_id FROM print_layer_tracking WHERE status = 'RUNNING' ORDER BY print_id DESC LIMIT 1"
     ).fetchone()
@@ -255,7 +241,7 @@ def get_latest_running_print_id() -> int | None:
 def get_latest_active_print_id() -> int | None:
     # PREPARING and PAUSED are active jobs too.  History must keep refreshing
     # before the 3MF is available and while the printer is paused.
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     row = conn.execute(
         "SELECT print_id FROM print_layer_tracking "
         "WHERE status IN ('PREPARING', 'RUNNING', 'PAUSED') "
@@ -277,7 +263,7 @@ def find_latest_print_id(file_name: str | None) -> int | None:
             candidates.append(name[: -len(suffix)])
     candidates = list(dict.fromkeys(candidates))
 
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     placeholders = ",".join("?" for _ in candidates)
     row = conn.execute(
         f"SELECT id FROM prints WHERE file_name IN ({placeholders}) "
@@ -305,7 +291,7 @@ def find_open_print_for_printer_job(*names: str | None) -> dict | None:
     if not wanted:
         return None
 
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         """SELECT p.id, p.file_name, t.status, t.total_layers,
@@ -326,7 +312,7 @@ def find_open_print_for_printer_job(*names: str | None) -> dict | None:
 
 
 def get_filament_usage_for_reconciliation(print_id: int) -> list[dict]:
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         """SELECT id, ams_slot, spool_id, grams_used, estimated_grams,
@@ -344,7 +330,7 @@ def get_filament_usage_for_reconciliation(print_id: int) -> list[dict]:
 def set_estimated_duration_if_missing(print_id: int, minutes: float) -> None:
     if print_id is None or minutes <= 0:
         return
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.execute(
         """UPDATE print_layer_tracking
            SET estimated_duration_minutes = ?
@@ -374,7 +360,7 @@ def update_printer_job_status(
     if not fields:
         return
     values.append(int(print_id))
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.execute(f"UPDATE print_layer_tracking SET {', '.join(fields)} WHERE print_id = ?", values)
     conn.commit()
     conn.close()
@@ -385,7 +371,7 @@ def update_latest_printer_job_status(names: tuple[str | None, ...], *, percent: 
     wanted.discard("")
     if not wanted:
         return
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     rows = conn.execute(
         """SELECT p.id, p.file_name FROM prints p
            WHERE COALESCE(p.is_deleted, 0) = 0 ORDER BY p.id DESC"""
@@ -411,7 +397,7 @@ def mark_print_reconciled(
     source: str = "mqtt_finish_recovery",
 ) -> None:
     # Persist recovered totals and close the job after successful external transfers.
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.execute("PRAGMA foreign_keys = ON")
     for update in usage_updates:
         conn.execute(
@@ -460,7 +446,7 @@ def mark_print_reconciled(
 
 def cancel_stale_running_prints(actual_end_time: str) -> int:
     # Mark interrupted legacy runs as canceled without touching filament usage.
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     cursor = conn.execute(
         "UPDATE print_layer_tracking SET status = 'ABORTED', actual_end_time = ? "
         "WHERE status = 'RUNNING' AND predicted_end_time IS NOT NULL AND predicted_end_time < ?",
@@ -487,7 +473,7 @@ def insert_filament_usage(
     if print_id is None:
         raise ValueError("Filamentverbrauch benötigt eine gültige Print-ID")
 
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     cursor = conn.cursor()
     # The first row can be created provisionally from the currently active
     # tray before the 3MF is ready.  Enrich that row instead of inserting a
@@ -527,7 +513,7 @@ def insert_filament_usage(
 def update_filament_spool(print_id: int, filament_id: int, spool_id: int) -> None:
     #
     # Updates the spool_id for a given filament usage entry, ensuring it belongs to the specified print job.
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     cursor = conn.cursor()
     cursor.execute('''
         UPDATE filament_usage
@@ -540,7 +526,7 @@ def update_filament_spool(print_id: int, filament_id: int, spool_id: int) -> Non
 def bind_filament_usage_spool(print_id: int, filament_id: int, spool_id: int, physical_ams_slot: int | None) -> None:
     # Bind an untouched provisional history row without rewriting usage already
     # recorded for an earlier physical spool.
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.execute(
         """UPDATE filament_usage
            SET spool_id = ?, physical_ams_slot = COALESCE(?, physical_ams_slot)
@@ -564,7 +550,7 @@ def record_filament_usage_segment(
 ) -> None:
     # Keep one history row for each logical filament / spool / physical tray
     # segment so AMS auto-switches remain visible in the print and spool history.
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     cursor = conn.cursor()
     cursor.execute(
         """SELECT id FROM filament_usage
@@ -600,7 +586,7 @@ def record_filament_usage_segment(
 
 def update_filament_physical_slot(print_id: int, filament_id: int, physical_ams_slot: int) -> None:
     # Persist the physical AMS tray for a logical filament channel.
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.execute(
         "UPDATE filament_usage SET physical_ams_slot = ? WHERE ams_slot = ? AND print_id = ?",
         (physical_ams_slot, filament_id, print_id),
@@ -612,7 +598,7 @@ def claim_filament_usage_event(print_id: int | None, layer: int, filament_index:
     # Create/inspect one consumption event and return its transfer status.
     if print_id is None:
         return "pending"
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.execute(
         """INSERT OR IGNORE INTO filament_usage_events
            (print_id, layer, filament_index, spool_id, length_used, created_at, status)
@@ -631,7 +617,7 @@ def claim_filament_usage_event(print_id: int | None, layer: int, filament_index:
 def finalize_filament_usage_events(print_id: int) -> None:
     # Usage segments are persisted when each Spoolman transfer succeeds. Remove
     # only confirmed events after finalization; pending events remain recoverable.
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute(
         "DELETE FROM filament_usage_events WHERE print_id = ? AND status = 'confirmed'",
@@ -645,7 +631,7 @@ def set_filament_usage_event_status(print_id: int, layer: int, filament_index: i
     # Advance a consumption event through pending, sent and confirmed.
     if status not in {"pending", "sent", "confirmed"}:
         raise ValueError(f"Invalid filament usage event status: {status}")
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.execute(
         "UPDATE filament_usage_events SET status = ? WHERE print_id = ? AND layer = ? AND filament_index = ?",
         (status, int(print_id), int(layer), int(filament_index)),
@@ -677,7 +663,7 @@ def update_filament_grams_used(print_id: int, filament_id: int, grams_used: floa
     set_clause = ", ".join(set_parts)
     params.extend([filament_id, print_id])
 
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     cursor = conn.cursor()
     cursor.execute(f'''
         UPDATE filament_usage
@@ -693,7 +679,7 @@ def get_prints_with_filament(limit: int | None = None, offset: int | None = None
     # Retrieves print jobs along with their associated filament usage, grouped by print job.
     #
     # A total count is returned to support pagination.
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.row_factory = sqlite3.Row  # Enable column name access
 
     count_cursor = conn.cursor()
@@ -739,21 +725,21 @@ def get_prints_with_filament(limit: int | None = None, offset: int | None = None
 
 
 def soft_delete_print(print_id: int) -> None:
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.execute("UPDATE prints SET is_deleted = 1 WHERE id = ?", (print_id,))
     conn.commit()
     conn.close()
 
 
 def restore_print(print_id: int) -> None:
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.execute("UPDATE prints SET is_deleted = 0 WHERE id = ?", (print_id,))
     conn.commit()
     conn.close()
 
 
 def has_deleted_prints() -> bool:
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     row = conn.execute("SELECT 1 FROM prints WHERE COALESCE(is_deleted, 0) = 1 LIMIT 1").fetchone()
     conn.close()
     return row is not None
@@ -761,7 +747,7 @@ def has_deleted_prints() -> bool:
 def get_prints_by_spool(spool_id: int):
     #
     # Retrieves all print jobs that used a specific spool.
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute('''
@@ -776,7 +762,7 @@ def get_prints_by_spool(spool_id: int):
 
 def get_spool_print_usage(spool_id: int) -> list[dict]:
     # Return the print-level consumption records for one spool.
-    conn = sqlite3.connect(db_config["db_path"])
+    conn = connect_database(db_config["db_path"])
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         """SELECT p.id AS print_id, p.print_date, p.file_name,
@@ -792,7 +778,7 @@ def get_spool_print_usage(spool_id: int) -> list[dict]:
     return [dict(row) for row in rows]
 
 def get_filament_for_slot(print_id: int, ams_slot: int):
-  conn = sqlite3.connect(db_config["db_path"])
+  conn = connect_database(db_config["db_path"])
   conn.row_factory = sqlite3.Row  # Enable column name access
   cursor = conn.cursor()
 
@@ -806,7 +792,7 @@ def get_filament_for_slot(print_id: int, ams_slot: int):
   return dict(row) if row else None
 
 def _ensure_layer_tracking_entry(print_id: int):
-  conn = sqlite3.connect(db_config["db_path"])
+  conn = connect_database(db_config["db_path"])
   cursor = conn.cursor()
   cursor.execute('''
       INSERT OR IGNORE INTO print_layer_tracking (print_id)
@@ -841,7 +827,7 @@ def update_layer_tracking(print_id: int, **fields):
   set_clause = ", ".join(f"{key} = ?" for key in sanitized)
   params = list(sanitized.values()) + [print_id]
 
-  conn = sqlite3.connect(db_config["db_path"])
+  conn = connect_database(db_config["db_path"])
   cursor = conn.cursor()
   cursor.execute(f'''
       UPDATE print_layer_tracking
@@ -855,7 +841,7 @@ def get_layer_tracking_for_prints(print_ids: list[int]):
   if not print_ids:
     return {}
 
-  conn = sqlite3.connect(db_config["db_path"])
+  conn = connect_database(db_config["db_path"])
   conn.row_factory = sqlite3.Row
   cursor = conn.cursor()
   placeholders = ",".join("?" for _ in print_ids)
@@ -871,7 +857,7 @@ def get_layer_tracking_for_prints(print_ids: list[int]):
 
 def get_latest_print_summary() -> dict | None:
   # Return the latest visible print and its persisted tracking status.
-  conn = sqlite3.connect(db_config["db_path"])
+  conn = connect_database(db_config["db_path"])
   conn.row_factory = sqlite3.Row
   row = conn.execute(
     """SELECT p.id, p.print_date, p.file_name,
@@ -892,7 +878,7 @@ def get_all_filament_usage_for_print(print_id: int):
   #
   # Retrieves all filament usage entries for a specific print.
   # Returns a dict mapping ams_slot to a dict with grams_used and length_used.
-  conn = sqlite3.connect(db_config["db_path"])
+  conn = connect_database(db_config["db_path"])
   conn.row_factory = sqlite3.Row
   cursor = conn.cursor()
 

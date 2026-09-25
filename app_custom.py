@@ -216,6 +216,7 @@ if not app.secret_key:
 
 from bambu_auth_routes import bp as bambu_cloud_bp
 from nfc_routes import bp as ams_nfc_bp
+import nfc_pending_repository
 from flask import jsonify, redirect, request, url_for, render_template, send_from_directory, Response, stream_with_context, session
 import mqtt_bambulab
 import spool_repository as spool_data
@@ -736,14 +737,7 @@ def _printer_status_code():
 
 @app.context_processor
 def inject_openspoolman_version():
-    pending_nfc = False
-    try:
-        import json
-        from pathlib import Path
-        pending_file = Path(__file__).resolve().parent / "data" / "nfc_pending.json"
-        pending_nfc = bool(json.loads(pending_file.read_text(encoding="utf-8"))) if pending_file.exists() else False
-    except Exception:
-        pending_nfc = False
+    pending_nfc = nfc_pending_repository.has_pending_tags()
     return {
         "openspoolman_version": _load_openspoolman_version(),
         "openspoolman_build_number": _runtime_build_number,

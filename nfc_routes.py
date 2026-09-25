@@ -1,16 +1,15 @@
 import json
 import traceback
-from datetime import datetime, timezone
-from pathlib import Path
 
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 
 import mqtt_bambulab
+import nfc_pending_repository
 import spool_repository as spool_repo
 import spoolman_service
 
 bp = Blueprint("ams_nfc", __name__, url_prefix="/ams/nfc")
-_PENDING_FILE = Path(__file__).resolve().parent / "data" / "nfc_pending.json"
+nfc_pending_repository.initialize_storage()
 
 
 def _clean_extra_value(value):
@@ -48,35 +47,12 @@ def _resolve_tray(tray_index):
     return None, None
 
 
-def _load_pending():
-    try:
-        data = json.loads(_PENDING_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
-
-
-def _save_pending(items):
-    _PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _PENDING_FILE.write_text(json.dumps(items, indent=2), encoding="utf-8")
-
-
 def _remember_pending(uid, tray_index, ams_id):
-    items = _load_pending()
-    items = [item for item in items if _normalize_uid(item.get("uid")) != uid]
-    items.append({
-        "uid": uid,
-        "tray_index": tray_index,
-        "ams_id": ams_id,
-        "seen_at": datetime.now(timezone.utc).isoformat(),
-    })
-    _save_pending(items)
+    nfc_pending_repository.remember_pending_tag(uid, tray_index, ams_id)
 
 
 def _remove_pending(uid):
-    wanted = _normalize_uid(uid)
-    items = [item for item in _load_pending() if _normalize_uid(item.get("uid")) != wanted]
-    _save_pending(items)
+    nfc_pending_repository.remove_pending_tag(uid)
 
 
 def _assign_spool_to_tray(spool, ams_id, tray_id):
@@ -125,7 +101,7 @@ def set_nfc_tray(tray_index):
 
 @bp.get("/pending")
 def pending_tags():
-    return render_template("nfc_pending.html", pending_tags=_load_pending(), spools=spoolman_service.fetchSpools(cached=True))
+    return render_template("nfc_pending.html", pending_tags=nfc_pending_repository.list_pending_tags(), spools=spoolman_service.fetchSpools(cached=True))
 
 
 @bp.post("/pending/<path:uid>/assign")
@@ -137,7 +113,7 @@ def assign_pending_tag(uid):
     except ValueError:
         return redirect(url_for("ams_nfc.pending_tags", error="Bitte eine Spule auswählen."))
 
-    pending = next((item for item in _load_pending() if _normalize_uid(item.get("uid")) == normalized_uid), None)
+    pending = nfc_pending_repository.get_pending_tag(normalized_uid)
     if pending is None:
         return redirect(url_for("ams_nfc.pending_tags", error="NFC-Tag wurde nicht gefunden."))
 

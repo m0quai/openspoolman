@@ -200,7 +200,7 @@ def start_server(
     if live_read_only:
         env["OPENSPOOLMAN_LIVE_READONLY"] = "1"
     if print_history_db:
-        env["OPENSPOOLMAN_PRINT_HISTORY_DB"] = print_history_db
+        env["OPENSPOOLMAN_DATABASE_PATH"] = print_history_db
     env.setdefault("OPENSPOOLMAN_BASE_URL", f"http://127.0.0.1:{port}")
 
     process = subprocess.Popen(
