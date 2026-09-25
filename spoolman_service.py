@@ -251,13 +251,15 @@ def augmentTrayDataWithSpoolMan(spool_list, tray_data, ams_id, tray_id):
         tray_type_clean = (tray_data["tray_type"] or "").strip()
 
       if "last_used" in spool:
-        tray_data["last_used_iso"] = spool.get("last_used")
         try:
             dt = datetime.strptime(spool["last_used"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=ZoneInfo("UTC"))
         except ValueError:
             dt = datetime.strptime(spool["last_used"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=ZoneInfo("UTC"))
 
         local_time = dt.astimezone()
+        # Template formatter preserves wall-clock time for application timestamps.
+        # Normalize this external UTC timestamp before passing it to the template.
+        tray_data["last_used_iso"] = local_time.isoformat()
         tray_data["last_used"] = local_time.strftime("%d.%m.%Y %H:%M")
       else:
           tray_data["last_used"] = "-"

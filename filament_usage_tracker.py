@@ -1265,6 +1265,17 @@ class FilamentUsageTracker:
       return
     log(f"[filament-tracker] Recovering from checkpoint task={task_id} subtask={subtask_id}")
     model_path, gcode_file_name, current_layer, ams_mapping = result
+    checkpoint_layer = max(0, int(current_layer))
+    try:
+      printer_layer = max(0, int(print_obj.get("layer_num") or 0))
+    except (TypeError, ValueError):
+      printer_layer = checkpoint_layer
+    current_layer = max(checkpoint_layer, printer_layer)
+    if current_layer != checkpoint_layer:
+      log(
+        f"[filament-tracker] Checkpoint-Layer an Druckerstand angepasst: "
+        f"{checkpoint_layer} -> {current_layer}; keine rückwirkende Doppelbuchung"
+      )
     current_tray = self._active_ams_tray(print_obj)
     if not ams_mapping and current_tray is not None:
       ams_mapping = [current_tray]
@@ -1276,7 +1287,6 @@ class FilamentUsageTracker:
     self.ams_mapping = ams_mapping
     self.current_layer = current_layer
     self.using_ams = ams_mapping is not None
-    self._update_layer_tracking_progress()
     
     # Initialize cumulative usage from database to continue tracking correctly
     self.cumulative_grams_used = {}
@@ -1291,3 +1301,4 @@ class FilamentUsageTracker:
         if length_value is not None:
           self.cumulative_length_used[ams_slot] = length_value
         log(f"[filament-tracker] Resumed cumulative usage for filament {ams_slot}: {grams_value}g, {length_value or 0}mm")
+    self._update_layer_tracking_progress()
