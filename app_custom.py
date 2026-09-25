@@ -219,7 +219,9 @@ from nfc_routes import bp as ams_nfc_bp
 import nfc_pending_repository
 from flask import jsonify, redirect, request, url_for, render_template, send_from_directory, Response, stream_with_context, session
 import mqtt_bambulab
-import spool_repository as spool_data
+import inventory_repository as spool_data
+import inventory_database as inventory_db
+from config import USE_SPOOLMAN
 import print_history as print_history_service
 from config import EXTERNAL_SPOOL_AMS_ID, PRINTER_ID, PRINTER_NAME
 from __version__ import __build_number__, __version__
@@ -229,6 +231,18 @@ from jobs_3mf import JOBS_3MF
 from ui_formatting import format_ui_datetime
 
 from logger import log as _log
+
+spool_data.install_spoolman_compatibility_adapter()
+import inventory_service as _inventory_service
+
+_get_inventory_settings = _inventory_service.getSettings
+
+def _get_inventory_settings_for_legacy_template(cached=False):
+    settings = _get_inventory_settings(cached)
+    settings["currency_symbol"] = ""
+    return settings
+
+_inventory_service.getSettings = _get_inventory_settings_for_legacy_template
 
 _AMS_REFRESH_LOCK = threading.Lock()
 _AMS_REFRESH_LAST_REQUEST = 0.0
@@ -801,11 +815,89 @@ def inventory():
             "prints": print_history_service.get_spool_print_usage(spool_id),
         })
     show_status_column = any(bool(item["spool"].get("archived")) for item in inventory_rows)
+    local_mode = not USE_SPOOLMAN
+    try:
+        vendors = inventory_db.list_entities("vendors") if local_mode else []
+        materials = inventory_db.list_entities("materials") if local_mode else []
+        filaments = inventory_db.list_filaments() if local_mode else []
+    except Exception as exc:
+        _log(f"Local inventory editor could not load: {exc}")
+        vendors, materials, filaments = [], [], []
     return render_template(
         "inventory.html",
         inventory_rows=inventory_rows,
         show_status_column=show_status_column,
+        inventory_backend=spool_data.get_backend(),
+        local_inventory=local_mode,
+        inventory_vendors=vendors,
+        inventory_materials=materials,
+        inventory_filaments=filaments,
     )
+
+
+def _inventory_payload():
+    if request.is_json:
+        return request.get_json(silent=True) or {}
+    return request.form.to_dict()
+
+
+def _require_local_inventory():
+    if USE_SPOOLMAN:
+        return jsonify({"error": "Lokale Verwaltung ist deaktiviert. Setze USE_SPOOLMAN=no in config.env und starte den Container neu."}), 409
+    return None
+
+
+@app.post("/inventory/manage/<entity>")
+@app.put("/inventory/manage/<entity>/<int:entity_id>")
+def inventory_save_entity(entity, entity_id=None):
+    denied = _require_local_inventory()
+    if denied:
+        return denied
+    try:
+        saved_id = inventory_db.save_entity(entity, _inventory_payload(), entity_id)
+        return jsonify({"ok": True, "id": saved_id})
+    except (ValueError, KeyError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        if "UNIQUE constraint failed" in str(exc):
+            return jsonify({"error": "Dieses Material ist bereits vorhanden."}), 409
+        if "FOREIGN KEY constraint failed" in str(exc):
+            return jsonify({"error": "Der Eintrag wird noch verwendet und kann nicht gelöscht werden."}), 409
+        _log(f"Local inventory save failed ({entity}): {exc!r}")
+        return jsonify({"error": "Speichern fehlgeschlagen."}), 500
+
+
+@app.delete("/inventory/manage/<entity>/<int:entity_id>")
+def inventory_delete_entity(entity, entity_id):
+    denied = _require_local_inventory()
+    if denied:
+        return denied
+    try:
+        inventory_db.delete_entity(entity, entity_id)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        if "FOREIGN KEY constraint failed" in str(exc):
+            return jsonify({"error": "Der Eintrag wird noch verwendet und kann nicht gelöscht werden."}), 409
+        _log(f"Local inventory delete failed ({entity} #{entity_id}): {exc!r}")
+        return jsonify({"error": "Löschen fehlgeschlagen."}), 500
+
+
+@app.post("/inventory/manage/spools")
+@app.put("/inventory/manage/spools/<int:spool_id>")
+def inventory_save_spool(spool_id=None):
+    denied = _require_local_inventory()
+    if denied:
+        return denied
+    try:
+        saved_id = inventory_db.save_spool(_inventory_payload(), spool_id)
+        return jsonify({"ok": True, "id": saved_id})
+    except Exception as exc:
+        if "UNIQUE constraint failed" in str(exc):
+            return jsonify({"error": "Dieser NFC-Tag ist bereits einer anderen Spule zugeordnet."}), 409
+        if "FOREIGN KEY constraint failed" in str(exc):
+            return jsonify({"error": "Bitte ein gültiges Filament auswählen."}), 400
+        _log(f"Local spool save failed: {exc!r}")
+        return jsonify({"error": "Speichern fehlgeschlagen."}), 500
 
 @app.route("/livecam/stream")
 def livecam_stream():
@@ -934,7 +1026,7 @@ def refresh_ams():
 
 def _custom_tray_clear():
     import traceback
-    import spoolman_service
+    import inventory_service
 
     ams_id = request.form.get("ams")
     tray_id = request.form.get("tray")
@@ -967,8 +1059,8 @@ def _custom_tray_clear():
                 exception="Could not send the AMS clear command to the printer.",
             )
 
-        spoolman_service.clear_active_spool_for_tray(ams_id, tray_id)
-        spoolman_service.SPOOLS = []
+        inventory_service.clear_active_spool_for_tray(ams_id, tray_id)
+        inventory_service.SPOOLS = []
         return redirect(
             url_for(
                 "home",
@@ -1063,8 +1155,8 @@ def _set_active_spool_bambu_compatible(ams_id, tray_id, spool_data):
     # The assignment endpoint updates Spoolman, but the service-level spool
     # cache may still contain the previous active_tray value.  Invalidate it
     # so the next home render immediately reflects the confirmed assignment.
-    import spoolman_service
-    spoolman_service.SPOOLS = []
+    import inventory_service
+    inventory_service.SPOOLS = []
     return result
 
 _openspoolman_app_module.setActiveSpool = _set_active_spool_bambu_compatible
@@ -1094,7 +1186,7 @@ def _publish_without_empty_setting_id(client, message):
                     message["print"].pop("setting_id", None)
                 try:
                     import json
-                    from spoolman_service import fetchSpools
+                    from inventory_service import fetchSpools
                     active_tray = json.dumps(f"{PRINTER_ID}_{ams_id}_{tray_id}")
                     spool = next(
                         (item for item in fetchSpools(True)

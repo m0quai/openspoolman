@@ -51,8 +51,8 @@ Keine Force-Pushes und keine History-Rewrites ohne ausdrücklichen Auftrag.
   ist. Eigene Erweiterungen gehören bevorzugt in `app_custom.py` sowie getrennte
   Module oder Blueprints.
 - Bestehende Trennung für Bambu-Authentifizierung (z. B. `bambu_auth.py`) achten.
-- Die Kommunikation mit Spoolman läuft zentral über die Repository-/Datenzugriffsschicht
-  (`spool_repository.py`); direkte API-Aufrufe in UI- oder Fachlogik vermeiden.
+- Inventarzugriffe laufen über die allgemeine Repository-/Datenzugriffsschicht
+  (`inventory_repository.py`); direkte API-Aufrufe in UI- oder Fachlogik vermeiden.
 - Die Spool-/UID-Zuordnung bleibt auf OpenSpoolMan-Seite; AMSHelper löst keine UID
   selbst in eine Spool-ID auf.
 - Weboberfläche und bestehende API-Verträge nicht ohne ausdrücklichen Auftrag

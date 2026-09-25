@@ -22,7 +22,7 @@ from config import (
     CLEAR_ASSIGNMENT_WHEN_EMPTY,
 )
 from messages import GET_VERSION, PUSH_ALL, AMS_FILAMENT_SETTING
-from spoolman_service import (
+from inventory_service import (
   spendFilaments,
   setActiveTray,
   fetchSpools,
@@ -30,7 +30,7 @@ from spoolman_service import (
   getAMSFromTray,
   trayUid,
 )
-from spool_repository import record_consumption
+from inventory_repository import record_consumption
 from tools_3mf import getMetaDataFrom3mf
 import time
 import threading
@@ -993,7 +993,7 @@ def _persist_confirmed_pa_profile(ams_id, tray_id, cali_idx, reported_filament_i
     )
     return False
 
-  import spool_repository as spool_repo
+  import inventory_repository as spool_repo
   spool_repo.update_filament_metadata(
     spool["filament"]["id"],
     extras,
@@ -1307,7 +1307,7 @@ def on_message(client, userdata, msg):
               pass
             elif spool and spool.get("filament", {}).get("id"):
               PROFILE_RESPONSE_SAMPLES[sample_key] = sample
-              import spool_repository as spool_repo
+              import inventory_repository as spool_repo
               spool_repo.update_filament_metadata(
                 spool["filament"]["id"],
                 spool["filament"].get("extra") or {},

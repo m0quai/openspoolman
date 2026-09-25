@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <h1 class="mb-4 text-center">{{ _('Inventory') }}</h1>
+<div class="alert {{ 'alert-primary' if local_inventory else 'alert-secondary' }} d-flex justify-content-between align-items-center gap-3">
+  <div><strong>Inventarverwaltung: {{ 'Lokal' if local_inventory else 'Spoolman' }}</strong><br><small>Backend in <code>config.env</code>: <code>USE_SPOOLMAN={{ 'no' if local_inventory else 'yes' }}</code> (Neustart erforderlich)</small></div>
+</div>
 <div class="table-responsive">
   <table class="table table-hover align-middle inventory-table {{ 'inventory-has-status' if show_status_column else 'inventory-no-status' }}" id="inventory-table">
     <thead>
@@ -13,10 +16,10 @@
       {% set filament = spool.filament or {} %}
       {% set spool_status = 'archived' if spool.archived else 'active' %}{% set spool_status_label = _('Archiviert') if spool.archived else _('Aktiv') %}
       <tr data-inventory-row data-inventory-id="{{ spool.id }}" data-inventory-vendor="{{ (filament.vendor.name if filament.vendor else '')|lower }}" data-inventory-vendor-label="{{ filament.vendor.name if filament.vendor else _('Unbekannt') }}" data-inventory-filament="{{ (filament.name or '')|lower }}" data-inventory-filament-label="{{ filament.name or _('Ohne Namen') }}" data-inventory-material="{{ (filament.material or '')|lower }}" data-inventory-material-label="{{ filament.material or _('Unbekannt') }}" data-inventory-status="{{ spool_status }}" data-inventory-status-label="{{ spool_status_label }}" data-inventory-color="{{ (filament.color_hex or '')|lower }}" data-inventory-color-label="{{ filament.color_hex or '' }}" data-inventory-weight="{{ spool.remaining_weight|float }}">
-        <td class="text-nowrap"><a class="inventory-spool-link" href="{{ SPOOLMAN_BASE_URL }}/?sel=spool:{{ spool.id }}" target="openspoolman-spoolman" data-spoolman-window="true" title="{{ _('view in spoolman') }}"><strong>#{{ spool.id }}</strong></a></td>
-        <td>{% if filament.vendor and filament.vendor.id %}<a class="inventory-entity-link" href="{{ SPOOLMAN_BASE_URL }}/?sel=vendor:{{ filament.vendor.id }}" target="openspoolman-spoolman" data-spoolman-window="true">{{ filament.vendor.name }}</a>{% else %}{{ _('Unbekannt') }}{% endif %}</td>
+        <td class="text-nowrap">{% if local_inventory %}<strong>#{{ spool.id }}</strong>{% else %}<a class="inventory-spool-link" href="{{ SPOOLMAN_BASE_URL }}/?sel=spool:{{ spool.id }}" target="openspoolman-spoolman" data-spoolman-window="true" title="{{ _('view in spoolman') }}"><strong>#{{ spool.id }}</strong></a>{% endif %}</td>
+        <td>{% if filament.vendor and filament.vendor.id %}{% if local_inventory %}{{ filament.vendor.name }}{% else %}<a class="inventory-entity-link" href="{{ SPOOLMAN_BASE_URL }}/?sel=vendor:{{ filament.vendor.id }}" target="openspoolman-spoolman" data-spoolman-window="true">{{ filament.vendor.name }}</a>{% endif %}{% else %}{{ _('Unbekannt') }}{% endif %}</td>
         <td>{{ filament.material or _('Unbekannt') }}</td>
-        <td>{% if filament.id %}<a class="inventory-entity-link" href="{{ SPOOLMAN_BASE_URL }}/?sel=filament:{{ filament.id }}" target="openspoolman-spoolman" data-spoolman-window="true">{{ filament.name or _('Ohne Namen') }}</a>{% else %}{{ filament.name or _('Ohne Namen') }}{% endif %}</td>
+        <td>{% if filament.id and not local_inventory %}<a class="inventory-entity-link" href="{{ SPOOLMAN_BASE_URL }}/?sel=filament:{{ filament.id }}" target="openspoolman-spoolman" data-spoolman-window="true">{{ filament.name or _('Ohne Namen') }}</a>{% else %}{{ filament.name or _('Ohne Namen') }}{% endif %}</td>
         {% set color_value = filament.color_hex or '000000' %}<td><span class="inventory-color-code" style="background-color: #{{ color_value }}; color: {{ '#fff' if color_is_dark(color_value) else '#111' }}; text-shadow: {{ '0 1px 1px rgba(0,0,0,.65)' if color_is_dark(color_value) else 'none' }};">#{{ color_value }}</span></td>
         {% if show_status_column %}<td><span class="badge {{ 'text-bg-secondary' if spool.archived else 'text-bg-success' }}">{{ spool_status_label }}</span></td>{% endif %}
         <td class="text-nowrap">{{ '%.1f'|format(spool.remaining_weight|float) }} g</td>
@@ -34,6 +37,96 @@
     </tbody>
   </table>
 </div>
+{% if local_inventory %}
+<section class="mt-5" id="local-inventory-management">
+  <div class="d-flex justify-content-between align-items-center mb-3"><h2 class="h4 mb-0">Lokale Verwaltung</h2><span class="text-muted">Hersteller · Materialien · Filamente · Spulen</span></div>
+  <div id="inventory-admin-message" class="alert d-none" role="alert"></div>
+  <div class="row g-3">
+    {% for entity, title, rows in [('vendors', 'Hersteller', inventory_vendors), ('materials', 'Materialien', inventory_materials), ('filaments', 'Filamente', inventory_filaments)] %}
+    <div class="col-12 col-xl-6"><div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>{{ title }}</strong><button class="btn btn-sm btn-primary" type="button" data-admin-add="{{ entity }}">Neu</button></div><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>ID</th><th>Name</th>{% if entity == 'filaments' %}<th>Hersteller / Material</th><th>Farbe</th>{% endif %}<th></th></tr></thead><tbody>
+    {% for row in rows %}<tr><td>{{ row.id }}</td><td>{{ row.name }}</td>{% if entity == 'filaments' %}<td>{{ row.vendor_name or '—' }} / {{ row.material_name or '—' }}</td><td>{{ row.color_hex or '—' }}</td>{% endif %}<td class="text-end text-nowrap"><button class="btn btn-sm btn-outline-primary" type="button" data-admin-edit="{{ entity }}" data-record="{{ row|tojson|forceescape }}">Bearbeiten</button><button class="btn btn-sm btn-outline-danger ms-1" type="button" data-admin-delete="{{ entity }}" data-id="{{ row.id }}">Löschen</button></td></tr>
+    {% else %}<tr><td colspan="{{ 5 if entity == 'filaments' else 3 }}" class="text-muted">Noch keine Einträge</td></tr>{% endfor %}
+    </tbody></table></div></div></div>
+    {% endfor %}
+    <div class="col-12"><div class="card"><div class="card-header d-flex justify-content-between align-items-center"><strong>Spulen</strong><button class="btn btn-sm btn-primary" type="button" data-admin-add="spools">Neue Spule</button></div><div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0"><thead><tr><th>ID</th><th>Filament</th><th>Preis</th><th>Startgewicht</th><th>Verbrauch</th><th>Restgewicht</th><th>Status</th><th></th></tr></thead><tbody>
+    {% for item in inventory_rows %}{% set spool = item.spool %}<tr><td>#{{ spool.id }}</td><td>{{ spool.filament.name }}</td><td>{{ spool.price if spool.price is not none else '—' }}</td><td>{{ spool.initial_weight or 0 }} g</td><td>{{ '%.1f'|format(spool.used_weight|float) }} g</td><td>{{ '%.1f'|format(spool.remaining_weight|float) }} g</td><td>{{ 'Archiviert' if spool.archived else 'Aktiv' }}</td><td class="text-end"><button class="btn btn-sm btn-outline-primary" type="button" data-admin-edit="spools" data-record="{{ spool|tojson|forceescape }}">Bearbeiten / Gewicht korrigieren</button></td></tr>
+    {% else %}<tr><td colspan="8" class="text-muted">Noch keine Spulen</td></tr>{% endfor %}
+    </tbody></table></div></div></div>
+  </div>
+</section>
+<div class="modal fade" id="inventory-admin-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><form id="inventory-admin-form"><div class="modal-header"><h2 class="modal-title fs-5" id="inventory-admin-title">Eintrag</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button></div><div class="modal-body"><input type="hidden" name="id"><div class="row g-3" id="inventory-admin-fields"></div><small class="text-muted d-block mt-3" id="inventory-admin-help"></small></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button><button type="submit" class="btn btn-primary">Speichern</button></div></form></div></div></div>
+<script id="inventory-admin-data" type="application/json">{{ {'vendors': inventory_vendors, 'materials': inventory_materials, 'filaments': inventory_filaments, 'spools': inventory_rows|map(attribute='spool')|list}|tojson }}</script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const data = JSON.parse(document.getElementById('inventory-admin-data').textContent);
+  const modalNode = document.getElementById('inventory-admin-modal');
+  const modal = bootstrap.Modal.getOrCreateInstance(modalNode);
+  const form = document.getElementById('inventory-admin-form');
+  const fieldsNode = document.getElementById('inventory-admin-fields');
+  const message = document.getElementById('inventory-admin-message');
+  const fields = {
+    vendors: [['name', 'Name', 'text']],
+    materials: [['name', 'Name', 'text']],
+    filaments: [['vendor_id', 'Hersteller', 'select:vendors'], ['material_id', 'Material', 'select:materials'], ['name', 'Name', 'text'], ['color_hex', 'Farbe (Hex)', 'color'], ['extruder_temp', 'Extruder-Temperatur (°C)', 'number'], ['bed_temp', 'Bett-Temperatur (°C)', 'number'], ['nozzle_temp', 'Nozzle-Temperatur (°C)', 'number'], ['cali_idx', 'Kalibrierungsindex', 'number']],
+    spools: [['filament_id', 'Filament', 'select:filaments'], ['price', 'Preis', 'number'], ['initial_weight', 'Anfangsgewicht (g)', 'number'], ['spool_weight', 'Leergewicht (g)', 'number'], ['current_remaining_weight', 'Gemessenes Restgewicht (g)', 'number'], ['tag', 'NFC-Tag', 'text'], ['active_tray', 'AMS-Fach', 'text'], ['archived', 'Archiviert', 'checkbox']]
+  };
+  const labels = {vendors: 'Hersteller', materials: 'Material', filaments: 'Filament', spools: 'Spule'};
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  const showMessage = (text, isError = false) => { message.textContent = text; message.className = `alert ${isError ? 'alert-danger' : 'alert-success'}`; };
+  const buildForm = (entity, record = {}) => {
+    form.dataset.entity = entity; form.dataset.id = record.id || ''; form.querySelector('[name=id]').value = record.id || '';
+    document.getElementById('inventory-admin-title').textContent = `${record.id ? 'Bearbeiten' : 'Neu'}: ${labels[entity]}`;
+    document.getElementById('inventory-admin-help').textContent = entity === 'spools' ? 'Das gemessene Restgewicht berechnet eine dauerhafte Gewichtskorrektur aus Anfangsgewicht und gebuchtem Druckverbrauch.' : '';
+    fieldsNode.replaceChildren();
+    fields[entity].forEach(([name, label, type]) => {
+      const wrap = document.createElement('div'); wrap.className = 'col-12 col-md-6';
+      let control;
+      if (type.startsWith('select:')) {
+        const source = type.split(':')[1]; control = document.createElement('select'); control.className = 'form-select'; control.name = name;
+        control.add(new Option('— auswählen —', ''));
+        (data[source] || []).forEach(option => control.add(new Option(source === 'filaments' ? `${option.name} (#${option.id})` : option.name, option.id)));
+      } else {
+        control = document.createElement('input'); control.type = type; control.className = type === 'checkbox' ? 'form-check-input' : 'form-control'; control.name = name;
+        if (type === 'number') { control.step = 'any'; }
+      }
+      const lab = document.createElement('label'); lab.className = type === 'checkbox' ? 'form-check-label ms-2' : 'form-label'; lab.textContent = label;
+      if (type === 'checkbox') { wrap.className += ' form-check pt-4'; control.checked = Boolean(record[name]); wrap.append(control, lab); }
+      else { wrap.append(lab, control); }
+      let value = record[name];
+      if (entity === 'spools' && name === 'current_remaining_weight') value = record.remaining_weight ?? record.initial_weight;
+      if (type === 'color') value = value ? `#${String(value).replace(/^#/, '').slice(0, 6)}` : '#000000';
+      if (type !== 'checkbox') control.value = value ?? '';
+      fieldsNode.append(wrap);
+    });
+    modal.show();
+  };
+  document.querySelectorAll('[data-admin-add]').forEach(button => button.addEventListener('click', () => buildForm(button.dataset.adminAdd)));
+  document.querySelectorAll('[data-admin-edit]').forEach(button => button.addEventListener('click', () => buildForm(button.dataset.adminEdit, JSON.parse(button.dataset.record))));
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const entity = form.dataset.entity; const id = form.dataset.id;
+    const payload = {};
+    fields[entity].forEach(([name, , type]) => {
+      const input = form.elements[name]; let value = type === 'checkbox' ? input.checked : input.value;
+      if (type === 'number') value = value === '' ? null : Number(value);
+      if (type.startsWith('select:')) value = value === '' ? null : Number(value);
+      payload[name] = value;
+    });
+    const response = await fetch(`/inventory/manage/${entity}${id ? `/${id}` : ''}`, {method: id ? 'PUT' : 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    const result = await response.json();
+    if (!response.ok) { showMessage(result.error || 'Speichern fehlgeschlagen.', true); return; }
+    window.location.reload();
+  });
+  document.querySelectorAll('[data-admin-delete]').forEach(button => button.addEventListener('click', async () => {
+    if (!window.confirm('Eintrag wirklich löschen?')) return;
+    const response = await fetch(`/inventory/manage/${button.dataset.adminDelete}/${button.dataset.id}`, {method:'DELETE'});
+    const result = await response.json();
+    if (!response.ok) { showMessage(result.error || 'Löschen fehlgeschlagen.', true); return; }
+    window.location.reload();
+  }));
+});
+</script>
+{% endif %}
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const table = document.getElementById('inventory-table');

@@ -25,7 +25,7 @@ Diese Datei ist die zentrale und verbindliche Sammlung dauerhafter Projektentsch
 - Navigation: `templates/base.html`.
 - Zertifikats-/Signing-Funktionalität: `bambu_certificate.py`.
 - Eigene Funktionalität bleibt modular und updatefreundlich; keine aufgabenfremden Refactorings.
-- Spoolman-Daten werden über `spool_repository.py` als zentrale Datenzugriffsschicht
+- Inventardaten werden über `inventory_repository.py` als zentrale Datenzugriffsschicht
   bezogen. Fachlogik und UI greifen nicht direkt auf die Spoolman-HTTP-API zu.
 - Nicht benötigte Spoolman-Felder werden an dieser Grenze reduziert; interne Modelle
   enthalten nur die für OpenSpoolMan benötigten Daten.

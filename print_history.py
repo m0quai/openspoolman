@@ -1,10 +1,14 @@
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from config import DATABASE_PATH
+from config import DATABASE_NAME, DATABASE_PATH, DATABASE_TYPE
 from database import connect_database
 
-db_config = {"db_path": str(DATABASE_PATH)}  # Compatibility for existing callers.
+db_config = {
+    "db_path": str(DATABASE_PATH),
+    "db_name": DATABASE_NAME,
+    "db_type": DATABASE_TYPE,
+}  # Compatibility for existing callers.
 
 
 def printer_state_to_history_status(state: str | None, print_error=None) -> str | None:

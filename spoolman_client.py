@@ -92,6 +92,20 @@ def fetchSpoolList(include_archived=False):
     raise RuntimeError("Spoolman returned an unexpected spool-list format")
   return data
 
+def _fetch_entity_list(entity):
+  response = requests.get(f"{SPOOLMAN_API_URL}/{entity}", timeout=10)
+  response.raise_for_status()
+  data = response.json()
+  if not isinstance(data, list):
+    raise RuntimeError(f"Spoolman returned an unexpected {entity}-list format")
+  return data
+
+def fetchVendorList():
+  return _fetch_entity_list("vendor")
+
+def fetchFilamentList():
+  return _fetch_entity_list("filament")
+
 def consumeSpool(spool_id, use_weight=None, use_length=None, occurred_at=None):
   if use_weight is None and use_length is None:
     raise ValueError("use_weight or use_length is required")

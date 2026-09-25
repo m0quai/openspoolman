@@ -12,8 +12,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from config import EXTERNAL_SPOOL_AMS_ID, EXTERNAL_SPOOL_ID, TRACK_LAYER_USAGE
-from spool_repository import record_consumption
-from spoolman_service import fetchSpools, getAMSFromTray, trayUid
+from inventory_repository import record_consumption
+from inventory_service import fetchSpools, getAMSFromTray, trayUid
 from tools_3mf import download3mfFromCloud, download3mfFromFTP, download3mfFromLocalFilesystem, getMetaDataFrom3mf
 from print_history import bind_filament_usage_spool, record_filament_usage_segment, claim_filament_usage_event, set_filament_usage_event_status, finalize_filament_usage_events, get_all_filament_usage_for_print, update_layer_tracking, update_print_image, get_print_image, get_latest_running_print_id, find_latest_print_id, printer_state_to_history_status
 

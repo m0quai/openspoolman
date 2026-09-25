@@ -5,8 +5,8 @@ from flask import Blueprint, jsonify, redirect, render_template, request, url_fo
 
 import mqtt_bambulab
 import nfc_pending_repository
-import spool_repository as spool_repo
-import spoolman_service
+import inventory_repository as spool_repo
+import inventory_service
 
 bp = Blueprint("ams_nfc", __name__, url_prefix="/ams/nfc")
 nfc_pending_repository.initialize_storage()
@@ -27,7 +27,7 @@ def _normalize_uid(value):
 
 def _find_spool_by_uid(uid):
     wanted = _normalize_uid(uid)
-    for spool in spoolman_service.fetchSpools(cached=True):
+    for spool in inventory_service.fetchSpools(cached=True):
         extras = spool.get("extra") or {}
         tag = _normalize_uid(_clean_extra_value(extras.get("tag")))
         if tag == wanted:
@@ -76,7 +76,7 @@ def set_nfc_tray(tray_index):
 
     try:
         if uid == "CLEAR":
-            spoolman_service.clear_active_spool_for_tray(ams_id, tray_id)
+            inventory_service.clear_active_spool_for_tray(ams_id, tray_id)
             return jsonify({"success": True, "action": "clear", "tray_index": tray_index, "ams_id": ams_id})
 
         spool = _find_spool_by_uid(uid)
@@ -101,7 +101,7 @@ def set_nfc_tray(tray_index):
 
 @bp.get("/pending")
 def pending_tags():
-    return render_template("nfc_pending.html", pending_tags=nfc_pending_repository.list_pending_tags(), spools=spoolman_service.fetchSpools(cached=True))
+    return render_template("nfc_pending.html", pending_tags=nfc_pending_repository.list_pending_tags(), spools=inventory_service.fetchSpools(cached=True))
 
 
 @bp.post("/pending/<path:uid>/assign")
@@ -117,7 +117,7 @@ def assign_pending_tag(uid):
     if pending is None:
         return redirect(url_for("ams_nfc.pending_tags", error="NFC-Tag wurde nicht gefunden."))
 
-    spool = next((item for item in spoolman_service.fetchSpools(cached=False) if int(item.get("id", -1)) == spool_id), None)
+    spool = next((item for item in inventory_service.fetchSpools(cached=False) if int(item.get("id", -1)) == spool_id), None)
     if spool is None:
         return redirect(url_for("ams_nfc.pending_tags", error="Spule wurde nicht gefunden."))
 

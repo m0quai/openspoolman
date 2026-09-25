@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from flask import Blueprint, jsonify, request
 
 import mqtt_bambulab
-import spool_repository as spool_repo
-import spoolman_service
+import inventory_repository as spool_repo
+import inventory_service
 from config import EXTERNAL_SPOOL_AMS_ID, EXTERNAL_SPOOL_ID, PRINTER_ID, PRINTER_NAME
 
 API_VERSION = "v1"
@@ -75,7 +75,7 @@ def _serialize_spool(spool: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _find_spool_for_tray(spools: List[Dict[str, Any]], ams_id: int, tray_id: int) -> Optional[Dict[str, Any]]:
-  tray_uid = spoolman_service.trayUid(ams_id, tray_id)
+  tray_uid = inventory_service.trayUid(ams_id, tray_id)
   for spool in spools:
     active = _clean_json_value((spool.get("extra") or {}).get("active_tray"))
     if active and active == tray_uid:
@@ -94,7 +94,7 @@ def _serialize_tray(tray: Dict[str, Any], spools: List[Dict[str, Any]], ams_id: 
   material = filament.get("material") or tray.get("tray_type") or ""
 
   tray_color_raw = tray.get("tray_color") or ""
-  tray_color = spoolman_service.normalize_color_hex(tray_color_raw)
+  tray_color = inventory_service.normalize_color_hex(tray_color_raw)
   tray_color_value = f"#{tray_color}" if tray_color else ""
 
   spool_color_value = ""
@@ -109,17 +109,17 @@ def _serialize_tray(tray: Dict[str, Any], spools: List[Dict[str, Any]], ams_id: 
       first_color = raw_multi_color[0] if raw_multi_color else None
     else:
       first_color = str(raw_multi_color).split(",")[0]
-    normalized = spoolman_service.normalize_color_hex(first_color or "")
+    normalized = inventory_service.normalize_color_hex(first_color or "")
     if normalized:
       spool_color_value = f"#{normalized}"
   else:
-    normalized = spoolman_service.normalize_color_hex(filament.get("color_hex") or "")
+    normalized = inventory_service.normalize_color_hex(filament.get("color_hex") or "")
     if normalized:
       spool_color_value = f"#{normalized}"
 
   if not has_multi_color and tray_color_value and spool_color_value:
-    distance = spoolman_service.color_distance(tray_color_value, spool_color_value)
-    if distance is not None and distance > spoolman_service.COLOR_DISTANCE_TOLERANCE:
+    distance = inventory_service.color_distance(tray_color_value, spool_color_value)
+    if distance is not None and distance > inventory_service.COLOR_DISTANCE_TOLERANCE:
       color_mismatch = True
       color_mismatch_message = "Colors are not similar."
 
@@ -225,7 +225,7 @@ def api_get_ams(printer_id: str):
 @api_bp.route("/spools", methods=["GET"])
 def api_get_spools():
   try:
-    spools = spoolman_service.fetchSpools()
+    spools = inventory_service.fetchSpools()
     return json_success([_serialize_spool(spool) for spool in spools])
   except Exception as exc:
     traceback.print_exc()
@@ -299,7 +299,7 @@ def api_unassign_tray(printer_id: str, tray_index: int):
     if spool_id:
       spool = spool_repo.get_spool(spool_id)
     else:
-      spools = spoolman_service.fetchSpools()
+      spools = inventory_service.fetchSpools()
       ams_id, _ = _resolve_tray_context(tray_index)
       if ams_id is None:
         return json_error("TRAY_NOT_FOUND", f"Tray '{tray_index}' not found", 404)
