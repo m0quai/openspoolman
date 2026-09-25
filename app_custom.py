@@ -463,9 +463,8 @@ mqtt_bambulab.log = _format_ams_console_log
 
 
 # Bambu's FTPS server can be very slow while a print is being prepared. A hard
-# 30-second transfer timeout aborts valid multi-megabyte 3MF downloads halfway
-# through. Keep the short connection timeout, but allow the actual transfer up
-# to three minutes.
+# Preserve the FTP transfer policy configured by tools_3mf: no total timeout,
+# a low-speed stall guard, and a larger receive buffer.
 _original_setup_pycurl_connection = _tools_3mf.setupPycurlConnection
 
 
@@ -473,7 +472,6 @@ def _setup_pycurl_connection_for_large_3mf(ftp_user, ftp_pass):
     connection = _original_setup_pycurl_connection(ftp_user, ftp_pass)
     try:
         connection.setopt(connection.CONNECTTIMEOUT, 5)
-        connection.setopt(connection.TIMEOUT, 180)
     except Exception:
         pass
     return connection
@@ -484,7 +482,7 @@ _tools_3mf.setupPycurlConnection = _setup_pycurl_connection_for_large_3mf
 _original_download3mf_from_ftp = _tools_3mf.download3mfFromFTP
 
 
-def _download3mf_with_unique_suffix_fallback(filename, dest_file, progress_callback=None):
+def _download3mf_with_unique_suffix_fallback(filename, dest_file, progress_callback=None, cancel_event=None):
     # Resolve printer-side filename prefixes without guessing between matches.
     #
     #     Bambu .bbl files may reference /sdcard/Kerstin.gcode.3mf while FTPS exposes
@@ -492,8 +490,10 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file, progress_callb
     #     If that fails, inspect the FTPS root. An exact filename wins over suffix
     #     variants; otherwise a suffix match is accepted only when it is unique.
     try:
-        return _original_download3mf_from_ftp(filename, dest_file, progress_callback)
+        return _original_download3mf_from_ftp(filename, dest_file, progress_callback, cancel_event)
     except Exception as original_error:
+        if cancel_event is not None and cancel_event.is_set():
+            raise original_error
         expected_name = os.path.basename(str(filename or "").strip())
         if not expected_name.lower().endswith(".3mf"):
             raise
@@ -520,7 +520,7 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file, progress_callb
             _log(
                 f"[3MF] Exakter FTPS-Root-Treffer fuer {expected_name!r}: {resolved_path}; erneuter Download."
             )
-            return _original_download3mf_from_ftp(resolved_path, dest_file, progress_callback)
+            return _original_download3mf_from_ftp(resolved_path, dest_file, progress_callback, cancel_event)
 
         matches = [
             name
@@ -534,7 +534,7 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file, progress_callb
             _log(
                 f"[3MF] Eindeutiger FTPS-Suffix-Treffer fuer {expected_name!r}: {resolved_path}"
             )
-            return _original_download3mf_from_ftp(resolved_path, dest_file, progress_callback)
+            return _original_download3mf_from_ftp(resolved_path, dest_file, progress_callback, cancel_event)
 
         if len(matches) > 1:
             _log(
@@ -553,14 +553,15 @@ _filament_usage_tracker.download3mfFromFTP = _download3mf_with_unique_suffix_fal
 _original_download3mf_from_cloud = _tools_3mf.download3mfFromCloud
 
 
-def _download3mf_from_cloud_with_timeout(url, dest_file, progress_callback=None):
-    # Download cloud 3MF files with bounded connect and transfer waits.
+def _download3mf_from_cloud_with_timeout(url, dest_file, progress_callback=None, cancel_event=None):
+    # Keep a connect timeout, but let an actively progressing download finish.
     _log("Downloading 3MF file from cloud...")
-    response = _tools_3mf.requests.get(url, timeout=(5, 180), stream=True)
+    response = _tools_3mf.requests.get(url, timeout=(5, None), stream=True)
     response.raise_for_status()
     total = int(response.headers.get("content-length") or 0)
     downloaded = 0
     for chunk in response.iter_content(chunk_size=1024 * 1024):
+        _tools_3mf._ensure_download_not_cancelled(cancel_event)
         if not chunk:
             continue
         dest_file.write(chunk)
@@ -766,19 +767,19 @@ def reconcile_stale_print_history_statuses():
     terminal_status = print_history_service.printer_state_to_history_status(
         state, print_state.get("print_error")
     )
-    if terminal_status:
+    if terminal_status in {"COMPLETED", "FAILED", "ABORTED"}:
         candidate = print_history_service.find_open_print_for_printer_job(
             print_state.get("subtask_name"),
             print_state.get("gcode_file"),
             print_state.get("url"),
         )
-        if candidate and candidate.get("status") == "RUNNING":
+        if candidate and candidate.get("status") != terminal_status:
             status_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             print_history_service.update_layer_tracking(
                 candidate["id"], status=terminal_status, actual_end_time=status_at,
                 last_status_at=status_at,
             )
-            log(f"[History] Offener Druck {candidate['id']} via Web-Reconcile auf {terminal_status} gesetzt ({state}).")
+            _log(f"[History] Offener Druck {candidate['id']} via Web-Reconcile auf {terminal_status} gesetzt ({state}).")
     if state not in {"IDLE", "FINISH", "FAILED", "STOP", "CANCEL", "CANCELED", "CANCELLED", "ABORT", "ABORTED"}:
         return None
     print_history_service.cancel_stale_running_prints(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))

@@ -462,8 +462,15 @@ class FilamentUsageTracker:
         and self._is_abort_state(self.gcode_state)
         and self.active_model is not None
     ):
+        print_error = print_obj.get("print_error")
+        if print_error is None:
+          try:
+            import mqtt_bambulab
+            print_error = (getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}).get("print_error")
+          except Exception:
+            pass
         status = printer_state_to_history_status(
-            self.gcode_state, print_obj.get("print_error")
+            self.gcode_state, print_error
         ) or LAYER_TRACKING_STATUS_ABORTED
         self._handle_print_abort(status=status)
 
@@ -598,6 +605,41 @@ class FilamentUsageTracker:
     fake_print["local_model_path"] = local_model_path or metadata.get("local_model_path")
 
     self._handle_print_start(fake_print)
+
+  def start_tracking_from_cached_model(
+      self,
+      metadata: dict | None,
+      local_model_path: str,
+      print_obj: dict,
+  ) -> None:
+    if not metadata or not local_model_path or self.active_model is not None:
+      return
+    current_print = dict(print_obj or {})
+    current_print["local_model_path"] = local_model_path
+    current_print["url"] = current_print.get("url") or metadata.get("model_url") or metadata.get("file")
+    current_print["model_file_name"] = metadata.get("file")
+    current_print["ams_mapping"] = metadata.get("ams_mapping") or []
+    current_print["use_ams"] = bool(current_print["ams_mapping"])
+    current_print["task_id"] = metadata.get("task_id", current_print.get("task_id"))
+    current_print["subtask_id"] = metadata.get("subtask_id", current_print.get("subtask_id"))
+    self.set_print_metadata(metadata)
+    self._handle_print_start(current_print)
+    if self.active_model is None:
+      return
+
+    try:
+      current_layer = max(0, int(current_print.get("layer_num") or 0))
+    except (TypeError, ValueError):
+      current_layer = 0
+    self.spent_layers.update(range(current_layer + 1))
+    self.current_layer = current_layer
+    update_checkpoint_layer(current_layer)
+    self._update_layer_tracking_progress()
+    log(
+      f"[filament-tracker] Tracking nach 3MF-Download fortgesetzt: "
+      f"print_id={self.print_id}, current_layer={current_layer}; "
+      "bereits gedruckte Layer werden nicht doppelt verbucht"
+    )
 
   def apply_ams_mapping(self, ams_mapping: list[int] | None) -> None:
     if not ams_mapping:
@@ -1117,12 +1159,23 @@ class FilamentUsageTracker:
       job_key = make_job_key(task_id, subtask_id)
       worker_status = JOBS_3MF.get(job_key) if job_key is not None else JOBS_3MF.get_active()
       job_state = worker_status.get("state")
-      if job_state in {"queued", "resolving", "downloading", "processing", "ready"}:
+      if job_state in {"queued", "resolving", "downloading", "processing"}:
         log(
           f"[filament-tracker] Resume wartet auf zentralen 3MF-Worker: "
           f"{worker_status.get('job_key') or job_key} ({job_state})"
         )
         return
+      if job_state == "ready" and worker_status.get("local_path"):
+        try:
+          import mqtt_bambulab
+          metadata = getattr(mqtt_bambulab, "PENDING_PRINT_METADATA", None)
+          if metadata and self.print_id == metadata.get("print_id"):
+            self.start_tracking_from_cached_model(
+              metadata, worker_status["local_path"], print_obj
+            )
+            return
+        except Exception as worker_error:
+          log(f"[filament-tracker] Caches 3MF konnte nicht aktiviert werden: {worker_error!r}")
     except Exception as worker_error:
       log(f"[filament-tracker] 3MF-Workerstatus nicht verfügbar: {worker_error}")
     if self.print_id is None:

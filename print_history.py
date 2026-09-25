@@ -25,7 +25,7 @@ def printer_state_to_history_status(state: str | None, print_error=None) -> str 
     state = str(state or "").upper()
     if state == "FAILED":
         try:
-            if print_error is not None and int(print_error) == 0:
+            if print_error is not None and int(print_error) in {0, 50348044}:
                 return "ABORTED"
         except (TypeError, ValueError):
             pass
@@ -297,7 +297,9 @@ def _normalise_print_name(value: str | None) -> str:
 
 
 def find_open_print_for_printer_job(*names: str | None) -> dict | None:
-    # Find the newest non-finalized history row matching a printer job name.
+    # Find the newest matching history row that may still need terminal-status
+    # reconciliation. A failed row can be reclassified when later MQTT evidence
+    # confirms that the user stopped the print manually.
     wanted = {_normalise_print_name(name) for name in names if name}
     wanted.discard("")
     if not wanted:
@@ -312,7 +314,7 @@ def find_open_print_for_printer_job(*names: str | None) -> dict | None:
              FROM prints p
              JOIN print_layer_tracking t ON t.print_id = p.id
              WHERE COALESCE(p.is_deleted, 0) = 0
-               AND t.status IN ('RUNNING', 'ABORTED')
+               AND t.status IN ('PREPARING', 'RUNNING', 'PAUSED', 'ABORTED', 'FAILED')
                AND COALESCE(t.reconciliation_done, 0) = 0
              ORDER BY p.id DESC"""
     ).fetchall()

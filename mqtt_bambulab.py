@@ -383,6 +383,12 @@ def _on_3mf_job_complete(job_key, local_path, metadata, error):
     FILAMENT_TRACKER.start_local_print_from_metadata(metadata, local_path)
   else:
     FILAMENT_TRACKER.set_print_metadata(metadata)
+    if current_state == "RUNNING":
+      FILAMENT_TRACKER.start_tracking_from_cached_model(
+        metadata,
+        local_path,
+        copy.deepcopy(PRINTER_STATE.get("print", {}) or {}),
+      )
   log(f"[3MF] Job ready task={job_key} print_id={job['print_id']} local={local_path!r}")
 
 
@@ -603,6 +609,9 @@ def processMessage(data):
   if "print" in data:
     incoming_print = data.get("print", {})
     update_dict(PRINTER_STATE, data)
+    if incoming_print.get("command") == "stop" and incoming_print.get("result") == "success":
+      PRINTER_STATE.setdefault("print", {})["gcode_state"] = "STOP"
+      log("[History] Bambu bestätigt command=stop; Druck und zugehöriger 3MF-Download werden abgebrochen.")
     if incoming_print.get("command") == "project_file" and incoming_print.get("gcode_state") is None:
       PRINTER_STATE.setdefault("print", {})["gcode_state"] = "PREPARE"
     current_print = PRINTER_STATE.get("print", {}) or incoming_print
@@ -650,7 +659,10 @@ def processMessage(data):
       tracking_status = get_layer_tracking_for_prints([active_job["print_id"]]).get(
         active_job["print_id"], {}
       ).get("status")
-      if status and tracking_status in {"PREPARING", "RUNNING", "PAUSED"}:
+      if status and (
+        tracking_status in {"PREPARING", "RUNNING", "PAUSED"}
+        or (status == "ABORTED" and tracking_status == "FAILED")
+      ):
         status_fields = {"status": status}
         if status in {"COMPLETED", "FAILED", "ABORTED"}:
           status_fields["actual_end_time"] = status_at
@@ -669,7 +681,16 @@ def processMessage(data):
           current_print.get("gcode_file"),
           current_print.get("url"),
         )
-        if candidate and candidate.get("status") == "RUNNING":
+        current_status = candidate.get("status") if candidate else None
+        active_statuses = {"PREPARING", "RUNNING", "PAUSED"}
+        should_update = (
+          current_status in active_statuses
+          and current_status != terminal_status
+        ) or (
+          terminal_status == "ABORTED"
+          and current_status == "FAILED"
+        )
+        if candidate and should_update:
           update_layer_tracking(
             candidate["id"],
             status=terminal_status,
