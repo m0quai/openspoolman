@@ -9,24 +9,48 @@
       {% set tracking = print.get('layer_tracking') %}
       {% set status_label = tracking['status_label'] if tracking else 'Finished' %}
       {% set status_badge = tracking['status_badge'] if tracking else 'success' %}
-      {% set expanded = print['id'] == active_print_id %}
+      {% set target_expanded_print_id = expanded_print_id if expanded_print_id is defined else active_print_id %}
+      {% set expanded = print['id'] == target_expanded_print_id %}
       <tr class="history-row" id="print_{{ print['id'] }}" data-history-row data-history-id="{{ print['id'] }}" data-history-date="{{ print['print_date'] }}" data-history-name="{{ print['file_name']|lower }}" data-history-status="{{ status_label|lower }}">
         <td class="text-nowrap"><strong>#{{ print['id'] }}</strong></td>
         <td class="text-nowrap">{{ format_datetime(print['print_date']) }}</td>
       <td><span class="badge bg-{{ status_badge }}">{{ _(status_label) }}</span></td>
         <td class="history-print-name" title="{{ print['file_name'] }}">{{ print['file_name'] }}</td>
-        <td class="text-end">
-          {% if print.get('is_deleted') %}<form method="post" action="{{ url_for('restore_print_history_entry', print_id=print['id']) }}"><button type="submit" class="btn btn-sm btn-outline-success" title="{{ _('Restore') }}"><i class="bi bi-arrow-counterclockwise"></i></button></form>
-          {% else %}<button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#print-body-{{ print['id'] }}" aria-expanded="{{ 'true' if expanded else 'false' }}" aria-controls="print-body-{{ print['id'] }}"><i class="bi bi-chevron-{{ 'up' if expanded else 'down' }}"></i></button>{% endif %}
-        </td>
+        <td class="text-end"><button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#print-body-{{ print['id'] }}" aria-expanded="{{ 'true' if expanded else 'false' }}" aria-controls="print-body-{{ print['id'] }}"><i class="bi bi-chevron-{{ 'up' if expanded else 'down' }}"></i></button></td>
       </tr>
       <tr class="history-detail-row" data-history-detail="{{ print['id'] }}"><td colspan="5" class="p-0"><div id="print-body-{{ print['id'] }}" class="collapse{% if expanded %} show{% endif %}"><div class="history-detail p-3"><div class="row g-3">
         <div class="col-lg-8">
-          <table class="table table-sm history-detail-table mb-2"><tbody><tr><th>{{ _('Layers') }}</th><td>{{ tracking['layers_printed'] if tracking else '-' }} / {{ tracking['total_layers'] if tracking else '-' }}</td><th>{{ _('Consumed') }}</th><td>{{ '%.2f'|format(tracking['filament_grams_billed'] or 0) if tracking else '0.00' }}g</td><th>{{ _('Progress') }}</th><td>{{ tracking['progress_percent'] if tracking and tracking['progress_percent'] is not none else '-' }}%</td></tr></tbody></table>
-          {% if tracking %}<div class="text-muted small history-timing">{% if tracking['estimated_duration_minutes'] %}<span class="estimated-print-duration" data-minutes="{{ tracking['estimated_duration_minutes'] }}"></span>{% elif tracking['actual_end_time'] %}<span class="print-duration" data-start="{{ print['print_date'] }}" data-end="{{ tracking['actual_end_time'] }}"></span>{% elif tracking['predicted_end_time'] %}<span class="expected-end" data-end="{{ tracking['predicted_end_time'] }}"></span>{% endif %}</div>{% endif %}
+          <table class="table table-sm history-detail-table mb-2">
+            <tbody><tr>
+              <th>{{ _('Layers') }}</th>
+              <td>{{ tracking['layers_printed'] if tracking else '-' }} / {{ tracking['total_layers'] if tracking else '-' }}</td>
+              <th>{{ _('Consumed') }}</th>
+              <td>{{ '%.2f'|format(tracking['filament_grams_billed'] or 0) if tracking else '0.00' }}g</td>
+              <th>{{ _('Progress') }}</th>
+              <td>
+                <div class="d-flex align-items-center justify-content-between gap-2">
+                  <span>{{ tracking['progress_percent'] if tracking and tracking['progress_percent'] is not none else '-' }}%</span>
+                  {% if print.get('is_deleted') %}
+                  <form method="post" action="{{ url_for('restore_print_history_entry', print_id=print['id']) }}">
+                    <button type="submit" class="btn btn-sm btn-outline-success text-nowrap" title="{{ _('Restore') }}"><i class="bi bi-arrow-counterclockwise me-1"></i>{{ _('Restore') }}</button>
+                  </form>
+                  {% elif print['id'] != active_print_id %}
+                  <form method="post" action="{{ url_for('delete_print_history_entry', print_id=print['id']) }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger text-nowrap" title="{{ _('Eintrag aus der History ausblenden') }}"><i class="bi bi-trash me-1"></i>{{ _('Eintrag löschen') }}</button>
+                  </form>
+                  {% endif %}
+                </div>
+              </td>
+            </tr></tbody>
+          </table>
+          {% if tracking %}<div class="text-muted small history-timing">
+            {% if tracking['estimated_duration_minutes'] %}<span class="estimated-print-duration" data-minutes="{{ tracking['estimated_duration_minutes'] }}"></span>{% endif %}
+            {% if tracking['predicted_end_time'] %}<span class="expected-end d-block" data-end="{{ tracking['predicted_end_time'] }}"></span>{% elif tracking['estimated_duration_minutes'] and tracking['status'] in ['PREPARING', 'RUNNING', 'PAUSED'] %}<span class="expected-end d-block" data-start="{{ print['print_date'] }}" data-minutes="{{ tracking['estimated_duration_minutes'] }}" data-percent="{{ tracking['printer_percent'] if tracking['printer_percent'] is not none else '' }}"></span>{% endif %}
+            {% if tracking['actual_end_time'] %}<span class="actual-end d-block" data-end="{{ tracking['actual_end_time'] }}"></span><span class="print-duration d-block" data-start="{{ print['print_date'] }}" data-end="{{ tracking['actual_end_time'] }}"></span>{% endif %}
+          </div>{% endif %}
           {% for filament in print['filament_usage'] %}
             {% set slot_number = (filament['physical_ams_slot'] if filament['physical_ams_slot'] is not none else filament['ams_slot'])|int %}
-            <div class="history-filament-detail d-flex justify-content-between align-items-center"><div><div class="text-muted small">{% if 0 <= slot_number < 16 %}[{{ ['A','B','C','D'][slot_number // 4] }}{{ (slot_number % 4) + 1 }}]{% else %}[{{ _('External') }}]{% endif %}</div>{% if filament['spool'] %}<strong>#{{ filament['spool'].id }} – {{ filament['spool'].filament.vendor.name }} – {{ filament['spool'].filament.material }}</strong><div>{{ filament['spool'].filament.name }}</div>{% else %}<strong>{{ _('No spool assigned') }} – {{ filament['filament_type'] }}</strong>{% endif %}<span class="history-color-swatch" style="background-color: {{ ('#' + filament['spool'].filament.color_hex) if filament['spool'] and filament['spool'].filament.color_hex else (filament['color'] or '#000000') }};"></span><div class="text-muted small">{{ '%.2f'|format(filament['grams_used'] or 0) }}g {{ _('printed') }}{% if filament['estimated_grams'] is not none %} / {{ '%.2f'|format(filament['estimated_grams']) }}g {{ _('expected') }}{% endif %}</div></div><div class="d-inline-flex align-items-center gap-2">{% if filament['spool'] %}<a href="{{ url_for('print_select_spool', ams_slot=filament['ams_slot'], print_id=print['id'], old_spool_id=filament['spool'].id, change_spool=true) }}" class="btn btn-sm btn-outline-primary" title="{{ _('Spule ändern') }}"><i class="bi bi-pencil"></i></a>{% else %}<a href="{{ url_for('print_select_spool', ams_slot=filament['ams_slot'], print_id=print['id']) }}" class="btn btn-sm btn-outline-primary" title="{{ _('Spule zuordnen') }}"><i class="bi bi-pencil"></i></a>{% endif %}{% if loop.first and print['id'] != active_print_id and not print.get('is_deleted') %}<form method="post" action="{{ url_for('delete_print_history_entry', print_id=print['id']) }}"><button type="submit" class="btn btn-sm btn-outline-danger" title="{{ _('Eintrag aus der History ausblenden') }}"><i class="bi bi-trash"></i><span class="visually-hidden">{{ _('Eintrag löschen') }}</span></button></form>{% endif %}</div></div>
+            <div class="history-filament-detail d-flex justify-content-between align-items-center"><div><div class="text-muted small">{% if 0 <= slot_number < 16 %}[{{ ['A','B','C','D'][slot_number // 4] }}{{ (slot_number % 4) + 1 }}]{% else %}[{{ _('External') }}]{% endif %}</div>{% if filament['spool'] %}<strong>#{{ filament['spool'].id }} – {{ filament['spool'].filament.vendor.name }} – {{ filament['spool'].filament.material }}</strong><div>{{ filament['spool'].filament.name }}</div>{% else %}<strong>{{ _('No spool assigned') }} – {{ filament['filament_type'] }}</strong>{% endif %}<span class="history-color-swatch" style="background-color: {{ ('#' + filament['spool'].filament.color_hex) if filament['spool'] and filament['spool'].filament.color_hex else (filament['color'] or '#000000') }};"></span><div class="text-muted small">{{ '%.2f'|format(filament['grams_used'] or 0) }}g {{ _('printed') }}{% if filament['estimated_grams'] is not none %} / {{ '%.2f'|format(filament['estimated_grams']) }}g {{ _('expected') }}{% endif %}</div></div><div class="d-inline-flex align-items-center gap-2">{% if filament['spool'] %}<a href="{{ url_for('print_select_spool', ams_slot=filament['ams_slot'], print_id=print['id'], old_spool_id=filament['spool'].id, change_spool=true) }}" class="btn btn-sm btn-outline-primary" title="{{ _('Spule ändern') }}"><i class="bi bi-pencil"></i></a>{% else %}<a href="{{ url_for('print_select_spool', ams_slot=filament['ams_slot'], print_id=print['id']) }}" class="btn btn-sm btn-outline-primary" title="{{ _('Spule zuordnen') }}"><i class="bi bi-pencil"></i></a>{% endif %}</div></div>
           {% endfor %}
         </div>
         <div class="col-lg-4 history-image"><div class="border rounded p-2 h-100 d-flex justify-content-center align-items-center">{% if print['image_file'] %}<img src="{{ url_for('print_image', filename=print['image_file']) }}" alt="{{ _('Print Image') }}" class="img-fluid">{% else %}<span class="text-muted">{{ _('No Image') }}</span>{% endif %}</div></div>

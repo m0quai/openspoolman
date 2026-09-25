@@ -216,6 +216,7 @@ if not app.secret_key:
 
 from bambu_auth_routes import bp as bambu_cloud_bp
 from nfc_routes import bp as ams_nfc_bp
+import nfc_pending_repository
 from flask import jsonify, redirect, request, url_for, render_template, send_from_directory, Response, stream_with_context, session
 import mqtt_bambulab
 import spool_repository as spool_data
@@ -237,6 +238,10 @@ _AMS_REFRESH_MIN_INTERVAL_SECONDS = 5.0
 # upstream history view derives progress from layer counts, which can differ
 # noticeably for jobs with variable layer durations.  Enrich the rendered
 # history data in the custom entry point without modifying app.py.
+_openspoolman_app_module.LAYER_TRACKING_STATUS_DISPLAY.update({
+    "PREPARING": ("Preparing", "info"),
+    "PAUSED": ("Paused", "secondary"),
+})
 _original_app_render_template = _openspoolman_app_module.render_template
 
 def _render_template_with_printer_progress(template_name, *args, **kwargs):
@@ -250,10 +255,14 @@ def _render_template_with_printer_progress(template_name, *args, **kwargs):
             # A history deep link should open the selected print, not merely
             # scroll to its table row.  Keep this override in the custom entry
             # point so the upstream app.py remains untouched.
-            kwargs["active_print_id"] = requested_print_id
+            kwargs["expanded_print_id"] = requested_print_id
         print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
         raw_percent = print_state.get("mc_percent")
-        active_print_id = print_history_service.get_latest_running_print_id()
+        active_print_id = print_history_service.get_latest_active_print_id()
+        if active_print_id is not None:
+            kwargs["active_print_id"] = active_print_id
+        if requested_print_id is None and active_print_id is not None:
+            kwargs["expanded_print_id"] = active_print_id
         try:
             percent = max(0, min(100, int(float(raw_percent)))) if raw_percent is not None else None
         except (TypeError, ValueError):
@@ -455,9 +464,8 @@ mqtt_bambulab.log = _format_ams_console_log
 
 
 # Bambu's FTPS server can be very slow while a print is being prepared. A hard
-# 30-second transfer timeout aborts valid multi-megabyte 3MF downloads halfway
-# through. Keep the short connection timeout, but allow the actual transfer up
-# to three minutes.
+# Preserve the FTP transfer policy configured by tools_3mf: no total timeout,
+# a low-speed stall guard, and a larger receive buffer.
 _original_setup_pycurl_connection = _tools_3mf.setupPycurlConnection
 
 
@@ -465,7 +473,6 @@ def _setup_pycurl_connection_for_large_3mf(ftp_user, ftp_pass):
     connection = _original_setup_pycurl_connection(ftp_user, ftp_pass)
     try:
         connection.setopt(connection.CONNECTTIMEOUT, 5)
-        connection.setopt(connection.TIMEOUT, 180)
     except Exception:
         pass
     return connection
@@ -476,7 +483,7 @@ _tools_3mf.setupPycurlConnection = _setup_pycurl_connection_for_large_3mf
 _original_download3mf_from_ftp = _tools_3mf.download3mfFromFTP
 
 
-def _download3mf_with_unique_suffix_fallback(filename, dest_file, progress_callback=None):
+def _download3mf_with_unique_suffix_fallback(filename, dest_file, progress_callback=None, cancel_event=None):
     # Resolve printer-side filename prefixes without guessing between matches.
     #
     #     Bambu .bbl files may reference /sdcard/Kerstin.gcode.3mf while FTPS exposes
@@ -484,8 +491,10 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file, progress_callb
     #     If that fails, inspect the FTPS root. An exact filename wins over suffix
     #     variants; otherwise a suffix match is accepted only when it is unique.
     try:
-        return _original_download3mf_from_ftp(filename, dest_file, progress_callback)
+        return _original_download3mf_from_ftp(filename, dest_file, progress_callback, cancel_event)
     except Exception as original_error:
+        if cancel_event is not None and cancel_event.is_set():
+            raise original_error
         expected_name = os.path.basename(str(filename or "").strip())
         if not expected_name.lower().endswith(".3mf"):
             raise
@@ -512,7 +521,7 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file, progress_callb
             _log(
                 f"[3MF] Exakter FTPS-Root-Treffer fuer {expected_name!r}: {resolved_path}; erneuter Download."
             )
-            return _original_download3mf_from_ftp(resolved_path, dest_file, progress_callback)
+            return _original_download3mf_from_ftp(resolved_path, dest_file, progress_callback, cancel_event)
 
         matches = [
             name
@@ -526,7 +535,7 @@ def _download3mf_with_unique_suffix_fallback(filename, dest_file, progress_callb
             _log(
                 f"[3MF] Eindeutiger FTPS-Suffix-Treffer fuer {expected_name!r}: {resolved_path}"
             )
-            return _original_download3mf_from_ftp(resolved_path, dest_file, progress_callback)
+            return _original_download3mf_from_ftp(resolved_path, dest_file, progress_callback, cancel_event)
 
         if len(matches) > 1:
             _log(
@@ -545,14 +554,15 @@ _filament_usage_tracker.download3mfFromFTP = _download3mf_with_unique_suffix_fal
 _original_download3mf_from_cloud = _tools_3mf.download3mfFromCloud
 
 
-def _download3mf_from_cloud_with_timeout(url, dest_file, progress_callback=None):
-    # Download cloud 3MF files with bounded connect and transfer waits.
+def _download3mf_from_cloud_with_timeout(url, dest_file, progress_callback=None, cancel_event=None):
+    # Keep a connect timeout, but let an actively progressing download finish.
     _log("Downloading 3MF file from cloud...")
-    response = _tools_3mf.requests.get(url, timeout=(5, 180), stream=True)
+    response = _tools_3mf.requests.get(url, timeout=(5, None), stream=True)
     response.raise_for_status()
     total = int(response.headers.get("content-length") or 0)
     downloaded = 0
     for chunk in response.iter_content(chunk_size=1024 * 1024):
+        _tools_3mf._ensure_download_not_cancelled(cancel_event)
         if not chunk:
             continue
         dest_file.write(chunk)
@@ -603,40 +613,13 @@ def _metadata_is_complete(metadata):
 
 
 def _get_metadata_from_3mf_with_retry(source):
-    # Load complete print metadata with bounded retries for transient failures.
-    import time
-
+    # A complete transfer must never be repeated merely because parsing was
+    # incomplete.  The central worker downloads once and parses its local file.
     source = _metadata_source_with_filename(source)
-    deadline = time.monotonic() + _METADATA_RETRY_TIMEOUT_SECONDS
-    attempts = len(_METADATA_RETRY_DELAYS) + 1
-    last_metadata = {}
-
-    for attempt in range(1, attempts + 1):
-        last_metadata = _original_get_metadata_from_3mf(source) or {}
-        if _metadata_is_complete(last_metadata):
-            if attempt > 1:
-                _log(f"[3MF] Metadaten nach Versuch {attempt}/{attempts} vollstaendig geladen.")
-            return last_metadata
-
-        if attempt >= attempts:
-            break
-
-        delay = _METADATA_RETRY_DELAYS[attempt - 1]
-        if time.monotonic() + delay >= deadline:
-            _log("[3MF] Metadaten-Retry wegen erreichtem Gesamt-Timeout beendet.")
-            break
-
-        _log(
-            f"[3MF] Metadaten nach Versuch {attempt}/{attempts} unvollstaendig; "
-            f"neuer Versuch in {delay} Sekunden."
-        )
-        time.sleep(delay)
-
-    _log(
-        f"[3MF] Metadaten nach {attempt} Versuch(en) innerhalb von "
-        f"{_METADATA_RETRY_TIMEOUT_SECONDS} Sekunden nicht vollstaendig."
-    )
-    return last_metadata
+    metadata = _original_get_metadata_from_3mf(source) or {}
+    if not _metadata_is_complete(metadata):
+        _log("[3MF] Metadaten unvollständig; kein automatischer Komplett-Download-Retry.")
+    return metadata
 
 
 _tools_3mf.getMetaDataFrom3mf = _get_metadata_from_3mf_with_retry
@@ -667,11 +650,9 @@ def ams():
 def _current_printer_status_payload():
     connected = bool(mqtt_bambulab.isMqttClientConnected())
     print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
-    active_print_id = print_history_service.get_latest_running_print_id()
+    active_print_id = print_history_service.get_latest_active_print_id()
     if active_print_id is None:
-        active_jobs = getattr(mqtt_bambulab, "ACTIVE_3MF_PRINTS", {})
-        if active_jobs:
-            active_print_id = next(reversed(active_jobs.values())).get("print_id")
+        active_print_id = mqtt_bambulab.get_active_3mf_print_id()
     return {
         "printer_name": PRINTER_NAME or (getattr(mqtt_bambulab, "getPrinterModel", lambda: {})() or {}).get("devicename") or PRINTER_ID,
         "mqtt_connected": connected,
@@ -756,14 +737,7 @@ def _printer_status_code():
 
 @app.context_processor
 def inject_openspoolman_version():
-    pending_nfc = False
-    try:
-        import json
-        from pathlib import Path
-        pending_file = Path(__file__).resolve().parent / "data" / "nfc_pending.json"
-        pending_nfc = bool(json.loads(pending_file.read_text(encoding="utf-8"))) if pending_file.exists() else False
-    except Exception:
-        pending_nfc = False
+    pending_nfc = nfc_pending_repository.has_pending_tags()
     return {
         "openspoolman_version": _load_openspoolman_version(),
         "openspoolman_build_number": _runtime_build_number,
@@ -775,15 +749,32 @@ def inject_openspoolman_version():
         "printer_is_busy": _printer_is_busy(),
         "ams_operation_pending": mqtt_bambulab.is_any_ams_operation_pending(),
         "pending_nfc": pending_nfc,
-        "active_print_id": print_history_service.get_latest_running_print_id(),
+        "active_print_id": print_history_service.get_latest_active_print_id(),
         "spoolman_public_url": _SPOOLMAN_PUBLIC_BASE_URL,
     }
 
 
 @app.before_request
 def reconcile_stale_print_history_statuses():
-    state = str((getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}).get("gcode_state") or "").upper()
-    if state not in {"IDLE", "FINISH", "FAILED", "STOP"}:
+    print_state = (getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {})
+    state = str(print_state.get("gcode_state") or "").upper()
+    terminal_status = print_history_service.printer_state_to_history_status(
+        state, print_state.get("print_error")
+    )
+    if terminal_status in {"COMPLETED", "FAILED", "ABORTED"}:
+        candidate = print_history_service.find_open_print_for_printer_job(
+            print_state.get("subtask_name"),
+            print_state.get("gcode_file"),
+            print_state.get("url"),
+        )
+        if candidate and candidate.get("status") != terminal_status:
+            status_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print_history_service.update_layer_tracking(
+                candidate["id"], status=terminal_status, actual_end_time=status_at,
+                last_status_at=status_at,
+            )
+            _log(f"[History] Offener Druck {candidate['id']} via Web-Reconcile auf {terminal_status} gesetzt ({state}).")
+    if state not in {"IDLE", "FINISH", "FAILED", "STOP", "CANCEL", "CANCELED", "CANCELLED", "ABORT", "ABORTED"}:
         return None
     print_history_service.cancel_stale_running_prints(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
@@ -872,11 +863,9 @@ def _recv_exact(sock, size):
 def ams_state_generation():
     temperatures = _printer_temperature_status()
     print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
-    active_print_id = print_history_service.get_latest_running_print_id()
+    active_print_id = print_history_service.get_latest_active_print_id()
     if active_print_id is None:
-        active_jobs = getattr(mqtt_bambulab, "ACTIVE_3MF_PRINTS", {})
-        if active_jobs:
-            active_print_id = next(reversed(active_jobs.values())).get("print_id")
+        active_print_id = mqtt_bambulab.get_active_3mf_print_id()
     return jsonify({
         "generation": getattr(mqtt_bambulab, "LAST_AMS_CONFIG_GENERATION", 0),
         "hotend": temperatures.get("hotend"),

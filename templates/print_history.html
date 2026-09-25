@@ -2,6 +2,7 @@
 {% block content %}
 <script>
 const expectedEndLabel = {{ _('Erwartetes Ende:')|tojson }};
+const actualEndLabel = {{ _('Tatsächliches Ende:')|tojson }};
 const remainingLabel = {{ _('Restlaufzeit:')|tojson }};
 const durationLabel = {{ _('Druckdauer:')|tojson }};
 const estimatedLabel = {{ _('(geschätzt)')|tojson }};
@@ -222,7 +223,17 @@ function initHistoryTableControls() {
 }
 function formatExpectedEnd() {
   document.querySelectorAll('.expected-end').forEach(el => {
-    const end = new Date((el.dataset.end || '').replace(' ', 'T'));
+    let end = el.dataset.end ? new Date(el.dataset.end.replace(' ', 'T')) : null;
+    if (!end || Number.isNaN(end.getTime())) {
+      const minutes = Number(el.dataset.minutes || 0);
+      const percent = Number(el.dataset.percent);
+      if (Number.isFinite(percent) && el.dataset.percent !== '') {
+        end = new Date(Date.now() + minutes * Math.max(0, 100 - percent) / 100 * 60000);
+      } else {
+        end = new Date((el.dataset.start || '').replace(' ', 'T'));
+        if (!Number.isNaN(end.getTime())) end = new Date(end.getTime() + minutes * 60000);
+      }
+    }
     if (Number.isNaN(end.getTime())) return;
     const pad = value => String(value).padStart(2, '0');
     const time = `${pad(end.getHours())}:${pad(end.getMinutes())}`;
@@ -234,6 +245,16 @@ function formatExpectedEnd() {
     const minutes = Math.floor((remainingSeconds % 3600) / 60);
     const remaining = hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
     el.textContent = `${expectedEndLabel} ${time}${sameDay ? '' : ', ' + date} · ${remainingLabel} ${remaining}`;
+  });
+}
+function formatActualEnd() {
+  document.querySelectorAll('.actual-end').forEach(el => {
+    const end = new Date((el.dataset.end || '').replace(' ', 'T'));
+    if (Number.isNaN(end.getTime())) return;
+    const locale = {{ current_language|tojson }} === 'de' ? 'de-DE' : 'en-US';
+    const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(end);
+    const date = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric' }).format(end);
+    el.textContent = `${actualEndLabel} ${time}, ${date}`;
   });
 }
 function formatPrintDurations() {
@@ -263,6 +284,7 @@ window.addEventListener('load', initPrintHistoryRefresh);
 window.addEventListener('load', cleanOneTimeHistoryParameters);
 window.addEventListener('load', () => { initHistoryCollapsePersistence(); initHistoryTableControls(); });
 window.addEventListener('load', formatExpectedEnd);
+window.addEventListener('load', formatActualEnd);
 window.addEventListener('load', formatPrintDurations);
 window.addEventListener('load', formatEstimatedPrintDurations);
 </script>

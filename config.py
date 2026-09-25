@@ -7,6 +7,23 @@ from dotenv import load_dotenv
 # Load environment variables from config.env when present so live runs have access
 # to printer and Spoolman credentials without manual exports.
 load_dotenv(Path(__file__).resolve().parent / "config.env")
+
+# Central OpenSpoolMan database configuration.
+DATABASE_TYPE = (os.getenv("OPENSPOOLMAN_DATABASE_TYPE") or "sqlite").strip().lower()
+DATABASE_NAME = (os.getenv("OPENSPOOLMAN_DATABASE_NAME") or "osm.db").strip()
+DATABASE_PATH_OVERRIDE = (
+    os.getenv("OPENSPOOLMAN_DATABASE_PATH")
+    or os.getenv("OPENSPOOLMAN_PRINT_HISTORY_DB")
+    or ""
+).strip()
+if not DATABASE_NAME or Path(DATABASE_NAME).name != DATABASE_NAME:
+    raise ValueError("OPENSPOOLMAN_DATABASE_NAME must be a filename without a directory")
+DATABASE_PATH = (
+    Path(DATABASE_PATH_OVERRIDE).expanduser().resolve()
+    if DATABASE_PATH_OVERRIDE
+    else Path(__file__).resolve().parent / "data" / DATABASE_NAME
+)
+
 EXTERNAL_SPOOL_AMS_ID = 255 # don't change
 EXTERNAL_SPOOL_ID = 254 #  don't change
 

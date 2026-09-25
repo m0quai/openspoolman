@@ -15,6 +15,21 @@ from urllib.parse import urlparse
 from logger import log
 
 
+_BBL_PATH_CACHE = {}
+FTP_LOW_SPEED_LIMIT = 1024
+FTP_LOW_SPEED_TIME = 120
+FTP_RECEIVE_BUFFER_SIZE = 512 * 1024
+
+
+class DownloadCancelledError(RuntimeError):
+    pass
+
+
+def _ensure_download_not_cancelled(cancel_event):
+    if cancel_event is not None and cancel_event.is_set():
+        raise DownloadCancelledError("Druck wurde abgebrochen")
+
+
 def parse_ftp_listing(line):
     parts = line.split(maxsplit=8)
     if len(parts) < 9:
@@ -61,23 +76,64 @@ def setupPycurlConnection(ftp_user, ftp_pass):
     c.setopt(c.FTP_SSL, c.FTPSSL_ALL)
     c.setopt(c.FTPSSLAUTH, c.FTPAUTH_TLS)
     c.setopt(c.CONNECTTIMEOUT, 5)
-    c.setopt(c.TIMEOUT, 180)
+    c.setopt(c.TIMEOUT, 0)
+    c.setopt(c.LOW_SPEED_LIMIT, FTP_LOW_SPEED_LIMIT)
+    c.setopt(c.LOW_SPEED_TIME, FTP_LOW_SPEED_TIME)
+    c.setopt(c.BUFFERSIZE, FTP_RECEIVE_BUFFER_SIZE)
     return c
 
 
-def _ftp_read(remote_path, directory=False):
+def _curl_diagnostics(connection):
+    result = {}
+    fields = {
+        "dns_s": pycurl.NAMELOOKUP_TIME,
+        "connect_s": pycurl.CONNECT_TIME,
+        "tls_s": pycurl.APPCONNECT_TIME,
+        "pretransfer_s": pycurl.PRETRANSFER_TIME,
+        "first_byte_s": pycurl.STARTTRANSFER_TIME,
+        "total_s": pycurl.TOTAL_TIME,
+        "bytes": pycurl.SIZE_DOWNLOAD,
+        "average_bytes_per_second": pycurl.SPEED_DOWNLOAD,
+    }
+    for name, option in fields.items():
+        try:
+            value = connection.getinfo(option)
+            result[name] = round(float(value), 3)
+        except Exception:
+            result[name] = None
+    return result
+
+
+def _ftp_read(remote_path, directory=False, connection=None):
     buffer = io.BytesIO()
-    c = setupPycurlConnection("bblp", app_config.PRINTER_CODE)
+    c = connection or setupPycurlConnection("bblp", app_config.PRINTER_CODE)
+    owns_connection = connection is None
+    operation = "Verzeichnis lesen" if directory else "Datei lesen"
+    started = time.monotonic()
+    log(f"[3MF][FTP] {operation} gestartet: {remote_path}")
     try:
         encoded = urllib.parse.quote(remote_path if remote_path.startswith('/') else '/' + remote_path)
         c.setopt(c.URL, f"ftps://{app_config.PRINTER_IP}{encoded}")
         c.setopt(c.WRITEDATA, buffer)
-        if directory:
-            c.setopt(c.DIRLISTONLY, True)
+        c.setopt(c.DIRLISTONLY, bool(directory))
         c.perform()
-        return buffer.getvalue()
+        payload = buffer.getvalue()
+        log(
+            f"[3MF][FTP] {operation} abgeschlossen: {remote_path}, "
+            f"bytes={len(payload)}, dauer={time.monotonic() - started:.3f}s, "
+            f"curl={_curl_diagnostics(c)}"
+        )
+        return payload
+    except Exception as exc:
+        log(
+            f"[3MF][FTP] {operation} fehlgeschlagen: {remote_path}, "
+            f"dauer={time.monotonic() - started:.3f}s, fehler={exc!r}, "
+            f"curl={_curl_diagnostics(c)}"
+        )
+        raise
     finally:
-        c.close()
+        if owns_connection:
+            c.close()
 
 
 def _current_print_context():
@@ -110,29 +166,59 @@ def _normalize_printer_3mf_path(path):
 def _find_bbl_for_subtask(subtask_name):
     if not subtask_name:
         return None
+    started = time.monotonic()
+    connection = setupPycurlConnection("bblp", app_config.PRINTER_CODE)
     try:
-        names = _ftp_read("/cache/", directory=True).decode("utf-8", errors="replace").splitlines()
+        names = _ftp_read("/cache/", directory=True, connection=connection).decode(
+            "utf-8", errors="replace"
+        ).splitlines()
+        bbl_names = [name.strip() for name in names if name.strip().lower().endswith(".bbl")]
+        log(f"[3MF] Suche BBL fuer Subtask '{subtask_name}' unter {len(bbl_names)} BBL-Dateien.")
+        normalized_subtask = "".join(char.casefold() for char in str(subtask_name) if char.isalnum())
+        likely_names = [
+            name for name in bbl_names
+            if normalized_subtask and normalized_subtask in "".join(
+                char.casefold() for char in name if char.isalnum()
+            )
+        ]
+        likely_set = set(likely_names)
+        ordered_names = list(reversed(likely_names)) + [
+            name for name in reversed(bbl_names) if name not in likely_set
+        ]
+        for name in ordered_names:
+            try:
+                raw = _ftp_read(f"/cache/{name}", connection=connection)
+                job = json.loads(raw.decode("utf-8", errors="replace"))
+            except Exception:
+                continue
+            if str(job.get("subtask_name") or "").strip() == str(subtask_name).strip():
+                log(
+                    f"[3MF] Passende BBL gefunden: /cache/{name} "
+                    f"nach {time.monotonic() - started:.2f}s"
+                )
+                return name, job
     except Exception as exc:
         log(f"[3MF] BBL-Verzeichnis konnte nicht gelesen werden: {exc}")
         return None
-
-    bbl_names = [name.strip() for name in names if name.strip().lower().endswith(".bbl")]
-    log(f"[3MF] Suche BBL fuer Subtask '{subtask_name}' unter {len(bbl_names)} BBL-Dateien.")
-    for name in reversed(bbl_names):
-        try:
-            raw = _ftp_read(f"/cache/{name}")
-            job = json.loads(raw.decode("utf-8", errors="replace"))
-        except Exception:
-            continue
-        if str(job.get("subtask_name") or "").strip() == str(subtask_name).strip():
-            log(f"[3MF] Passende BBL gefunden: /cache/{name}")
-            return name, job
-    log(f"[3MF] Keine passende BBL fuer Subtask '{subtask_name}' gefunden.")
+    finally:
+        connection.close()
+    log(
+        f"[3MF] Keine passende BBL fuer Subtask '{subtask_name}' gefunden "
+        f"nach {time.monotonic() - started:.2f}s."
+    )
     return None
 
 
 def _resolved_bbl_3mf_for_current_job():
     context = _current_print_context()
+    cache_key = (
+        str(context.get("task_id") or ""),
+        str(context.get("subtask_id") or ""),
+        str(context.get("subtask_name") or ""),
+    )
+    if cache_key in _BBL_PATH_CACHE:
+        return _BBL_PATH_CACHE[cache_key]
+
     match = _find_bbl_for_subtask(context.get("subtask_name"))
     if not match:
         return None
@@ -142,6 +228,7 @@ def _resolved_bbl_3mf_for_current_job():
     resolved = _normalize_printer_3mf_path(file_path)
     log(f"[3MF] BBL /cache/{bbl_name}: file path={file_path!r} -> FTP={resolved!r}")
     if resolved and resolved.lower().endswith(".3mf"):
+        _BBL_PATH_CACHE[cache_key] = resolved
         return resolved
     return None
 
@@ -186,13 +273,14 @@ def resolve_local_print_3mf(source):
     return None
 
 
-def download3mfFromCloud(url, destFile, progress_callback=None):
+def download3mfFromCloud(url, destFile, progress_callback=None, cancel_event=None):
     log("Downloading 3MF file from cloud...")
-    response = requests.get(url, stream=True, timeout=(5, 180))
+    response = requests.get(url, stream=True, timeout=(5, None))
     response.raise_for_status()
     total = int(response.headers.get("content-length") or 0)
     downloaded = 0
     for chunk in response.iter_content(chunk_size=64 * 1024):
+        _ensure_download_not_cancelled(cancel_event)
         if not chunk:
             continue
         destFile.write(chunk)
@@ -213,12 +301,12 @@ def _append_unique_path(paths, remote_path):
         paths.append(remote_path)
 
 
-def download3mfFromFTP(filename, destFile, progress_callback=None):
-    log("Downloading 3MF file from FTP...")
+def download3mfFromFTP(filename, destFile, progress_callback=None, cancel_event=None):
     ftp_host = app_config.PRINTER_IP
     ftp_user = "bblp"
     ftp_pass = app_config.PRINTER_CODE
     local_path = destFile.name
+    overall_started = time.monotonic()
 
     filename = str(filename or "").strip()
     if not filename:
@@ -226,86 +314,185 @@ def download3mfFromFTP(filename, destFile, progress_callback=None):
     if filename.startswith("/sdcard/"):
         filename = "/" + filename[len("/sdcard/"):]
 
+    log(
+        f"[3MF][FTP] Download-Auflösung gestartet: quelle={filename!r}, "
+        f"host={ftp_host}, connect_timeout=5s, transfer_timeout=ohne Gesamtlimit, "
+        f"stillstand={FTP_LOW_SPEED_LIMIT}B/s für {FTP_LOW_SPEED_TIME}s, "
+        f"receive_buffer={FTP_RECEIVE_BUFFER_SIZE}B"
+    )
+    log(
+        "[3MF][FTP] FTP-Teilbereiche unterstützt: nein/für dieses Gerät nicht funktionsfähig "
+        "(Druckerprobe 2026-09-25: RANGE 0-4095 scheiterte mit libcurl 56); "
+        "verwende Einzeltransfer."
+    )
     remote_paths = []
     if filename.startswith("/") and filename.lower().endswith(".3mf"):
         _append_unique_path(remote_paths, filename)
+        log(f"[3MF][FTP] MQTT lieferte direkten 3MF-Pfad: {filename}")
     else:
         base_name = os.path.basename(filename)
-        _append_unique_path(remote_paths, f"/cache/{base_name}")
-
-        # project_file/gcode_file can contain only a display name such as
-        # Kerstin.gcode.3mf while the real file on the printer has another name.
-        # Resolve the current Bambu job through its matching .bbl before trying
-        # broad root/sdcard guesses.
+        resolve_started = time.monotonic()
         bbl_resolved = _resolved_bbl_3mf_for_current_job()
+        log(
+            f"[3MF][FTP] BBL-Pfadauflösung beendet: ergebnis={bbl_resolved!r}, "
+            f"dauer={time.monotonic() - resolve_started:.3f}s"
+        )
         _append_unique_path(remote_paths, bbl_resolved)
-
+        _append_unique_path(remote_paths, f"/cache/{base_name}")
         _append_unique_path(remote_paths, f"/{base_name}")
         _append_unique_path(remote_paths, f"/sdcard/{base_name}")
 
+    log(f"[3MF][FTP] Pfadkandidaten in Reihenfolge: {remote_paths!r}")
     last_error = None
     reconnect_codes = {7, 28, 35, 52, 55, 56}
-    def configure_progress(connection):
+    progress_state = {
+        "path": None,
+        "attempt": 0,
+        "started": None,
+        "last_log": 0.0,
+        "last_bytes": 0,
+        "first_data": False,
+    }
+
+    def transfer_progress(_download_total, downloaded, _upload_total, _uploaded):
+        if cancel_event is not None and cancel_event.is_set():
+            log(f"[3MF][FTP] Transfer durch Druckabbruch gestoppt: pfad={progress_state['path']}")
+            return 1
+        total = int(_download_total or 0)
+        done = int(downloaded or 0)
+        now = time.monotonic()
+        if done > 0 and not progress_state["first_data"]:
+            progress_state["first_data"] = True
+            log(
+                f"[3MF][FTP] Erste Nutzdaten empfangen: pfad={progress_state['path']}, "
+                f"versuch={progress_state['attempt']}, bytes={done}, "
+                f"nach={now - progress_state['started']:.3f}s"
+            )
+        if now - progress_state["last_log"] >= 5.0 or (total and done >= total):
+            elapsed = max(now - progress_state["started"], 0.001)
+            interval_elapsed = max(now - progress_state["last_log"], 0.001)
+            interval_bytes = max(done - progress_state["last_bytes"], 0)
+            percent = round(done * 100 / total, 1) if total else None
+            log(
+                f"[3MF][FTP] Transfer läuft: pfad={progress_state['path']}, "
+                f"versuch={progress_state['attempt']}, bytes={done}/{total or '?'}, "
+                f"prozent={percent if percent is not None else '?'}, "
+                f"mittel={done / elapsed:.0f}B/s, intervall={interval_bytes / interval_elapsed:.0f}B/s, "
+                f"dauer={elapsed:.1f}s"
+            )
+            progress_state["last_log"] = now
+            progress_state["last_bytes"] = done
         if progress_callback:
-            connection.setopt(connection.NOPROGRESS, False)
-            connection.setopt(connection.XFERINFOFUNCTION, lambda _download_total, downloaded, _upload_total, _uploaded: progress_callback(downloaded, _download_total))
+            progress_callback(done, total)
+        return 0
+
+    def configure_progress(connection):
+        connection.setopt(connection.NOPROGRESS, False)
+        connection.setopt(connection.XFERINFOFUNCTION, transfer_progress)
 
     c = setupPycurlConnection(ftp_user, ftp_pass)
     configure_progress(c)
+    log("[3MF][FTP] libcurl-Handle erstellt; TLS/FTPS wird beim ersten Request aufgebaut.")
     try:
         for path_index, remote_path in enumerate(remote_paths, start=1):
+            _ensure_download_not_cancelled(cancel_event)
             encoded_remote_path = urllib.parse.quote(remote_path)
             url = f"ftps://{ftp_host}{encoded_remote_path}"
-            log(f"[3MF] FTP Download ({path_index}/{len(remote_paths)}): {remote_path}")
+            log(
+                f"[3MF][FTP] Pfadkandidat gestartet: "
+                f"{path_index}/{len(remote_paths)} {remote_path}"
+            )
 
-            for attempt in range(2):
-                with open(local_path, "wb") as f:
+            for attempt in range(1, 3):
+                attempt_started = time.monotonic()
+                progress_state.update({
+                    "path": remote_path,
+                    "attempt": attempt,
+                    "started": attempt_started,
+                    "last_log": attempt_started,
+                    "last_bytes": 0,
+                    "first_data": False,
+                })
+                log(
+                    f"[3MF][FTP] Transfer-Versuch gestartet: pfad={remote_path}, "
+                    f"versuch={attempt}/2"
+                )
+                with open(local_path, "wb") as output_file:
                     try:
                         c.setopt(c.URL, url)
-                        c.setopt(c.WRITEDATA, f)
+                        c.setopt(c.WRITEDATA, output_file)
                         c.perform()
-                        if os.path.getsize(local_path) <= 0:
+                        file_size = os.path.getsize(local_path)
+                        if file_size <= 0:
                             raise RuntimeError(f"FTP lieferte eine leere Datei: {remote_path}")
-                        log(f"[3MF] FTP Download erfolgreich: {remote_path}")
+                        log(
+                            f"[3MF][FTP] Transfer erfolgreich: pfad={remote_path}, "
+                            f"bytes={file_size}, versuch={attempt}/2, "
+                            f"dauer={time.monotonic() - attempt_started:.3f}s, "
+                            f"gesamt={time.monotonic() - overall_started:.3f}s, "
+                            f"curl={_curl_diagnostics(c)}"
+                        )
                         return remote_path
                     except pycurl.error as exc:
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise DownloadCancelledError("Druck wurde abgebrochen") from exc
                         last_error = exc
                         err_code = exc.args[0]
+                        log(
+                            f"[3MF][FTP] Transfer-Versuch fehlgeschlagen: "
+                            f"pfad={remote_path}, versuch={attempt}/2, code={err_code}, "
+                            f"dauer={time.monotonic() - attempt_started:.3f}s, "
+                            f"lokale_bytes={os.path.getsize(local_path) if os.path.exists(local_path) else 0}, "
+                            f"curl={_curl_diagnostics(c)}, fehler={exc!r}"
+                        )
                         if err_code in reconnect_codes:
                             try:
                                 c.close()
                             except Exception:
                                 pass
+                            log(
+                                f"[3MF][FTP] Verbindung wird nach Fehler {err_code} "
+                                f"für {remote_path} neu aufgebaut."
+                            )
                             c = setupPycurlConnection(ftp_user, ftp_pass)
                             configure_progress(c)
-                        if attempt == 0 and err_code in reconnect_codes:
+                        if attempt == 1 and err_code in reconnect_codes:
                             continue
                         if err_code == 9:
-                            log(f"[3MF] Zugriff verweigert: {remote_path}")
-                        else:
-                            log(f"[3MF] FTP Fehler {err_code} fuer {remote_path}: {exc}")
+                            log(f"[3MF][FTP] Zugriff verweigert: {remote_path}")
+                        elif err_code == 78:
+                            log(f"[3MF][FTP] Pfadkandidat nicht vorhanden: {remote_path}")
                         break
                     except Exception as exc:
                         last_error = exc
-                        log(f"[3MF] FTP Fehler fuer {remote_path}: {exc}")
+                        log(
+                            f"[3MF][FTP] Transfer abgebrochen: pfad={remote_path}, "
+                            f"versuch={attempt}/2, dauer={time.monotonic() - attempt_started:.3f}s, "
+                            f"fehler={exc!r}"
+                        )
                         break
     finally:
         if c is not None:
             try:
                 c.close()
-            except Exception:
-                pass
+                log(
+                    f"[3MF][FTP] libcurl-Handle geschlossen; "
+                    f"Gesamtdauer={time.monotonic() - overall_started:.3f}s"
+                )
+            except Exception as close_error:
+                log(f"[3MF][FTP] Fehler beim Schließen des Handles: {close_error!r}")
 
     raise RuntimeError(
         f"3MF-Datei konnte nicht vom Drucker geladen werden; letzter Fehler: {last_error}"
     )
 
 
-def download3mfFromLocalFilesystem(path, destFile, progress_callback=None):
+def download3mfFromLocalFilesystem(path, destFile, progress_callback=None, cancel_event=None):
     total = os.path.getsize(path) if os.path.exists(path) else 0
     downloaded = 0
     with open(path, "rb") as src_file:
         while True:
+            _ensure_download_not_cancelled(cancel_event)
             chunk = src_file.read(64 * 1024)
             if not chunk:
                 break
@@ -476,9 +663,10 @@ def getMetaDataFromLocal3mf(path: str, model_path: str | None = None) -> dict:
             metadata["image"] = time.strftime("%Y%m%d%H%M%S") + ".png"
             image_path = "Metadata/plate_" + metadata["plateID"] + ".png"
             if image_path in z.namelist():
-                os.makedirs(os.path.join(os.getcwd(), "static", "prints"), exist_ok=True)
+                image_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "prints")
+                os.makedirs(image_dir, exist_ok=True)
                 with z.open(image_path) as source_file:
-                    with open(os.path.join(os.getcwd(), "static", "prints", metadata["image"]), "wb") as target_file:
+                    with open(os.path.join(image_dir, metadata["image"]), "wb") as target_file:
                         target_file.write(source_file.read())
             else:
                 metadata["image"] = ""
