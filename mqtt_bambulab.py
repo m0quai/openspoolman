@@ -50,11 +50,13 @@ from print_history import (
   set_estimated_duration_if_missing,
   update_printer_job_status,
   update_latest_printer_job_status,
+  get_layer_tracking_for_prints,
+  printer_state_to_history_status,
   update_filament_spool,
   update_filament_physical_slot,
 )
 from filament_usage_tracker import FilamentUsageTracker
-from jobs_3mf import JOBS_3MF
+from jobs_3mf import JOBS_3MF, make_job_key
 MQTT_CLIENT = {}  # Global variable storing MQTT Client
 MQTT_CLIENT_CONNECTED = False
 MQTT_KEEPALIVE = 60
@@ -240,8 +242,9 @@ def _metadata_is_usable(metadata):
 def _job_key(print_data):
   task_id = print_data.get("task_id")
   subtask_id = print_data.get("subtask_id")
-  if task_id is not None or subtask_id is not None:
-    return f"{task_id or ''}:{subtask_id or ''}"
+  key = make_job_key(task_id, subtask_id)
+  if key is not None:
+    return key
   return str(print_data.get("subtask_name") or print_data.get("gcode_file") or print_data.get("url") or "unknown")
 
 
@@ -600,7 +603,19 @@ def processMessage(data):
   if "print" in data:
     incoming_print = data.get("print", {})
     update_dict(PRINTER_STATE, data)
+    if incoming_print.get("command") == "project_file" and incoming_print.get("gcode_state") is None:
+      PRINTER_STATE.setdefault("print", {})["gcode_state"] = "PREPARE"
     current_print = PRINTER_STATE.get("print", {}) or incoming_print
+    current_state = str(current_print.get("gcode_state") or "").upper()
+    history_status = printer_state_to_history_status(current_state, current_print.get("print_error"))
+    previous_state = str((PRINTER_STATE_LAST.get("print") or {}).get("gcode_state") or "").upper()
+    if current_state == "FAILED" and history_status == "ABORTED" and previous_state != "FAILED":
+      log("[History] Bambu meldet FAILED mit print_error=0; wird als manuelles CANCEL (ABORTED) gewertet.")
+    if history_status == "ABORTED":
+      JOBS_3MF.cancel(
+        _job_key(current_print),
+        f"Druckerstatus {current_state} (print_error={current_print.get('print_error')!r})",
+      )
 
     if incoming_print.get("command") == "project_file" and (
         incoming_print.get("url") or current_print.get("gcode_file")
@@ -627,26 +642,45 @@ def processMessage(data):
       current_percent = None
     if active_job:
       update_printer_job_status(active_job["print_id"], percent=current_percent, status_at=status_at)
-      state = str(current_print.get("gcode_state") or "").upper()
+      state = current_state
       if incoming_print.get("command") == "project_file" and incoming_print.get("gcode_state") is None:
         state = "PREPARE"
         PRINTER_STATE.setdefault("print", {})["gcode_state"] = "PREPARE"
-      status = {
-        "PREPARE": "PREPARING",
-        "RUNNING": "RUNNING",
-        "PAUSE": "PAUSED",
-        "FINISH": "COMPLETED",
-        "FAILED": "FAILED",
-        "STOP": "ABORTED",
-      }.get(state)
-      if status:
-        update_layer_tracking(active_job["print_id"], status=status)
+      status = printer_state_to_history_status(state, current_print.get("print_error"))
+      tracking_status = get_layer_tracking_for_prints([active_job["print_id"]]).get(
+        active_job["print_id"], {}
+      ).get("status")
+      if status and tracking_status in {"PREPARING", "RUNNING", "PAUSED"}:
+        status_fields = {"status": status}
+        if status in {"COMPLETED", "FAILED", "ABORTED"}:
+          status_fields["actual_end_time"] = status_at
+        update_layer_tracking(active_job["print_id"], **status_fields)
     else:
       update_latest_printer_job_status(
         (current_print.get("subtask_name"), current_print.get("gcode_file"), current_print.get("url")),
         percent=current_percent,
         status_at=status_at,
       )
+      state = str(current_print.get("gcode_state") or "").upper()
+      terminal_status = printer_state_to_history_status(state, current_print.get("print_error"))
+      if terminal_status:
+        candidate = find_open_print_for_printer_job(
+          current_print.get("subtask_name"),
+          current_print.get("gcode_file"),
+          current_print.get("url"),
+        )
+        if candidate and candidate.get("status") == "RUNNING":
+          update_layer_tracking(
+            candidate["id"],
+            status=terminal_status,
+            actual_end_time=status_at,
+            last_status_at=status_at,
+            printer_percent=current_percent,
+          )
+          log(
+            f"[History] Offener Druck {candidate['id']} anhand Druckerstatus "
+            f"{state} auf {terminal_status} gesetzt."
+          )
     _reconcile_completed_printer_job(current_print)
   
     #if ("gcode_state" in data["print"] and data["print"]["gcode_state"] == "RUNNING") and ("print_type" in data["print"] and data["print"]["print_type"] != "local") \

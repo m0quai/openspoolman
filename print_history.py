@@ -21,6 +21,30 @@ def _default_db_path() -> Path:
 db_config = {"db_path": str(_default_db_path())}  # Configuration for database location
 
 
+def printer_state_to_history_status(state: str | None, print_error=None) -> str | None:
+    state = str(state or "").upper()
+    if state == "FAILED":
+        try:
+            if print_error is not None and int(print_error) == 0:
+                return "ABORTED"
+        except (TypeError, ValueError):
+            pass
+        return "FAILED"
+    return {
+        "PREPARE": "PREPARING",
+        "RUNNING": "RUNNING",
+        "PAUSE": "PAUSED",
+        "FINISH": "COMPLETED",
+        "STOP": "ABORTED",
+        "CANCEL": "ABORTED",
+        "CANCELED": "ABORTED",
+        "CANCELLED": "ABORTED",
+        "ABORT": "ABORTED",
+        "ABORTED": "ABORTED",
+        "IDLE": "ABORTED",
+    }.get(state)
+
+
 def _ensure_column(cursor: sqlite3.Cursor, table: str, column: str, definition: str) -> None:
     cursor.execute(f"PRAGMA table_info({table})")
     columns = {row[1] for row in cursor.fetchall()}
@@ -511,6 +535,67 @@ def update_filament_spool(print_id: int, filament_id: int, spool_id: int) -> Non
     conn.commit()
     conn.close()
 
+def bind_filament_usage_spool(print_id: int, filament_id: int, spool_id: int, physical_ams_slot: int | None) -> None:
+    # Bind an untouched provisional history row without rewriting usage already
+    # recorded for an earlier physical spool.
+    conn = sqlite3.connect(db_config["db_path"])
+    conn.execute(
+        """UPDATE filament_usage
+           SET spool_id = ?, physical_ams_slot = COALESCE(?, physical_ams_slot)
+           WHERE print_id = ? AND ams_slot = ?
+             AND COALESCE(grams_used, 0) = 0
+             AND COALESCE(length_used, 0) = 0""",
+        (int(spool_id), physical_ams_slot, int(print_id), int(filament_id)),
+    )
+    conn.commit()
+    conn.close()
+
+def record_filament_usage_segment(
+    print_id: int,
+    filament_id: int,
+    spool_id: int,
+    physical_ams_slot: int | None,
+    filament_type: str,
+    color: str,
+    grams_used: float,
+    length_used: float,
+) -> None:
+    # Keep one history row for each logical filament / spool / physical tray
+    # segment so AMS auto-switches remain visible in the print and spool history.
+    conn = sqlite3.connect(db_config["db_path"])
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT id FROM filament_usage
+           WHERE print_id = ? AND ams_slot = ? AND spool_id = ?
+             AND physical_ams_slot IS ?
+           ORDER BY id LIMIT 1""",
+        (int(print_id), int(filament_id), int(spool_id), physical_ams_slot),
+    )
+    row = cursor.fetchone()
+    if row:
+        cursor.execute(
+            """UPDATE filament_usage
+               SET grams_used = COALESCE(grams_used, 0) + ?,
+                   length_used = COALESCE(length_used, 0) + ?,
+                   calculated_length = COALESCE(calculated_length, 0) + ?,
+                   spoolman_length_used = COALESCE(spoolman_length_used, 0) + ?
+               WHERE id = ?""",
+            (float(grams_used), float(length_used), float(length_used), float(length_used), row[0]),
+        )
+    else:
+        cursor.execute(
+            """INSERT INTO filament_usage
+               (print_id, spool_id, filament_type, color, grams_used, ams_slot,
+                estimated_grams, length_used, estimated_length, physical_ams_slot,
+                calculated_length, spoolman_length_used)
+               VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?)""",
+            (int(print_id), int(spool_id), filament_type, color, float(grams_used),
+             int(filament_id), float(length_used), physical_ams_slot,
+             float(length_used), float(length_used)),
+        )
+    conn.commit()
+    conn.close()
+
 def update_filament_physical_slot(print_id: int, filament_id: int, physical_ams_slot: int) -> None:
     # Persist the physical AMS tray for a logical filament channel.
     conn = sqlite3.connect(db_config["db_path"])
@@ -542,25 +627,10 @@ def claim_filament_usage_event(print_id: int | None, layer: int, filament_index:
 
 
 def finalize_filament_usage_events(print_id: int) -> None:
-    # Persist confirmed transfer totals and remove only finalized layer events.
+    # Usage segments are persisted when each Spoolman transfer succeeds. Remove
+    # only confirmed events after finalization; pending events remain recoverable.
     conn = sqlite3.connect(db_config["db_path"])
     conn.execute("PRAGMA foreign_keys = ON")
-    rows = conn.execute(
-        """SELECT filament_index, SUM(length_used) AS transferred_length
-           FROM filament_usage_events
-           WHERE print_id = ? AND status = 'confirmed'
-           GROUP BY filament_index""",
-        (int(print_id),),
-    ).fetchall()
-    for filament_index, transferred_length in rows:
-        filament_id = int(filament_index) + 1
-        conn.execute(
-            """UPDATE filament_usage
-               SET calculated_length = COALESCE(calculated_length, length_used, ?),
-                   spoolman_length_used = ?
-               WHERE print_id = ? AND ams_slot = ?""",
-            (float(transferred_length or 0.0), float(transferred_length or 0.0), int(print_id), filament_id),
-        )
     conn.execute(
         "DELETE FROM filament_usage_events WHERE print_id = ? AND status = 'confirmed'",
         (int(print_id),),
@@ -825,8 +895,11 @@ def get_all_filament_usage_for_print(print_id: int):
   cursor = conn.cursor()
 
   cursor.execute('''
-      SELECT ams_slot, grams_used, length_used FROM filament_usage
+      SELECT ams_slot, SUM(COALESCE(grams_used, 0)) AS grams_used,
+             SUM(COALESCE(length_used, 0)) AS length_used
+      FROM filament_usage
       WHERE print_id = ?
+      GROUP BY ams_slot
   ''', (print_id,))
 
   results = {

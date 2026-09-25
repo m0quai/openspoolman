@@ -254,12 +254,14 @@ def _render_template_with_printer_progress(template_name, *args, **kwargs):
             # A history deep link should open the selected print, not merely
             # scroll to its table row.  Keep this override in the custom entry
             # point so the upstream app.py remains untouched.
-            kwargs["active_print_id"] = requested_print_id
+            kwargs["expanded_print_id"] = requested_print_id
         print_state = getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}
         raw_percent = print_state.get("mc_percent")
         active_print_id = print_history_service.get_latest_active_print_id()
-        if requested_print_id is None and active_print_id is not None:
+        if active_print_id is not None:
             kwargs["active_print_id"] = active_print_id
+        if requested_print_id is None and active_print_id is not None:
+            kwargs["expanded_print_id"] = active_print_id
         try:
             percent = max(0, min(100, int(float(raw_percent)))) if raw_percent is not None else None
         except (TypeError, ValueError):
@@ -759,8 +761,25 @@ def inject_openspoolman_version():
 
 @app.before_request
 def reconcile_stale_print_history_statuses():
-    state = str((getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {}).get("gcode_state") or "").upper()
-    if state not in {"IDLE", "FINISH", "FAILED", "STOP"}:
+    print_state = (getattr(mqtt_bambulab, "PRINTER_STATE", {}).get("print", {}) or {})
+    state = str(print_state.get("gcode_state") or "").upper()
+    terminal_status = print_history_service.printer_state_to_history_status(
+        state, print_state.get("print_error")
+    )
+    if terminal_status:
+        candidate = print_history_service.find_open_print_for_printer_job(
+            print_state.get("subtask_name"),
+            print_state.get("gcode_file"),
+            print_state.get("url"),
+        )
+        if candidate and candidate.get("status") == "RUNNING":
+            status_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print_history_service.update_layer_tracking(
+                candidate["id"], status=terminal_status, actual_end_time=status_at,
+                last_status_at=status_at,
+            )
+            log(f"[History] Offener Druck {candidate['id']} via Web-Reconcile auf {terminal_status} gesetzt ({state}).")
+    if state not in {"IDLE", "FINISH", "FAILED", "STOP", "CANCEL", "CANCELED", "CANCELLED", "ABORT", "ABORTED"}:
         return None
     print_history_service.cancel_stale_running_prints(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 

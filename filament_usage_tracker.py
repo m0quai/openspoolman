@@ -15,7 +15,7 @@ from config import EXTERNAL_SPOOL_AMS_ID, EXTERNAL_SPOOL_ID, TRACK_LAYER_USAGE
 from spool_repository import record_consumption
 from spoolman_service import fetchSpools, getAMSFromTray, trayUid
 from tools_3mf import download3mfFromCloud, download3mfFromFTP, download3mfFromLocalFilesystem, getMetaDataFrom3mf
-from print_history import update_filament_spool, update_filament_grams_used, update_filament_physical_slot, claim_filament_usage_event, set_filament_usage_event_status, finalize_filament_usage_events, get_all_filament_usage_for_print, update_layer_tracking, update_print_image, get_print_image, get_latest_running_print_id, find_latest_print_id
+from print_history import bind_filament_usage_spool, record_filament_usage_segment, claim_filament_usage_event, set_filament_usage_event_status, finalize_filament_usage_events, get_all_filament_usage_for_print, update_layer_tracking, update_print_image, get_print_image, get_latest_running_print_id, find_latest_print_id, printer_state_to_history_status
 
 GCODE_STATE_LABELS = {
     "IDLE": "Drucker bereit",
@@ -40,6 +40,7 @@ ABORT_INDICATOR_STATES = {
     "ABORT",
     "ABORTED",
     "CANCEL",
+    "CANCELED",
     "CANCELLED",
     "ERROR",
     "IDLE",
@@ -422,7 +423,11 @@ class FilamentUsageTracker:
     command = print_obj.get("command")
     if print_obj.get('gcode_state') is not None:
       state = print_obj.get('gcode_state')
-      state_label = GCODE_STATE_LABELS.get(state, state)
+      state_label = (
+        "Druck abgebrochen"
+        if state == "FAILED" and str(print_obj.get("print_error")) == "0"
+        else GCODE_STATE_LABELS.get(state, state)
+      )
       if state != self._last_logged_gcode_state:
         log("Drucker bereit" if state == "IDLE" else f"Filament Tracker: {state_label}")
         self._last_logged_gcode_state = state
@@ -457,11 +462,9 @@ class FilamentUsageTracker:
         and self._is_abort_state(self.gcode_state)
         and self.active_model is not None
     ):
-        status = (
-            LAYER_TRACKING_STATUS_FAILED
-            if self.gcode_state == "FAILED"
-            else LAYER_TRACKING_STATUS_ABORTED
-        )
+        status = printer_state_to_history_status(
+            self.gcode_state, print_obj.get("print_error")
+        ) or LAYER_TRACKING_STATUS_ABORTED
         self._handle_print_abort(status=status)
 
     if self.gcode_state == "RUNNING" and previous_state != "RUNNING" and self.active_model is None:
@@ -799,12 +802,21 @@ class FilamentUsageTracker:
       return False
 
     if self.print_id:
+      try:
+        record_filament_usage_segment(
+          self.print_id,
+          filament_key,
+          spool_id,
+          mapping_value if mapping_value != EXTERNAL_SPOOL_ID else None,
+          filament_data.get("material") or filament_data.get("name") or "",
+          filament_data.get("color_hex") or "",
+          usage_grams,
+          usage_rounded,
+        )
+      except Exception as exc:
+        log(f"[filament-tracker] History segment could not be saved: print_id={self.print_id}, filament={filament}, spool_id={spool_id}, error={exc!r}")
+        return False
       set_filament_usage_event_status(self.print_id, event_layer, filament, "confirmed")
-
-    if self.print_id:
-      update_filament_spool(self.print_id, filament_key, spool_id)
-      update_filament_physical_slot(self.print_id, filament_key, mapping_value)
-      update_filament_grams_used(self.print_id, filament_key, grams_rounded, length_used=cumulative_length)
 
     self._filament_spool_id_map[filament] = spool_id
     self._spool_data_cache[spool_id] = spool_data
@@ -925,10 +937,13 @@ class FilamentUsageTracker:
       if spool_id is None:
         continue
 
-      update_filament_spool(self.print_id, filament_index + 1, spool_id)
       mapping_value = self._resolve_tray_mapping(filament_index)
-      if mapping_value is not None and mapping_value != EXTERNAL_SPOOL_ID:
-        update_filament_physical_slot(self.print_id, filament_index + 1, mapping_value)
+      bind_filament_usage_spool(
+        self.print_id,
+        filament_index + 1,
+        spool_id,
+        mapping_value if mapping_value is not None and mapping_value != EXTERNAL_SPOOL_ID else None,
+      )
       self._filament_spool_id_map[filament_index] = spool_id
 
       if spool_id not in self._spool_data_cache:
@@ -1098,11 +1113,15 @@ class FilamentUsageTracker:
   def _attempt_print_resume(self, task_id, subtask_id, model_url=None, print_obj=None) -> None:
     print_obj = print_obj or {}
     try:
-      from jobs_3mf import JOBS_3MF
-      job_key = f"{task_id or ''}:{subtask_id or ''}"
-      job_state = JOBS_3MF.get(job_key).get("state")
-      if job_state in {"queued", "resolving", "downloading", "processing"}:
-        log(f"[filament-tracker] Resume wartet auf zentralen 3MF-Worker: {job_key}")
+      from jobs_3mf import JOBS_3MF, make_job_key
+      job_key = make_job_key(task_id, subtask_id)
+      worker_status = JOBS_3MF.get(job_key) if job_key is not None else JOBS_3MF.get_active()
+      job_state = worker_status.get("state")
+      if job_state in {"queued", "resolving", "downloading", "processing", "ready"}:
+        log(
+          f"[filament-tracker] Resume wartet auf zentralen 3MF-Worker: "
+          f"{worker_status.get('job_key') or job_key} ({job_state})"
+        )
         return
     except Exception as worker_error:
       log(f"[filament-tracker] 3MF-Workerstatus nicht verfügbar: {worker_error}")

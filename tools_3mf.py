@@ -16,6 +16,18 @@ from logger import log
 
 
 _BBL_PATH_CACHE = {}
+FTP_LOW_SPEED_LIMIT = 1024
+FTP_LOW_SPEED_TIME = 120
+FTP_RECEIVE_BUFFER_SIZE = 512 * 1024
+
+
+class DownloadCancelledError(RuntimeError):
+    pass
+
+
+def _ensure_download_not_cancelled(cancel_event):
+    if cancel_event is not None and cancel_event.is_set():
+        raise DownloadCancelledError("Druck wurde abgebrochen")
 
 
 def parse_ftp_listing(line):
@@ -64,7 +76,10 @@ def setupPycurlConnection(ftp_user, ftp_pass):
     c.setopt(c.FTP_SSL, c.FTPSSL_ALL)
     c.setopt(c.FTPSSLAUTH, c.FTPAUTH_TLS)
     c.setopt(c.CONNECTTIMEOUT, 5)
-    c.setopt(c.TIMEOUT, 180)
+    c.setopt(c.TIMEOUT, 0)
+    c.setopt(c.LOW_SPEED_LIMIT, FTP_LOW_SPEED_LIMIT)
+    c.setopt(c.LOW_SPEED_TIME, FTP_LOW_SPEED_TIME)
+    c.setopt(c.BUFFERSIZE, FTP_RECEIVE_BUFFER_SIZE)
     return c
 
 
@@ -159,7 +174,18 @@ def _find_bbl_for_subtask(subtask_name):
         ).splitlines()
         bbl_names = [name.strip() for name in names if name.strip().lower().endswith(".bbl")]
         log(f"[3MF] Suche BBL fuer Subtask '{subtask_name}' unter {len(bbl_names)} BBL-Dateien.")
-        for name in reversed(bbl_names):
+        normalized_subtask = "".join(char.casefold() for char in str(subtask_name) if char.isalnum())
+        likely_names = [
+            name for name in bbl_names
+            if normalized_subtask and normalized_subtask in "".join(
+                char.casefold() for char in name if char.isalnum()
+            )
+        ]
+        likely_set = set(likely_names)
+        ordered_names = list(reversed(likely_names)) + [
+            name for name in reversed(bbl_names) if name not in likely_set
+        ]
+        for name in ordered_names:
             try:
                 raw = _ftp_read(f"/cache/{name}", connection=connection)
                 job = json.loads(raw.decode("utf-8", errors="replace"))
@@ -247,13 +273,14 @@ def resolve_local_print_3mf(source):
     return None
 
 
-def download3mfFromCloud(url, destFile, progress_callback=None):
+def download3mfFromCloud(url, destFile, progress_callback=None, cancel_event=None):
     log("Downloading 3MF file from cloud...")
-    response = requests.get(url, stream=True, timeout=(5, 180))
+    response = requests.get(url, stream=True, timeout=(5, None))
     response.raise_for_status()
     total = int(response.headers.get("content-length") or 0)
     downloaded = 0
     for chunk in response.iter_content(chunk_size=64 * 1024):
+        _ensure_download_not_cancelled(cancel_event)
         if not chunk:
             continue
         destFile.write(chunk)
@@ -274,7 +301,7 @@ def _append_unique_path(paths, remote_path):
         paths.append(remote_path)
 
 
-def download3mfFromFTP(filename, destFile, progress_callback=None):
+def download3mfFromFTP(filename, destFile, progress_callback=None, cancel_event=None):
     ftp_host = app_config.PRINTER_IP
     ftp_user = "bblp"
     ftp_pass = app_config.PRINTER_CODE
@@ -289,7 +316,14 @@ def download3mfFromFTP(filename, destFile, progress_callback=None):
 
     log(
         f"[3MF][FTP] Download-Auflösung gestartet: quelle={filename!r}, "
-        f"host={ftp_host}, connect_timeout=5s, transfer_timeout=180s"
+        f"host={ftp_host}, connect_timeout=5s, transfer_timeout=ohne Gesamtlimit, "
+        f"stillstand={FTP_LOW_SPEED_LIMIT}B/s für {FTP_LOW_SPEED_TIME}s, "
+        f"receive_buffer={FTP_RECEIVE_BUFFER_SIZE}B"
+    )
+    log(
+        "[3MF][FTP] FTP-Teilbereiche unterstützt: nein/für dieses Gerät nicht funktionsfähig "
+        "(Druckerprobe 2026-09-25: RANGE 0-4095 scheiterte mit libcurl 56); "
+        "verwende Einzeltransfer."
     )
     remote_paths = []
     if filename.startswith("/") and filename.lower().endswith(".3mf"):
@@ -321,6 +355,9 @@ def download3mfFromFTP(filename, destFile, progress_callback=None):
     }
 
     def transfer_progress(_download_total, downloaded, _upload_total, _uploaded):
+        if cancel_event is not None and cancel_event.is_set():
+            log(f"[3MF][FTP] Transfer durch Druckabbruch gestoppt: pfad={progress_state['path']}")
+            return 1
         total = int(_download_total or 0)
         done = int(downloaded or 0)
         now = time.monotonic()
@@ -358,6 +395,7 @@ def download3mfFromFTP(filename, destFile, progress_callback=None):
     log("[3MF][FTP] libcurl-Handle erstellt; TLS/FTPS wird beim ersten Request aufgebaut.")
     try:
         for path_index, remote_path in enumerate(remote_paths, start=1):
+            _ensure_download_not_cancelled(cancel_event)
             encoded_remote_path = urllib.parse.quote(remote_path)
             url = f"ftps://{ftp_host}{encoded_remote_path}"
             log(
@@ -396,6 +434,8 @@ def download3mfFromFTP(filename, destFile, progress_callback=None):
                         )
                         return remote_path
                     except pycurl.error as exc:
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise DownloadCancelledError("Druck wurde abgebrochen") from exc
                         last_error = exc
                         err_code = exc.args[0]
                         log(
@@ -447,11 +487,12 @@ def download3mfFromFTP(filename, destFile, progress_callback=None):
     )
 
 
-def download3mfFromLocalFilesystem(path, destFile, progress_callback=None):
+def download3mfFromLocalFilesystem(path, destFile, progress_callback=None, cancel_event=None):
     total = os.path.getsize(path) if os.path.exists(path) else 0
     downloaded = 0
     with open(path, "rb") as src_file:
         while True:
+            _ensure_download_not_cancelled(cancel_event)
             chunk = src_file.read(64 * 1024)
             if not chunk:
                 break
